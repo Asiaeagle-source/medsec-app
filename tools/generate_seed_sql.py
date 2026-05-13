@@ -133,8 +133,8 @@ def gen_medsec_hospitals():
 # ============================================================
 def gen_medsec_products():
     rows = list(csv.DictReader((DATA / "medsec_products.csv").open(encoding="utf-8")))
-    lines = []
-    for r in rows:
+
+    def build_value_line(r):
         vals = [
             q(r["id"]),                              # PK (text) = INVI02 品號
             q(r["name"]),
@@ -162,17 +162,9 @@ def gen_medsec_products():
             qbool(r["has_nhi_code"]),
             q(r["notes"]),
         ]
-        lines.append(f"  ({', '.join(vals)})")
+        return f"  ({', '.join(vals)})"
 
-    body = ",\n".join(lines)
-    sql = (
-        "-- ============================================================\n"
-        "-- 05_seed_medsec_products.sql · 5239 筆產品（INVI02 → medsec_products）\n"
-        "-- 套用：04 之後\n"
-        "-- 既有 medsec_products.id = text PK = INVI02 品號\n"
-        "-- 衝突保護：id 已存在則略過\n"
-        "-- 注意：此檔約 1 MB；Studio SQL Editor 可吃，若慢可改用 Table Editor import\n"
-        "-- ============================================================\n\n"
+    insert_head = (
         "insert into public.medsec_products (\n"
         "  id, name, specification, manufacturer_code, manufacturer_name,\n"
         "  product_line, product_series,\n"
@@ -183,11 +175,40 @@ def gen_medsec_products():
         "  list_price, cost_price, business_floor_price,\n"
         "  has_nhi_code, notes\n"
         ") values\n"
-        f"{body}\n"
+    )
+
+    # 把 5239 row 拆成多份，每份 1000 row（SQL Editor 安全大小）
+    CHUNK_SIZE = 1000
+    chunks = [rows[i:i + CHUNK_SIZE] for i in range(0, len(rows), CHUNK_SIZE)]
+
+    # 一支整合版（如果使用者要 connect 直連 DB 用，附在 sql/）
+    all_lines = "\n".join(",\n".join(build_value_line(r) for r in c) for c in chunks)
+    full_sql = (
+        "-- 完整版（5239 row，需 psql 直連 DB；SQL Editor 過大）\n"
+        f"{insert_head}"
+        f"{all_lines}\n"
         "on conflict (id) do nothing;\n"
     )
-    (SQL / "05_seed_medsec_products.sql").write_text(sql, encoding="utf-8")
-    print(f"  written: 05_seed_medsec_products.sql ({len(rows)} rows)")
+    (SQL / "05_seed_medsec_products.sql").write_text(full_sql, encoding="utf-8")
+
+    # 拆檔版（給 Studio SQL Editor 用，6 份）
+    for idx, chunk in enumerate(chunks, start=1):
+        body = ",\n".join(build_value_line(r) for r in chunk)
+        sql_part = (
+            "-- ============================================================\n"
+            f"-- 05_seed_medsec_products_part{idx}.sql · 產品 part {idx}/{len(chunks)}\n"
+            f"-- 本檔 {len(chunk)} 筆\n"
+            "-- 套用：04 之後，依 part 順序貼上 SQL Editor 跑\n"
+            "-- ============================================================\n\n"
+            f"{insert_head}"
+            f"{body}\n"
+            "on conflict (id) do nothing;\n"
+        )
+        (SQL / f"05_seed_medsec_products_part{idx}.sql").write_text(sql_part, encoding="utf-8")
+
+    print(f"  written: 05_seed_medsec_products.sql ({len(rows)} rows, full version)")
+    print(f"  written: 05_seed_medsec_products_part{{1..{len(chunks)}}}.sql "
+          f"({len(chunks)} chunks, ~{CHUNK_SIZE} rows each)")
 
 
 # ============================================================

@@ -1,11 +1,4 @@
--- ============================================================
--- 05_seed_medsec_products.sql · 5239 筆產品（INVI02 → medsec_products）
--- 套用：04 之後
--- 既有 medsec_products.id = text PK = INVI02 品號
--- 衝突保護：id 已存在則略過
--- 注意：此檔約 1 MB；Studio SQL Editor 可吃，若慢可改用 Table Editor import
--- ============================================================
-
+-- 完整版（5239 row，需 psql 直連 DB；SQL Editor 過大）
 insert into public.medsec_products (
   id, name, specification, manufacturer_code, manufacturer_name,
   product_line, product_series,
@@ -1015,7 +1008,7 @@ insert into public.medsec_products (
   ('351352', 'MORSE TUBING HOLDER  5/16-3/8"', 'MORSE TUBING HOLDER  5/16-3/8"', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('351353', 'MORSE TOWEL CLIP TUBING HOLDER For 7/16" and 1/2" tubing', 'MORSE TOWEL CLIP TUBING HOLDER For 7/16" and 1/2" tubing', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('351370', 'NICHOLS TUBING HOLDER', 'NICHOLS TUBING HOLDER', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
-  ('351373', 'VORSE TUBING CLAMP 6"', 'VORSE TUBING CLAMP 6"', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
+  ('351373', 'VORSE TUBING CLAMP 6"', 'VORSE TUBING CLAMP 6"', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL)
   ('351374', 'VORSE TUBINF CLAMP 7 1/2"', 'VORSE TUBINF CLAMP 7 1/2"', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('351375', 'Vorse Tubing Clamp8', 'Vorse Tubing Clamp8', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 1777.6, NULL, false, NULL),
   ('351377', 'TUBING CLAMP WITH GUARD 7.5"', 'TUBING CLAMP WITH GUARD 7.5"', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
@@ -2015,7 +2008,7 @@ insert into public.medsec_products (
   ('522012', 'HOLINGER ANTERIOR COMMISSURE LARYNGOSCOPE.', 'Adult Extra-Long', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('522030', 'HOLINGER HOUR GLASS LARYNGOSCO', 'HOLINGER HOUR GLASS LARYNGOSCO', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('522032', 'HOLINGER HOUR GLASS LARYNGOSCOPE 18CM', 'HOLINGER HOUR GLASS LARYNGOSCOPE 18CM', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
-  ('522040', 'HOLINGER ANG COM LARYNGOSCOPE SLOTTED ADU', 'HOLINGER ANTERIOR COMMISSURE LARYNGOSCOPES ,Adult“Slotted”', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
+  ('522040', 'HOLINGER ANG COM LARYNGOSCOPE SLOTTED ADU', 'HOLINGER ANTERIOR COMMISSURE LARYNGOSCOPES ,Adult“Slotted”', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL)
   ('522045', 'HOLINGER HOUR GLASS LARYNGOSCOPE SLTD', 'HOLINGER ANTERIOR COMMISSURE LARYNGOSCOPES ,Adult“Slotted”', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('522190', 'LARYNGOSCOE OSSOFF-PILLING 19.0MM X 17C', 'LARYNGOSCOE OSSOFF-PILLING 19.0MM X 17C', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('522191', 'LARYNGOSCOPE OSSOFF-PILLING 25.5MM X 17C', 'LARYNGOSCOPE OSSOFF-PILLING 25.5MM X 17C', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
@@ -3015,7 +3008,7 @@ insert into public.medsec_products (
   ('8350422', 'TAP 8350422  OSTEOGRIP 4.5 MM', 'TAP 8350422  OSTEOGRIP 4.5 MM', '2002', NULL, '3036', '無溫控產品', '5006', '7009', 'CST SPS', false, NULL, NULL, NULL, NULL, 'EA', 0, '8350422', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('8350424', 'TAP 8350424 OSTEOGRIP 5.5 MM', 'TAP 8350424 OSTEOGRIP 5.5 MM', '2002', NULL, '3036', '無溫控產品', '5006', '7009', 'CST SPS', false, NULL, NULL, NULL, NULL, 'EA', 0, '8350424', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('8350426', 'TAP 8350426 OSTEOGRIP 6.5 MM', 'TAP 8350426 OSTEOGRIP 6.5 MM', '2002', NULL, '3036', '無溫控產品', '5006', '7009', 'CST SPS', false, NULL, NULL, NULL, NULL, 'EA', 0, '8350426', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
-  ('836-015', 'INSTRUMENT 836-015 SOLID TAP 5.5MM', 'INSTRUMENT 836-015 SOLID TAP 5.5MM', '2002', NULL, '3036', '無溫控產品', '5006', '7009', 'CST SPS', false, NULL, NULL, NULL, NULL, 'EA', 0, '836-015', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
+  ('836-015', 'INSTRUMENT 836-015 SOLID TAP 5.5MM', 'INSTRUMENT 836-015 SOLID TAP 5.5MM', '2002', NULL, '3036', '無溫控產品', '5006', '7009', 'CST SPS', false, NULL, NULL, NULL, NULL, 'EA', 0, '836-015', 'active', NULL, 0.0, 0.0, NULL, false, NULL)
   ('836-016', 'INSTRUMENT 836-016 SOLID TAP 6.5MM', 'INSTRUMENT 836-016 SOLID TAP 6.5MM', '2002', NULL, '3036', '無溫控產品', '5006', '7009', 'CST SPS', false, NULL, NULL, NULL, NULL, 'EA', 0, '836-016', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('841010', 'K-P RING FCP LON JAW S', 'K-P RING FCP LON JAW S', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 17749.0, NULL, false, NULL),
   ('841011', 'K-P RING FCP LONG CURVE', 'K-P RING FCP LONG CURVE', '2002', 'TELEFLEX', '3036', '無溫控產品', '5007', '7009', 'Pilling', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
@@ -4015,7 +4008,7 @@ insert into public.medsec_products (
   ('MR8-14BA40D', 'TOOL MR8 14CM BALL DIAMOND 4MM DIAM', 'TOOL MR8 14CM BALL DIAMOND 4MM DIAM', '2002', '美敦力', '3007', '無溫控產品', '5001', '7007', 'CST ET', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'MR8-14BA40D', 'active', NULL, 0.0, -45.45, NULL, false, NULL),
   ('MR8-14BA40DC', 'TOOL MR8 14CM BALL DMD COARSE 4MM DIAM', 'TOOL MR8 14CM BALL DMD COARSE 4MM DIAM', '2002', '美敦力', '3007', '無溫控產品', '5001', '7007', 'CST ET', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'MR8-14BA40DC', 'active', NULL, 0.0, 385.71, NULL, false, NULL),
   ('MR8-14BA40DX', 'TOOL MR8 14CM BALL DMD X-CRSE 4MM DIAM', 'TOOL MR8 14CM BALL DMD X-CRSE 4MM DIAM', '2002', '美敦力', '3007', '無溫控產品', '5001', '7007', 'CST ET', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'MR8-14BA40DX', 'active', NULL, 0.0, 450.0, NULL, false, NULL),
-  ('MR8-14BA40F', 'TOOL MR8 14CM BALL FINE 4MM DIAMETER', 'TOOL MR8 14CM BALL FINE 4MM DIAMETER', '2002', '美敦力', '3007', '無溫控產品', '5001', '7007', 'CST ET', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'MR8-14BA40F', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
+  ('MR8-14BA40F', 'TOOL MR8 14CM BALL FINE 4MM DIAMETER', 'TOOL MR8 14CM BALL FINE 4MM DIAMETER', '2002', '美敦力', '3007', '無溫控產品', '5001', '7007', 'CST ET', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'MR8-14BA40F', 'active', NULL, 0.0, 0.0, NULL, false, NULL)
   ('MR8-14BA40T', 'TOOL MR8 14CM BALL SYM-TRI 4MM DIAMETER', 'TOOL MR8 14CM BALL SYM-TRI 4MM DIAMETER', '2002', '美敦力', '3007', '無溫控產品', '5001', '7007', 'CST ET', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'MR8-14BA40T', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('MR8-14BA50', 'TOOL MR8 14CM BALL 5MM DIAMETER', 'TOOL MR8 14CM BALL 5MM DIAMETER', '2002', '美敦力', '3007', '無溫控產品', '5001', '7007', 'CST ET', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'MR8-14BA50', 'active', NULL, 0.0, 1028.57, NULL, false, NULL),
   ('MR8-14BA50C', 'TOOL MR8 14CM BALL CARBIDE 5MM DIAMETER', 'TOOL MR8 14CM BALL CARBIDE 5MM DIAMETER', '2002', '美敦力', '3007', '無溫控產品', '5001', '7007', 'CST ET', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'MR8-14BA50C', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
@@ -5015,7 +5008,7 @@ insert into public.medsec_products (
   ('RU 8186-04', 'Kuhn-Bolger Antrum Curette , 55°Cvd., l 6mm x W 3mm , 19,0 c', 'Kuhn-Bolger Antrum Curette , 55°Cvd., l 6mm x W 3mm , 19,0 c', '2002', '岳豪', '3036', '無溫控產品', '5008', '7009', 'Rudolf', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'RU 8186-04', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('RU 8204-16', 'Raspatory, Halle, Blunt 18,5 cm - 7 1/4", 4 mm', 'Raspatory, Halle, Blunt 18,5 cm - 7 1/4", 4 mm', '2002', '岳豪', '3036', '無溫控產品', '5008', '7009', 'Rudolf', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'RU 8204-16', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('RU 8213-19', 'Freer Septum Elevator, Sharp 19 cm - 7 1/2", 5 mm', 'Freer Septum Elevator, Sharp 19 cm - 7 1/2", 5 mm', '2002', '岳豪', '3036', '無溫控產品', '5008', '7009', 'Rudolf', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'RU 8213-19', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
-  ('RU 8216-18', 'Raspatories, Freer-Yasargil, 18.5cm(7 1/4 ")', 'Raspatories, Freer-Yasargil, 18.5cm(7 1/4 ")', '2002', '岳豪', '3036', '無溫控產品', '5008', '7009', 'Rudolf', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
+  ('RU 8216-18', 'Raspatories, Freer-Yasargil, 18.5cm(7 1/4 ")', 'Raspatories, Freer-Yasargil, 18.5cm(7 1/4 ")', '2002', '岳豪', '3036', '無溫控產品', '5008', '7009', 'Rudolf', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL)
   ('RU 8217-18', 'Raspatories, Freer, 18.5cm(7 1/4 ")', 'Raspatories, Freer, 18.5cm(7 1/4 ")', '2002', '岳豪', '3036', '無溫控產品', '5008', '7009', 'Rudolf', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, NULL, 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('RU 8236-18', 'Septum Elevator, 18cm', 'Septum Elevator, 18cm', '2002', '岳豪', '3036', '無溫控產品', '5008', '7009', 'Rudolf', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'RU 8236-18', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
   ('RU 8253-04', 'Osteotome with Depth Marking, Cottle 18cm , 7"', 'Osteotome with Depth Marking, Cottle 18cm , 7"', '2002', '岳豪', '3036', '無溫控產品', '5008', '7009', 'Rudolf', false, '主銷售倉(常溫倉)', NULL, NULL, NULL, 'EA', 0, 'RU 8253-04', 'active', NULL, 0.0, 0.0, NULL, false, NULL),
