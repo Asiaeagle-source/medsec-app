@@ -190,23 +190,25 @@ def build_medsec_hospitals(
         sec_list = [SECRETARY_NICK_TO_EMP.get(n) for n in split_names(latest_secs)]
         sec_list = [s for s in sec_list if s]
 
-        # 對應 medsec_hospitals 24 欄
+        # 對應既有 medsec_hospitals 24 欄
+        # ⚠️ id 是 text PK，直接是 COPI01 客戶代號
+        # ⚠️ parent_code 是「體系內父代碼」（給分院串總院用），不是 COPI01 code
         out.append({
-            # id 自動產生
+            "id":                 code,                                              # COPI01 客戶代號 = PK
             "name_full":          d.get("客戶全名", "").strip(),
             "name_short":         d.get("客戶簡稱", "").strip() or (csv_row.get("short_name") or "").strip(),
             "tax_id":             d.get("統一編號", "").strip(),
-            "parent_code":        code,                                              # COPI01 客戶代號 = parent_code
-            "system_prefix":      system_code(system_name),                          # 對應 hospital_systems.code
+            "parent_code":        "",                                                 # 暫留空（分院關係，未來再補）
+            "system_prefix":      system_code(system_name),                          # 體系代碼
             "is_standalone":      "true",
             "is_distributor":     "false",
-            "customer_type":      d.get("型態別名稱", "").strip(),                   # 醫學中心/區域/地區/...
+            "customer_type":      d.get("型態別名稱", "").strip(),
             "region_code":        _region_code((csv_row.get("area") or "").strip()),
             "region_name":        (csv_row.get("area") or "").strip(),
-            "invoice_company":    "",                                                 # ⚠️ 不確定意義，留空
+            "invoice_company":    "",
             "is_priority":        "false",
-            "sales_person":       (csv_row.get("responsible") or "").strip(),        # 全名字串（顯示用）
-            "sales_person_code":  d.get("業務人員", "").strip(),                     # 鼎新登記業務的編號
+            "sales_person":       (csv_row.get("responsible") or "").strip(),
+            "sales_person_code":  d.get("業務人員", "").strip(),
             "business_department":d.get("部門名稱", "").strip(),
             "primary_secretary":  _emp_name(sec_list[0]) if len(sec_list) >= 1 else "",
             "co_secretary":       _emp_name(sec_list[1]) if len(sec_list) >= 2 else "",
@@ -214,7 +216,7 @@ def build_medsec_hospitals(
             "payment_cycle_day":  _int(d.get("結帳日期  每月", "")),
             "shipping_address":   _join(d.get("郵遞區號", ""), d.get("送貨地址", "")),
             "notes":              d.get("備註", "").strip(),
-            # 隱藏欄位（不寫 CSV，下面腳本 join 用）
+            # 隱藏欄位
             "_csv_responsible":   (csv_row.get("responsible") or "").strip(),
             "_latest_secs":       latest_secs,
         })
@@ -231,8 +233,10 @@ def build_medsec_products(invi02: list[dict]) -> list[dict]:
         moh = MOH_PATTERN.search(desc)
         if moh:
             moh_count += 1
+        # 對應既有 medsec_products 27 欄
+        # ⚠️ id 是 text PK，直接是 INVI02 品號
         out.append({
-            # 對應 medsec_products 27 欄
+            "id":                   d.get("品號", "").strip(),              # INVI02 品號 = PK
             "name":                 d.get("品名", "").strip(),
             "specification":        d.get("規格", "").strip(),
             "manufacturer_code":    d.get("原廠", "").strip(),
@@ -242,14 +246,14 @@ def build_medsec_products(invi02: list[dict]) -> list[dict]:
             "dms_category":         d.get("DMS-美敦力類別", "").strip(),
             "dms_subcategory":      d.get("DMS-美敦力細項", "").strip(),
             "classification_level": d.get("商品分類五名稱", "").strip(),
-            "is_sterile":           "false",                                # ⚠️ INVI02 沒明確欄位
-            "storage_temp_range":   d.get("庫別名稱", "").strip(),          # 例「主銷售倉(常溫倉)」
-            "storage_humidity":     "",                                     # ⚠️
-            "packaging_standard":   "",                                     # ⚠️
-            "service_procedure":    "",                                     # ⚠️
-            "uom":                  d.get("單位", "").strip(),
-            "qty_per_uom":          _int(d.get("包裝數量", "")),
-            "catalog_number":       d.get("品號", "").strip(),              # INVI02 品號（unique）
+            "is_sterile":           "false",
+            "storage_temp_range":   d.get("庫別名稱", "").strip(),
+            "storage_humidity":     "",
+            "packaging_standard":   "",
+            "service_procedure":    "",
+            "uom":                  d.get("單位", "").strip() or "EA",
+            "qty_per_uom":          _int(d.get("包裝數量", "")) or "1",
+            "catalog_number":       d.get("貨號", "").strip(),              # INVI02 貨號（製造商型號）
             "status":               "active",
             "replaced_by_product":  "",
             "list_price":           _num(d.get("標準售價", "")),
@@ -263,7 +267,7 @@ def build_medsec_products(invi02: list[dict]) -> list[dict]:
 
 
 def build_secretary_assignments(hospitals: list[dict]) -> list[dict]:
-    """產 medsec_secretary_assignments：每家 1 row（primary + co_secretary 二欄）"""
+    """產 medsec_secretary_assignments：每家 1 row（hospital_id = medsec_hospitals.id = COPI01 代號）"""
     out = []
     for h in hospitals:
         secs = split_names(h.get("_latest_secs", ""))
@@ -272,7 +276,7 @@ def build_secretary_assignments(hospitals: list[dict]) -> list[dict]:
         if not emp_ids:
             continue
         out.append({
-            "parent_code":           h["parent_code"],
+            "hospital_id":           h["id"],                          # COPI01 代號 = medsec_hospitals.id
             "primary_secretary_emp": emp_ids[0],
             "co_secretary_emp":      emp_ids[1] if len(emp_ids) >= 2 else "",
         })
@@ -281,14 +285,12 @@ def build_secretary_assignments(hospitals: list[dict]) -> list[dict]:
 
 def build_salesperson_assignments(hospitals: list[dict]) -> list[dict]:
     """產 medsec_salesperson_assignments：normalized，每醫院 ↔ 每業務 1 row"""
-    fullname_to_emp = {}
-    # 從員工總表已建好（在 main() 內注入）
     out = []
     for h in hospitals:
         full_names = split_names(h.get("_csv_responsible", ""))
         for i, name in enumerate(full_names):
             out.append({
-                "parent_code":   h["parent_code"],
+                "hospital_id":   h["id"],                              # COPI01 代號 = medsec_hospitals.id
                 "emp_full_name": name,
                 "display_order": i,
                 "is_primary":    "true" if i == 0 else "false",

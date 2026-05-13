@@ -35,16 +35,15 @@ comment on table public.hospital_systems
 -- ============================================================
 -- 2. product_base_prices · 產品業務底價（新建）
 --    Lynn 拍板：鎖最高權限，只 manager 可讀寫
---    跟既有 medsec_products.business_floor_price 並存
---    （後續決定是否取代 — 目前先並存，由 manager 維護 product_base_prices 為主）
+--    既有 medsec_products.id 是 text（INVI02 品號），這裡 FK 用 text
 -- ============================================================
 create table if not exists public.product_base_prices (
-  product_id          uuid primary key references public.medsec_products(id) on delete cascade,
+  product_id          text primary key references public.medsec_products(id) on delete cascade,
   base_price          numeric(12,2) not null,
   base_price_with_tax numeric(12,2),
   effective_from      date,
   effective_to        date,
-  source              text,                    -- 'lynn_upload_20260513' / 'manual' / ...
+  source              text,
   note                text,
   updated_by          uuid references public.profiles(id),
   updated_at          timestamptz not null default now()
@@ -64,10 +63,10 @@ comment on table public.product_base_prices
 -- ============================================================
 create table if not exists public.medsec_salesperson_assignments (
   id              uuid primary key default gen_random_uuid(),
-  hospital_id     uuid not null references public.medsec_hospitals(id) on delete cascade,
+  hospital_id     text not null references public.medsec_hospitals(id) on delete cascade,
   salesperson_id  uuid not null references public.profiles(id)         on delete cascade,
   is_primary      boolean not null default true,
-  display_order   integer not null default 0,         -- 顯示順序（0 = 主、1+ = 共管）
+  display_order   integer not null default 0,         -- 0 = 主、1+ = 共管
   effective_date  date not null default current_date,
   source          text,                               -- 'csv' / 'copi01' / 'manual'
   notes           text,

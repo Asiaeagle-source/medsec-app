@@ -1,9 +1,10 @@
 -- ============================================================
--- 06_seed_medsec_secretary_assignments.sql · 業祕分區（lookup id）
--- 套用：04 之後（要 medsec_hospitals 有資料 + profiles 有業祕員工）
+-- 06_seed_medsec_secretary_assignments.sql · 業祕分區
+-- 套用：04 之後（要 medsec_hospitals 已灌 + profiles 已有員工）
+-- hospital_id 直接是 medsec_hospitals.id（COPI01 代號）— 不需要 join lookup
 -- ============================================================
 
-with src(parent_code, primary_emp, co_emp) as (values
+with src(hospital_id, primary_emp, co_emp) as (values
   ('CACN', '0168', NULL),
   ('CAHN', '0168', NULL),
   ('CAXN', '0168', NULL),
@@ -191,14 +192,13 @@ insert into public.medsec_secretary_assignments (
   hospital_id, primary_secretary_id, co_secretary_id, effective_date
 )
 select
-  h.id,
+  src.hospital_id,
   p1.id,
   p2.id,
   current_date
 from src
-join public.medsec_hospitals h on h.parent_code = src.parent_code
-join public.profiles          p1 on p1.employee_id = src.primary_emp
-left join public.profiles     p2 on p2.employee_id = nullif(src.co_emp, '')
+join public.profiles      p1 on p1.employee_id = src.primary_emp
+left join public.profiles p2 on p2.employee_id = nullif(src.co_emp, '')
 on conflict (hospital_id) do update set
   primary_secretary_id = excluded.primary_secretary_id,
   co_secretary_id      = excluded.co_secretary_id,

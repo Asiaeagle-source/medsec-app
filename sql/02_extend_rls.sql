@@ -22,7 +22,7 @@ returns boolean language sql stable security definer set search_path = public as
   )
 $$;
 
-create or replace function public.can_see_medsec_hospital(h_id uuid)
+create or replace function public.can_see_medsec_hospital(h_id text)
 returns boolean language sql stable security definer set search_path = public as $$
   select
     public.is_global_hospital_viewer()
@@ -91,10 +91,10 @@ create policy msa_write on public.medsec_salesperson_assignments
 -- ============================================================
 -- 5. search_medsec_products RPC · 既有 medsec_products 加 trigram 模糊搜尋
 --    （前端唯一查產品入口、不開放直接 SELECT *）
+--    既有 medsec_products.id (text) = INVI02 品號
 -- ============================================================
--- trigram index（既有 medsec_products 沒這些，要補）
-create index if not exists medsec_products_catalog_trgm
-  on public.medsec_products using gin (catalog_number gin_trgm_ops);
+create index if not exists medsec_products_id_trgm
+  on public.medsec_products using gin (id gin_trgm_ops);
 create index if not exists medsec_products_name_trgm
   on public.medsec_products using gin (name gin_trgm_ops);
 create index if not exists medsec_products_spec_trgm
@@ -106,8 +106,7 @@ create or replace function public.search_medsec_products(
   q           text,
   max_results integer default 10
 ) returns table (
-  id                uuid,
-  catalog_number    text,
+  id                text,
   name              text,
   specification     text,
   manufacturer_name text,
@@ -116,24 +115,23 @@ create or replace function public.search_medsec_products(
 ) language sql stable security definer set search_path = public as $$
   select
     p.id,
-    p.catalog_number,
     p.name,
     p.specification,
     p.manufacturer_name,
     p.list_price,
     greatest(
-      similarity(coalesce(p.catalog_number, ''),    q),
+      similarity(p.id,                              q),
       similarity(coalesce(p.name, ''),              q),
       similarity(coalesce(p.specification, ''),     q),
       similarity(coalesce(p.manufacturer_name, ''), q)
     ) as match_score
   from public.medsec_products p
-  where p.status = 'active'                       -- 既有 medsec_products.status 欄位
+  where coalesce(p.status, 'active') = 'active'
     and (
-         coalesce(p.catalog_number, '')    % q
-      or coalesce(p.name, '')              % q
-      or coalesce(p.specification, '')     % q
-      or coalesce(p.manufacturer_name, '') % q
+         p.id                                % q
+      or coalesce(p.name, '')                % q
+      or coalesce(p.specification, '')       % q
+      or coalesce(p.manufacturer_name, '')   % q
     )
   order by match_score desc
   limit greatest(1, least(max_results, 50))

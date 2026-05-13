@@ -1,10 +1,11 @@
 -- ============================================================
 -- 07_seed_medsec_salesperson_assignments.sql · 業務分區（normalized 共管）
 -- 套用：04 之後
+-- hospital_id 直接是 medsec_hospitals.id（COPI01 代號）— 不需要 join lookup
 -- lookup 失敗（員工總表查無）的 row 已從本檔排除
 -- ============================================================
 
-with src(parent_code, emp_id, display_order, is_primary, source) as (values
+with src(hospital_id, emp_id, display_order, is_primary, source) as (values
   ('CACN', '0069', 0, true, 'csv'),
   ('CAHN', '0069', 0, true, 'csv'),
   ('CAXN', '0069', 0, true, 'csv'),
@@ -246,10 +247,9 @@ insert into public.medsec_salesperson_assignments (
   hospital_id, salesperson_id, display_order, is_primary, source
 )
 select
-  h.id, p.id, src.display_order, src.is_primary, src.source
+  src.hospital_id, p.id, src.display_order, src.is_primary, src.source
 from src
-join public.medsec_hospitals h on h.parent_code = src.parent_code
-join public.profiles          p on p.employee_id = src.emp_id
+join public.profiles p on p.employee_id = src.emp_id
 on conflict (hospital_id, salesperson_id) do nothing;
 
 -- 共 236 筆業務分區會寫入
