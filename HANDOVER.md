@@ -576,8 +576,10 @@ created_at / updated_at
 - `employee_id` (**text**，例 `0006` — 0 開頭會掉，不能改 integer)
 - `name` / `nickname`
 - `has_medteam_access` / `has_medsec_access` (bool)
-- `medteam_role` / `medsec_role` (text)
+- `medsec_role` (text)
 - RLS：自己只能讀自己 row（`auth.uid() = id`）
+
+> ⚠️ **`profiles` 沒有 `medteam_role` 欄**（V3.3 02 那支撞到才發現，HINT: `profiles.medsec_role` 才是正確欄名）。判定「是否業務」用 `has_medteam_access = true`，見 §13.3.
 
 ---
 
@@ -920,7 +922,7 @@ V3.3 動工順序 Step 8。SQL 端已準備好（medsec_cases RLS policy + schem
 - `calc_erp_doc_code(company, action_type) → text` — 25 種映射
 - `calc_sop_ref(action_type) → text` — WIS01~WIS10
 - `medsec_cases_autofill()` trigger function
-- `auth_medteam_role() → text` — 鏡像 `auth_medsec_role()`
+- `auth_has_medteam_access() → boolean` — sales gate（V3.3 改用 boolean，profiles 沒 medteam_role）
 - `compute_case_decision_package(case_id) → jsonb` — V1 決策包
 
 **新增 trigger（3）**
@@ -941,6 +943,7 @@ V3.3 動工順序 Step 8。SQL 端已準備好（medsec_cases RLS policy + schem
 2. **`case_no` 在 trigger 即席算流水** — V1 業務量低，accept race condition。V2 改 advisory lock 或 day-stamped sequence。
 3. **`compute_case_decision_package` 寫 SECURITY DEFINER** — 跨 RLS 邊界讀 `medsec_sales_history` 等表算 aggregate。沒這個 sales 透過 RLS 看不到別人的成交歷史。
 4. **不 DROP 既有 22 張表的 policy** — Lynn V3.3 Q4 守則。所有 V3.3 policy 都用 `DROP POLICY IF EXISTS <new_name>` 後 `CREATE POLICY <new_name>`，不覆寫既有的。
+5. **sales gate 用 `has_medteam_access` boolean 不用 `medteam_role` enum** — `profiles` schema 實際上沒有 `medteam_role` 欄（HANDOVER 舊版 §4.4 寫錯）。02 那支套用時撞到才修正。函數名也從 `auth_medteam_role()` 改 `auth_has_medteam_access()` 反映實際語義。功能等價：「有 medteam-app 存取 = 業務」。
 
 ### 13.4 已知限制
 
