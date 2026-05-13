@@ -1,0 +1,4 @@
+以下 row lookup 不到員工，已從 06_seed_assignments.sql 排除：
+
+  [salesperson] CHCM ← '鄒婉萱(SCS)'
+  [salesperson] TCTM ← '鄒婉萱(SCS)'
