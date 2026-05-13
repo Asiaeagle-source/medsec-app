@@ -155,10 +155,10 @@ V3 初版以為 `medsec_hospitals.id` / `medsec_products.id` 是 uuid。實際**
 
 | # | 表 | 欄位數 | 已 seed 筆數 | RLS | Policy 數 | 用途 |
 |---|---|---|---|---|---|---|
-| 1 | `medsec_hospitals` | (未拿到) | **185** | ✅ | 1 | 醫院主檔（COPI01）|
+| 1 | `medsec_hospitals` | 24 | **185** | ✅ | 1 | 醫院主檔（COPI01）|
 | 2 | `medsec_products` | **42**（含 fix_inventory 15 新欄）| **5260** | ✅ | 1 | 產品主檔（INVI02）|
-| 3 | `medsec_secretary_assignments` | (未拿到) | **182** | ✅ | 1 | 業祕分區（主祕 + 副祕） |
-| 4 | `medsec_salesperson_assignments` | (V3 新建)| **236** | ✅ | 2 | 業務共管分區 |
+| 3 | `medsec_secretary_assignments` | 6 | **182** | ✅ | 1 | 業祕分區（主祕 + 副祕） |
+| 4 | `medsec_salesperson_assignments` | 10（V3 新建）| **236** | ✅ | 2 | 業務共管分區 |
 | 5 | `medsec_cases` | **29** | 0 | ✅ | 2 | 業祕案件（詢價 / 建碼 / 標案）|
 | 6 | `medsec_case_items` | 10 | 0 | ✅ | 1 | 案件下的多個產品項 |
 | 7 | `medsec_case_documents` | 10 | 0 | ✅ | 1 | 案件附文件 |
@@ -167,45 +167,135 @@ V3 初版以為 `medsec_hospitals.id` / `medsec_products.id` 是 uuid。實際**
 | 10 | `medsec_discount_rules` | 17 | **3** | ✅ | 1 | 折扣規則（已有 3 筆測試）|
 | 11 | `medsec_documents` | 13 | 0 | ✅ | 2 | 文件中央庫（含 OCR 欄）|
 | 12 | `medsec_approval_products` | 2 | 0 | ✅ | 1 | 衛署證 ↔ 產品 join |
-| 13 | `medsec_regulatory_approvals` | (未拿到) | 0 | ✅ | 1 | 衛署證主檔 |
-| 14 | `medsec_qsd_certificates` | (未拿到) | 0 | ✅ | 1 | QSD 證書 |
-| 15 | `medsec_qsd_approval_links` | (未拿到) | 0 | ✅ | 1 | QSD ↔ 衛署證 關聯 |
-| 16 | `medsec_nhi_codes` | (未拿到) | 0 | ✅ | 1 | 健保碼 |
-| 17 | `medsec_hospital_doc_templates` | (未拿到) | 0 | ✅ | 1 | 醫院文件模板 |
-| 18 | `medsec_hospital_operation_rules` | (未拿到) | 0 | ✅ | 1 | 醫院操作規則 |
-| 19 | `medsec_hospital_shipping_addresses` | (未拿到) | 0 | ✅ | 1 | 醫院收貨地址 |
-| 20 | `medsec_pending_invoices` | (未拿到) | 0 | ✅ | 1 | 待開發票 |
-| 21 | `medsec_sales_history` | (未拿到) | 0 | ✅ | 1 | 歷史成交價 |
-| 22 | `medsec_tender_bonds` | (未拿到) | 0 | ✅ | 1 | 標案保證金 |
+| 13 | `medsec_regulatory_approvals` | 19 | 0 | ✅ | 1 | 衛署證主檔（含到期日 + IFU）|
+| 14 | `medsec_qsd_certificates` | 13 | 0 | ✅ | 1 | QSD 證書（含到期日）|
+| 15 | `medsec_qsd_approval_links` | 2 | 0 | ✅ | 1 | QSD ↔ 衛署證 關聯 |
+| 16 | `medsec_nhi_codes` | 14 | 0 | ✅ | 1 | 健保碼 |
+| 17 | `medsec_hospital_doc_templates` | 9 | 0 | ✅ | 1 | 醫院文件模板 |
+| 18 | `medsec_hospital_operation_rules` | 15 | 0 | ✅ | 1 | 醫院操作規則 |
+| 19 | `medsec_hospital_shipping_addresses` | 13 | 0 | ✅ | 1 | 醫院收貨地址 |
+| 20 | `medsec_pending_invoices` | 11 | 0 | ✅ | 1 | 待開發票 |
+| 21 | `medsec_sales_history` | 13 | 0 | ✅ | 1 | 歷史成交價 |
+| 22 | `medsec_tender_bonds` | 25 | 0 | ✅ | 1 | 標案保證金（押標 / 履保 / 保固）|
 
 **RLS 摘要：22 張全部 enabled，0 張裸奔。** policy 數 1–2 之間，多數為 1。
 
 **Seed 摘要：4 張有實質資料（185+5260+182+236=5863 筆）+ 1 張測試（3 筆 discount_rules）。其餘 17 張是空殼框架。**
 
-### 4.2 已知欄位細節（8 張）
+### 4.2 22 張表欄位細節
 
-> 來源 CSV 在 Supabase Studio export 時被截斷在 100 行。剩 14 張 schema 待 Lynn 重 export（見 §11）。
+> 完整來自 `information_schema.columns`（2026-05-13 export）。分 6 群好讀：
+> 主檔 → 分區 → 案件流 → 醫院延伸 → 規範證 → 業務歷史 / 文件 / 知識庫
 
-#### 4.2.1 `medsec_cases` — V1 報價模組的核心（29 欄）
+#### 4.2.1 主檔（2 張）
+
+**`medsec_hospitals` — 醫院主檔（24 欄，185 筆）**
+
+```
+id                  text  PK     COPI01 客戶代號（V3.1 確認是 text，不是 uuid）
+name_full           text  NOT NULL
+name_short          text
+tax_id              text
+parent_code         text         分院串總院用
+system_prefix       text         33 體系 code（對 hospital_systems）
+is_standalone       bool
+is_distributor      bool
+customer_type       text
+region_code         text
+region_name         text         北 / 中 / 南 / 花東 / 宜蘭 / 離島
+invoice_company     int
+is_priority         bool
+sales_person        text         業務名（文字，正式分區走 medsec_salesperson_assignments）
+sales_person_code   text
+business_department text
+primary_secretary   text         主祕名（文字，正式分區走 medsec_secretary_assignments）
+co_secretary        text
+payment_terms       text
+payment_cycle_day   int
+shipping_address    text
+notes               text
+created_at / updated_at  timestamptz
+```
+
+**`medsec_products` — 產品主檔（42 欄，5260 筆，fix_inventory 後）**
+
+```
+基本識別：
+  id text PK (INVI02 品號) / name NOT NULL / specification
+  manufacturer_code / manufacturer_name / product_line / product_series
+  catalog_number (INVI02 貨號 = 製造商型號)
+
+分類：
+  dms_category / dms_subcategory / classification_level
+  is_sterile (bool) / storage_temp_range / storage_humidity
+  packaging_standard / service_procedure
+  uom / qty_per_uom (int) / status / replaced_by_product
+
+價格 / NHI：
+  list_price / cost_price / business_floor_price / has_nhi_code (bool)
+  notes / created_at / updated_at
+
+fix_inventory 新增 15 欄（commit ddfb8a1，§5）：
+  stock_qty / unit_cost / fee_type_code / fee_type
+  dms_category_code / dms_subcategory_code
+  warehouse_code / warehouse_name / description
+  supplier_code / supplier_name
+  last_cost_orig / last_cost_twd / material_cost / standard_cost
+```
+
+#### 4.2.2 分區（2 張）
+
+**`medsec_secretary_assignments` — 業祕分區（6 欄，182 筆）**
+
+```
+hospital_id text PK    → medsec_hospitals(id)
+primary_secretary_id   uuid → profiles(id)
+co_secretary_id        uuid → profiles(id)
+effective_date         date
+notes                  text
+updated_at             timestamptz
+```
+
+一家醫院一行，主祕 + 副祕都在欄位上（fixed 2 人）。
+
+**`medsec_salesperson_assignments` — 業務共管分區（10 欄，236 筆，V3 新建）**
+
+```
+id              uuid PK
+hospital_id     text   NOT NULL → medsec_hospitals(id)
+salesperson_id  uuid   NOT NULL → profiles(id)
+is_primary      bool   NOT NULL
+display_order   int    NOT NULL   0=主、1+=共管
+effective_date  date   NOT NULL
+source          text                'csv' / 'copi01' / 'manual'
+notes           text
+created_at / updated_at  NOT NULL
+```
+
+Normalized：一家可多 row，裝得下 5 人共管。`(hospital_id, salesperson_id)` UNIQUE。
+
+#### 4.2.3 案件流（4 張，全 0 筆，待 Lynn 拍 §9）
+
+**`medsec_cases` — V1 報價模組核心（29 欄）**
 
 ```
 id                       uuid       PK
-case_no                  text                 案件編號（格式待 Lynn 拍 §9 第 2 題）
+case_no                  text                 案件編號（格式待 Lynn 拍 §9-2）
 case_type                text       NOT NULL  詢價 / 建碼 / 標案 / ...
 quote_subtype            text
 hospital_id              text                 → medsec_hospitals(id)
-status                   text       NOT NULL  狀態 enum 待 Lynn 拍 §9 第 3 題
+status                   text       NOT NULL  狀態 enum 待 Lynn 拍 §9-3
 current_owner_id         uuid                 目前負責人
 current_owner_role       text                 'bidding_team' / 'secretary' / 'manager'
 bidding_owner_id         uuid                 標案階段負責人
 post_bid_secretary_id    uuid                 得標後轉給的業祕
-handover_at              timestamptz          交接時間
-source                   text                 從哪來：'medteam-app' / 'manual' / ...
-source_request_id        uuid                 對應 medteam-app 詢價單 ID（§9 第 1 題）
+handover_at              timestamptz
+source                   text                 'medteam-app' / 'manual' / ...
+source_request_id        uuid                 對應 medteam-app 詢價單 ID（§9-1）
 requested_by_user_id     uuid                 業務 ID
 title                    text       NOT NULL
 description              text
-tender_no                text                 標案編號
+tender_no                text
 tender_budget            numeric
 tender_open_date         date
 due_date                 date
@@ -215,62 +305,179 @@ manager_decision         text                 Lynn 決策結果
 manager_final_price      numeric              Lynn 拍板價
 manager_decided_at       timestamptz
 manager_decided_by       uuid
-created_at               timestamptz
-updated_at               timestamptz
-closed_at                timestamptz
+created_at / updated_at / closed_at  timestamptz
 ```
 
-#### 4.2.2 `medsec_case_items` — 案件項目（10 欄）
+**`medsec_case_items` — 案件項目（10 欄）**
 
 ```
-id, case_id, product_code, quantity (NOT NULL), unit_price,
+id, case_id, product_code, quantity (int NOT NULL), unit_price,
 ai_suggested_price, final_price, discount_rate, notes, created_at
 ```
 
-#### 4.2.3 `medsec_case_documents` — 案件附文件（10 欄）
+**`medsec_case_documents` — 案件附文件（10 欄）**
 
 ```
-id, case_id, document_id, doc_category, doc_name, is_required,
-upload_status, notes, uploaded_by, uploaded_at
+id, case_id, document_id (→ medsec_documents), doc_category, doc_name,
+is_required (bool), upload_status, notes, uploaded_by, uploaded_at
 ```
 
-#### 4.2.4 `medsec_case_timeline` — 案件事件流（7 欄）
+**`medsec_case_timeline` — 案件事件流（7 欄）**
 
 ```
 id, case_id, event_type (NOT NULL), event_data (jsonb), actor_id,
 description, created_at
 ```
 
-#### 4.2.5 `medsec_crm_chunks` — CRM 知識庫（11 欄）
+#### 4.2.4 醫院延伸（4 張，全 0 筆 / discount_rules 3 筆）
+
+**`medsec_hospital_operation_rules` — 醫院操作規則（15 欄）**
+
+`hospital_id` 是 PK（一家一行）。包含 `order_mode`、`shipping_destination`、`packaging_notes`、`invoice_mode`、`payment_cycle_note`、`invoice_product_name`、`case_close_method`、`contact_person`、`platform_required (ARRAY)`、`special_notes`、`source_secretary` / `source_date` / `confidence`、`updated_at`。
+
+> 給 secretary.html「CRM 知識庫」「醫院規則查詢」用 — 取代散在 13 份個人 Excel 的規則。
+
+**`medsec_hospital_shipping_addresses` — 收貨地址（13 欄）**
 
 ```
-id, chunk_text (NOT NULL), chunk_category (NOT NULL), hospital_id,
-parent_code, embedding (USER-DEFINED → 應該是 vector(1536) 之類),
-metadata (jsonb), source_secretary, source_excel, source_date, created_at
+id uuid PK
+hospital_id        text → medsec_hospitals(id)
+recipient_role     text       醫院端聯絡角色（採購 / 護理 / 物流 / ...）
+recipient_name / recipient_title
+zip_code / address / phone / ext / email
+is_primary bool
+notes / created_at
 ```
 
-#### 4.2.6 `medsec_discount_rules` — 折扣規則（17 欄，已有 3 筆測試）
+一家可多行（不同部門 / 不同收貨點）。
+
+**`medsec_hospital_doc_templates` — 醫院文件模板（9 欄）**
+
+```
+id, hospital_id, case_type NOT NULL, doc_category NOT NULL, doc_name,
+is_required bool, notes, example_path, created_at
+```
+
+**`medsec_discount_rules` — 折扣規則（17 欄，已有 3 筆測試）**
 
 ```
 id, hospital_id, parent_code, product_code, product_line,
-calc_method (NOT NULL), fixed_amount, percentage_rate, donation_amount,
-description, applicable_period, source, is_active, effective_date,
-expiry_date, created_at, updated_at
+calc_method NOT NULL (fixed / percentage / donation / ...),
+fixed_amount / percentage_rate / donation_amount,
+description, applicable_period, source, is_active bool,
+effective_date / expiry_date, created_at / updated_at
 ```
 
-#### 4.2.7 `medsec_documents` — 文件中央庫（13 欄）
+#### 4.2.5 規範證（5 張，全 0 筆 — cindie.html 90/60/30 提醒所需）
+
+**`medsec_regulatory_approvals` — 衛署證主檔（19 欄）**
 
 ```
-id, doc_type (NOT NULL), title, storage_path (NOT NULL), original_filename,
-file_size (bigint), mime_type, ocr_status, ocr_text, ocr_extracted_data (jsonb),
-version (integer), uploaded_by, uploaded_at
+id uuid PK
+approval_number       text NOT NULL    衛署字號
+product_name / owner / manufacturer / manufacturer_address
+ifu_full_code / ifu_version / ifu_publish_date
+issued_date / expiry_date           到期日（90/60/30 提醒）
+expiry_alert_days int               幾天前要提醒
+is_current bool / superseded_by uuid → self  版本鏈
+ifu_doc_id uuid                     → medsec_documents
+created_by / created_at / updated_at / notes
 ```
 
-#### 4.2.8 `medsec_approval_products` — 衛署證 ↔ 產品 join（2 欄）
+**`medsec_qsd_certificates` — QSD 證書（13 欄）**
 
 ```
-approval_id (uuid, NOT NULL), product_code (text, NOT NULL)
+id, qsd_number NOT NULL, manufacturer, manufacturer_address,
+issued_date, expiry_date, expiry_alert_days,
+is_current bool, superseded_by uuid → self,
+doc_id uuid → medsec_documents,
+created_by, created_at, notes
 ```
+
+**`medsec_qsd_approval_links` — QSD ↔ 衛署證 (2 欄)**
+
+```
+qsd_id uuid NOT NULL, approval_id uuid NOT NULL    複合 PK
+```
+
+**`medsec_approval_products` — 衛署證 ↔ 產品 (2 欄)**
+
+```
+approval_id uuid NOT NULL, product_code text NOT NULL    複合 PK
+```
+
+**`medsec_nhi_codes` — 健保碼（14 欄）**
+
+```
+id, nhi_code NOT NULL, code_type, product_code → medsec_products,
+payment_points, patient_copay, hospital_price,
+category, effective_date, expiry_date,
+source, source_url, doc_id → medsec_documents, updated_at
+```
+
+#### 4.2.6 業務歷史 / 文件 / 知識庫 / 保證金（5 張，全 0 筆）
+
+**`medsec_sales_history` — 歷史成交價（13 欄）**
+
+```
+id, sale_date NOT NULL, hospital_id, product_code,
+quantity int, unit_price, total_amount, discount_amount,
+order_no, invoice_no, sales_person_code,
+imported_from, imported_at
+```
+
+> 給 secretary.html「報價優化」用 — AI 算建議價時的歷史 baseline。
+
+**`medsec_pending_invoices` — 待開發票（11 欄）**
+
+```
+id, hospital_id, product_code, borrow_date, quantity int,
+amount, order_no, status, expected_close_date,
+imported_from, imported_at
+```
+
+**`medsec_documents` — 文件中央庫（13 欄）**
+
+```
+id, doc_type NOT NULL, title, storage_path NOT NULL, original_filename,
+file_size bigint, mime_type, ocr_status, ocr_text,
+ocr_extracted_data jsonb, version int, uploaded_by, uploaded_at
+```
+
+被 `medsec_case_documents` / `medsec_regulatory_approvals.ifu_doc_id` / `medsec_qsd_certificates.doc_id` / `medsec_nhi_codes.doc_id` 引用。
+
+**`medsec_crm_chunks` — CRM 知識庫（11 欄）**
+
+```
+id, chunk_text NOT NULL, chunk_category NOT NULL,
+hospital_id, parent_code, embedding USER-DEFINED (vector(1536) 之類),
+metadata jsonb, source_secretary, source_excel, source_date, created_at
+```
+
+embedding 欄是 pgvector type，但 `data_type` 在 information_schema 顯示 `USER-DEFINED`。
+
+**`medsec_tender_bonds` — 標案保證金（25 欄）**
+
+```
+id uuid PK
+case_id              uuid → medsec_cases(id)
+bond_type            text NOT NULL    bid_bond / perf_bond / warranty_bond
+account_code / bank_account_code
+amount               numeric NOT NULL
+status               text             applied / paid_out / returned / expired / ...
+applied_date / paid_out_date / expected_return_date / actual_return_date
+warranty_period_months int            保固期月數
+warranty_start_date / warranty_end_date
+alert_60days / alert_30days / alert_at_expiry  bool   提醒 flags
+ef_application_no                     EF 系統申請編號
+ef_form_path                          EF 表單檔路徑
+erp_voucher_no                        鼎新 ERP 傳票號
+erp_form_type                         鼎新表單類型
+contract_expiry_note / notes
+created_at / updated_at
+```
+
+> 給 candy.html「保證金生命週期」 + accounting.html「押標金對帳」用。三類保證金都裝這張表。
 
 ### 4.3 V3 新增 3 張共用底層表
 
@@ -342,7 +549,39 @@ sql/05_seed_medsec_products_part1.sql ~ part6.sql （6 份）
 
 之前 lvZzm regex 從 INVI02「商品描述」抽出 **768 筆**結構化衛署字號（commit `0675f31`）。
 
-**fix_inventory 沒額外處理衛署字號**（24 欄 UPSERT 不含 license_no）— 衛署相關欄位仍在 `medsec_regulatory_approvals` / `medsec_approval_products` / `medsec_qsd_certificates` / `medsec_qsd_approval_links`，目前**都是 0 筆**。後續要做衛署 90/60/30 提醒功能（cindie.html），要先 seed 這 4 張表。
+**fix_inventory 沒額外處理衛署字號**（24 欄 UPSERT 不含 license_no）— `medsec_products` 也沒 license_no 欄；衛署資料**正規結構是 4 張表 join**：
+
+```
+medsec_regulatory_approvals (19 欄)
+  ├─ approval_number       衛署字號
+  ├─ expiry_date           到期日（cindie 90/60/30 提醒的關鍵）
+  ├─ expiry_alert_days     提醒天數
+  ├─ ifu_doc_id            → medsec_documents（IFU PDF）
+  └─ is_current / superseded_by  版本鏈
+        │
+        ↓
+medsec_approval_products (2 欄)
+  (approval_id, product_code)   多對多 join
+        │
+        ↓
+medsec_products (id = product_code)
+        │
+        ↓
+medsec_qsd_approval_links (2 欄)
+  (qsd_id, approval_id)         衛署證 ↔ QSD
+        │
+        ↓
+medsec_qsd_certificates (13 欄)
+  ├─ qsd_number / expiry_date / expiry_alert_days
+  └─ doc_id → medsec_documents
+```
+
+目前 4 張**都是 0 筆**。後續要做 cindie.html 衛署 90/60/30 提醒功能，要：
+
+1. 從 INVI02「商品描述」regex 抽出可結構化的 768 筆衛署字號
+2. seed `medsec_regulatory_approvals`（一個 approval_number 一行 + 抓 expiry_date）
+3. seed `medsec_approval_products`（approval → 對應的多個 product_code）
+4. QSD 部分需要 Lynn 額外提供 PDF / Excel 來源（INVI02 沒這欄）
 
 ---
 
@@ -518,32 +757,22 @@ where table_schema='public' and table_name='medsec_xxx';
 
 ## 11. 待補的事
 
-### 11.1 完整 schema CSV
-
-§4.2 只詳列 8 張表（CSV 截斷在 100 行）。請在 Supabase SQL Editor 重跑：
-
-```sql
-select table_name, ordinal_position, column_name, data_type, is_nullable
-from information_schema.columns
-where table_schema='public' and table_name like 'medsec_%'
-order by table_name, ordinal_position;
--- 然後在結果頁右上點「Export to CSV」（不要從 snippet 頁的截斷 export）
-```
-
-CSV 上傳之後我把 §4.2 的 14 張 schema 補完。
-
-### 11.2 衛署 / QSD seed
+### 11.1 衛署 / QSD seed
 
 `medsec_regulatory_approvals` / `medsec_qsd_certificates` / `medsec_approval_products` / `medsec_qsd_approval_links` 4 張都是 0 筆。cindie.html 的衛署 90/60/30 提醒做不出來。需要：
 
-- Lynn 提供衛署證源檔（PDF / Excel）
-- 或從既有 INVI02「商品描述」regex 抽 768 筆建構半結構化資料
+- 從 INVI02「商品描述」regex 抽出 768 筆建構半結構化資料（§5.4 流程）
+- Lynn 額外提供 QSD 證書源檔（PDF / Excel）— INVI02 沒這欄
 
-### 11.3 產品底價
+### 11.2 產品底價
 
 `product_base_prices` 是空的（V3 拆獨立表時就決定等 Lynn 提供）。
 
-### 11.4 等 Lynn 拍 §9 四題
+### 11.3 業務歷史 / 健保碼 / 待開發票 seed
+
+`medsec_sales_history` / `medsec_nhi_codes` / `medsec_pending_invoices` 全 0 筆。secretary 報價優化要看歷史成交價，要先有這些資料。需要 Lynn 提供匯出來源（鼎新 / 健保署 / 內部 Excel）。
+
+### 11.4 等 Lynn 拍 §9 四題（動 medsec_cases 之前）
 
 ---
 
@@ -552,12 +781,12 @@ CSV 上傳之後我把 §4.2 的 14 張 schema 補完。
 照順序：
 
 1. ✅ 確認 §6.1 四張 seed 數字對得上
-2. ⏳ 重跑 §11.1 query 把完整 schema 給我補 §4.2
-3. ⏳ 等 Lynn 拿底價檔 → 灌 `product_base_prices`
-4. ⏳ 等 Lynn 拍 §9 四題 → 動 `medsec_cases` 接 medteam-app 詢價
-5. ⏳ 依 §11.2 seed 衛署 → 接 cindie.html 90 天提醒
+2. ⏳ 從 INVI02「商品描述」抽 768 筆衛署字號 → seed `medsec_regulatory_approvals` + `medsec_approval_products` → 接 cindie.html 90/60/30 提醒（§5.4 + §11.1）
+3. ⏳ 等 Lynn 拿底價檔 → 灌 `product_base_prices`（§11.2）
+4. ⏳ 等 Lynn 提供歷史成交價 / 健保碼來源 → seed `medsec_sales_history` / `medsec_nhi_codes` → 接 secretary.html 報價優化（§11.3）
+5. ⏳ 等 Lynn 拍 §9 四題 → 動 `medsec_cases` 接 medteam-app 詢價
 6. ⏳ Week 3-2 起依路線圖推
 
 碰到沒寫到的情境 → 直接問 Lynn，不要自己猜。
 
-— 接手 · 2026-05-13 V3.2
+— 接手 · 2026-05-13 V3.2（完整 schema 對齊版）
