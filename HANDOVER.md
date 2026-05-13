@@ -2,7 +2,7 @@
 
 > 給接手的 AI / 工程師：請從頭看完這份再動工。
 > Lynn 的時間很貴，不要重複前人的坑。
-> 最後更新：2026-05-13 · 分支 `claude/continue-work-pZToe` · V3.2（fix_inventory 之後）
+> 最後更新：2026-05-13 · 分支 `claude/continue-work-pZToe` · V3.3（Lynn §9 拍板後）
 
 ---
 
@@ -14,8 +14,9 @@
 | Week 3-0 角色頁面骨架 | ✅ 完成 | login + 5 角色 html + medsec-common.js / css |
 | Week 3-0.5 共用底層 schema 擴充 | ✅ 完成 | `hospital_systems` / `product_base_prices` / `medsec_salesperson_assignments` 3 張 ADD 完 |
 | Week 3-0.6 主檔 seed | 🟡 部分完成 | hospitals 185 ✓、products 5260 ✓、secretary_assignments 182 ✓、salesperson_assignments 236 ✓；其餘 18 張 medsec_* 表 0 筆 |
-| **Week 3-0.7 INVI02 修復**（本輪）| ✅ 完成 | 從 3239 → 5260，補 15 欄位（cost / supplier / dms / warehouse），詳 §5 |
-| Week 3-1 報價模組 | ⏳ schema 已建 0 筆 | 22 張 medsec_* 表都已 enabled RLS。動之前要回 §9 四題 |
+| Week 3-0.7 INVI02 修復 | ✅ 完成 | 從 3239 → 5260，補 15 欄位（cost / supplier / dms / warehouse），詳 §5 |
+| **Week 3-1 報價模組 schema**（本輪 V3.3）| ✅ schema 就緒 | medsec_cases 補 4 欄 + status 9 種 enum；2 張新表（consignment_inventory / product_units）；medteam-app sales INSERT policy；V1 決策包 function。詳 §13 |
+| Week 3-1 seed + 接線 | ⏳ 待 medsec_sales_history seed + medteam-app 提詢價按鈕 | |
 | Week 3-2 ~ 3-5 | ⏳ 排隊 | |
 
 ---
@@ -145,6 +146,21 @@ V3 初版以為 `medsec_hospitals.id` / `medsec_products.id` 是 uuid。實際**
 - `medsec_salesperson_assignments.hospital_id text` references `medsec_hospitals(id)`
 - `search_medsec_products` RPC 回傳 `id text`
 
+### 3.4 V3.3 Lynn §9 拍板（commit `564172d`，本輪）
+
+Lynn 答完 §9 五題（原 4 題 + 補一題 SOP），動工結果：
+
+- `medsec_cases` ALTER 4 欄（`company` / `action_type` / `erp_doc_code` / `sop_ref`），補 status 9 種 enum、補 CHECK
+- 13 種 `action_type` × 2 公司 = 25 種 `erp_doc_code` 映射（`calc_erp_doc_code()` function）
+- 10 個 SOP 對映（`calc_sop_ref()` function）
+- `medsec_cases_autofill()` BEFORE trigger：自動帶 `case_no` = `{erp_doc_code}-{YYMMDD}-{NNN}` 流水
+- 新增 2 個 medsec_cases policy 配合 medteam-app 業務 INSERT（不動既有 2 個 policy）
+- 加 `auth_medteam_role()` helper（鏡像 `auth_medsec_role()`）
+- 建 2 張新表：`medsec_consignment_inventory`（WIS07）+ `medsec_product_units`（WIS09 + 查保固 view）
+- 建 `compute_case_decision_package(case_id)` V1 純 SQL aggregate（無 LLM）
+
+詳 §13 + `sql/v33/00_DECISIONS.md`（Lynn 原文）+ `sql/v33/README.md`（套用順序）。
+
 ---
 
 ## 4. Supabase Schema 現狀（V3.2）
@@ -159,7 +175,7 @@ V3 初版以為 `medsec_hospitals.id` / `medsec_products.id` 是 uuid。實際**
 | 2 | `medsec_products` | **42**（含 fix_inventory 15 新欄）| **5260** | ✅ | 1 | 產品主檔（INVI02）|
 | 3 | `medsec_secretary_assignments` | 6 | **182** | ✅ | 1 | 業祕分區（主祕 + 副祕） |
 | 4 | `medsec_salesperson_assignments` | 10（V3 新建）| **236** | ✅ | 2 | 業務共管分區 |
-| 5 | `medsec_cases` | **29** | 0 | ✅ | 2 | 業祕案件（詢價 / 建碼 / 標案）|
+| 5 | `medsec_cases` | **33**（V3.3 +4 欄）| 0 | ✅ | **4**（V3.3 +2）| 業祕案件（詢價 / 建碼 / 標案）|
 | 6 | `medsec_case_items` | 10 | 0 | ✅ | 1 | 案件下的多個產品項 |
 | 7 | `medsec_case_documents` | 10 | 0 | ✅ | 1 | 案件附文件 |
 | 8 | `medsec_case_timeline` | 7 | 0 | ✅ | 1 | 案件事件流 |
@@ -177,10 +193,12 @@ V3 初版以為 `medsec_hospitals.id` / `medsec_products.id` 是 uuid。實際**
 | 20 | `medsec_pending_invoices` | 11 | 0 | ✅ | 1 | 待開發票 |
 | 21 | `medsec_sales_history` | 13 | 0 | ✅ | 1 | 歷史成交價 |
 | 22 | `medsec_tender_bonds` | 25 | 0 | ✅ | 1 | 標案保證金（押標 / 履保 / 保固）|
+| 23 | `medsec_consignment_inventory`（V3.3 新建）| 12 | 0 | ✅ | 2 | 寄售品庫存（WIS07）|
+| 24 | `medsec_product_units`（V3.3 新建）| 11 | 0 | ✅ | 2 | 單台序號保固（WIS09）|
 
-**RLS 摘要：22 張全部 enabled，0 張裸奔。** policy 數 1–2 之間，多數為 1。
+**RLS 摘要：24 張全部 enabled，0 張裸奔。** policy 數 1–4 之間。
 
-**Seed 摘要：4 張有實質資料（185+5260+182+236=5863 筆）+ 1 張測試（3 筆 discount_rules）。其餘 17 張是空殼框架。**
+**Seed 摘要：4 張有實質資料（185+5260+182+236=5863 筆）+ 1 張測試（3 筆 discount_rules）。其餘 19 張是空殼框架（含 V3.3 新建的 2 張）。**
 
 ### 4.2 22 張表欄位細節
 
@@ -276,22 +294,24 @@ Normalized：一家可多 row，裝得下 5 人共管。`(hospital_id, salespers
 
 #### 4.2.3 案件流（4 張，全 0 筆，待 Lynn 拍 §9）
 
-**`medsec_cases` — V1 報價模組核心（29 欄）**
+**`medsec_cases` — V1 報價模組核心（33 欄，V3.3 +4）**
 
 ```
 id                       uuid       PK
-case_no                  text                 案件編號（格式待 Lynn 拍 §9-2）
+case_no                  text                 V3.3 trigger 自動帶 {erp_doc_code}-{YYMMDD}-{NNN}
 case_type                text       NOT NULL  詢價 / 建碼 / 標案 / ...
 quote_subtype            text
 hospital_id              text                 → medsec_hospitals(id)
-status                   text       NOT NULL  狀態 enum 待 Lynn 拍 §9-3
+status                   text       NOT NULL  V3.3 9 種 enum：pending / claimed / packaging /
+                                              pending_decision / decided / crm_sent / closed /
+                                              returned / pending_supplement
 current_owner_id         uuid                 目前負責人
 current_owner_role       text                 'bidding_team' / 'secretary' / 'manager'
 bidding_owner_id         uuid                 標案階段負責人
 post_bid_secretary_id    uuid                 得標後轉給的業祕
 handover_at              timestamptz
 source                   text                 'medteam-app' / 'manual' / ...
-source_request_id        uuid                 對應 medteam-app 詢價單 ID（§9-1）
+source_request_id        uuid                 對應 medteam-app 詢價單 ID
 requested_by_user_id     uuid                 業務 ID
 title                    text       NOT NULL
 description              text
@@ -299,13 +319,23 @@ tender_no                text
 tender_budget            numeric
 tender_open_date         date
 due_date                 date
-ai_suggested_price       numeric              AI 建議價
-ai_confidence            numeric              AI 信心度
+ai_suggested_price       numeric              compute_case_decision_package() 寫入
+ai_confidence            numeric              compute_case_decision_package() 寫入（0-1）
 manager_decision         text                 Lynn 決策結果
 manager_final_price      numeric              Lynn 拍板價
 manager_decided_at       timestamptz
 manager_decided_by       uuid
 created_at / updated_at / closed_at  timestamptz
+
+▼ V3.3 新增（commit 564172d）
+company                  text                 'AE' / 'LD'
+action_type              text                 13 種 enum（coding / quote / surplus / budget /
+                                              renewal / urgent / amortize / negotiate /
+                                              tender_supply / tender_equipment / borrow /
+                                              repair_quote / maintenance）
+erp_doc_code             text                 鼎新 4 碼，trigger 從 (company, action_type) 自動帶
+                                              （AECC / LDYJ / AETT ...）；secretary 可改
+sop_ref                  text                 WIS01~WIS10 或 NULL，trigger 從 action_type 自動帶
 ```
 
 **`medsec_case_items` — 案件項目（10 欄）**
@@ -455,6 +485,57 @@ metadata jsonb, source_secretary, source_excel, source_date, created_at
 ```
 
 embedding 欄是 pgvector type，但 `data_type` 在 information_schema 顯示 `USER-DEFINED`。
+
+#### 4.2.7 V3.3 新增 2 張（commit `564172d`）
+
+**`medsec_consignment_inventory` — 寄售品庫存 / WIS07（12 欄）**
+
+```
+id uuid PK
+hospital_id         text NOT NULL  → medsec_hospitals(id)
+product_code        text NOT NULL  → medsec_products(id)
+stock_qty           int  NOT NULL  default 0
+monthly_avg_usage   numeric
+earliest_expiry     date           最早效期，觸發 WIS07 換貨
+last_inventory_date date
+last_inventory_by   uuid           → profiles(id)
+status              text NOT NULL  CHECK active/expiring/returned
+notes               text
+created_at / updated_at  NOT NULL
+UNIQUE (hospital_id, product_code)
+```
+
+RLS：manager+secretary 全看 / sales 透過 `medsec_salesperson_assignments` 看自己分區；WRITE 只 manager+secretary。
+
+**`medsec_product_units` — 單台序號保固 / WIS09（11 欄）**
+
+```
+id uuid PK
+product_code        text NOT NULL  → medsec_products(id)
+serial_no           text NOT NULL UNIQUE
+hospital_id         text           → medsec_hospitals(id)（目前在哪家）
+warranty_start      date
+warranty_end        date
+warranty_alert_days int default 30
+status              text NOT NULL  CHECK in_use/returned/replaced/scrapped
+install_case_id     uuid           → medsec_cases(id)（首次安裝那案件）
+notes
+created_at / updated_at  NOT NULL
+```
+
+RLS 同 consignment。
+
+加 view `medsec_product_units_warranty`：
+
+```sql
+SELECT serial_no, warranty_end,
+       (warranty_end - CURRENT_DATE) AS days_left,
+       CASE WHEN warranty_end >= CURRENT_DATE THEN 'in_warranty'
+            ELSE 'out_of_warranty' END AS warranty_status
+FROM medsec_product_units WHERE serial_no = 'XYZ';
+```
+
+→ WIS09 自動分流：`in_warranty` 走保內換新 0 元、`out_of_warranty` 走維修報價。
 
 **`medsec_tender_bonds` — 標案保證金（25 欄）**
 
@@ -732,14 +813,19 @@ where table_schema='public' and table_name='medsec_xxx';
 
 ---
 
-## 9. ⏳ 等 Lynn 拍板的 4 題（動 Week 3-1 之前要回）
+## 9. ✅ Lynn 已拍板 §9 五題（V3.3）
 
-| # | 問題 | 用途 |
+原 4 題 + 補 1 題 SOP，全部已拍板。SQL 已落地（`sql/v33/`），詳 §13。
+
+| # | 問題 | Lynn 拍板（節錄） |
 |---|---|---|
-| 1 | `medsec_cases` ↔ medteam-app 怎麼關聯？業務在 medteam INSERT 進 `medsec_cases`（共用同表），還是 medteam 有自己的 `medteam_cases`、靠 `source_request_id` 外鍵？ | 影響 schema 設計 |
-| 2 | 案件編號（`case_no`）格式（`YYMMDD-NNN`？`MS-2026-0001`？）| 影響 trigger |
-| 3 | `medsec_cases.status` 完整 enum（pending → claimed → packaging → pending_decision → decided → crm_sent → closed？有沒有「退回」「補件」？）| 影響 enum |
-| 4 | AI 決策包用什麼引擎（Claude API / OpenAI / SQL aggregate）？影響 `medsec_cases.ai_suggested_price` 怎麼算 + 決策 reasoning 存哪 | 影響架構 |
+| 1 | `medsec_cases` ↔ medteam-app 關聯 | **方案 A 共用同表**。業務在 medteam-app 直接 INSERT 一筆，`source='medteam-app'`、`requested_by_user_id=auth.uid()`。RLS 走 `sql/v33/02_*` 新增的 2 個 policy。 |
+| 2 | `case_no` 格式 | `{erp_doc_code}-{YYMMDD}-{NNN}`，trigger 自動。例 `AECC-260513-001`。13 種 `action_type` × 2 公司，erp_doc_code 25 種映射見 `sql/v33/00_DECISIONS.md` §Q2。 |
+| 3 | `status` 完整 enum | 9 種：`pending` / `claimed` / `packaging` / `pending_decision` / `decided` / `crm_sent` / `closed` / `returned` / `pending_supplement`。提醒規則見 `00_DECISIONS.md` §Q3。 |
+| 4 | AI 決策包引擎 | **V1 純 SQL aggregate，不調 LLM**。reasoning 用字串模板。函式 `compute_case_decision_package(case_id)`。V2 再加 Claude API。 |
+| 5 | SOP 流程提示（Lynn 新需求）| 不讓業祕主動查 SOP，做成系統依 `(action_type, status)` 自動跳提示卡。`medsec_cases.sop_ref` 由 trigger 帶。V1 範圍 8-12 個硬編碼提示卡。 |
+
+完整原文：[`sql/v33/00_DECISIONS.md`](sql/v33/00_DECISIONS.md)。
 
 ---
 
@@ -772,7 +858,18 @@ where table_schema='public' and table_name='medsec_xxx';
 
 `medsec_sales_history` / `medsec_nhi_codes` / `medsec_pending_invoices` 全 0 筆。secretary 報價優化要看歷史成交價，要先有這些資料。需要 Lynn 提供匯出來源（鼎新 / 健保署 / 內部 Excel）。
 
-### 11.4 等 Lynn 拍 §9 四題（動 medsec_cases 之前）
+> ⚠️ `compute_case_decision_package()` 在 `medsec_sales_history` seed 之前跑出來會全是 NULL / 0、信心度 0。函式已備好但無米下鍋。
+
+### 11.4 V3.3 兩張新表 seed
+
+`medsec_consignment_inventory`（WIS07 寄售品）+ `medsec_product_units`（WIS09 單台序號保固）都是 0 筆。需要：
+
+- 寄售品：Lynn / 業祕從鼎新或盤點表手動匯
+- 序號：從 WIS08 交貨單回填，或從原廠出貨資料匯
+
+### 11.5 medteam-app 端「提詢價」按鈕
+
+V3.3 動工順序 Step 8。SQL 端已準備好（medsec_cases RLS policy + schema），等 medteam-app 那邊規劃 + 實作。
 
 ---
 
@@ -781,12 +878,72 @@ where table_schema='public' and table_name='medsec_xxx';
 照順序：
 
 1. ✅ 確認 §6.1 四張 seed 數字對得上
-2. ⏳ 從 INVI02「商品描述」抽 768 筆衛署字號 → seed `medsec_regulatory_approvals` + `medsec_approval_products` → 接 cindie.html 90/60/30 提醒（§5.4 + §11.1）
-3. ⏳ 等 Lynn 拿底價檔 → 灌 `product_base_prices`（§11.2）
-4. ⏳ 等 Lynn 提供歷史成交價 / 健保碼來源 → seed `medsec_sales_history` / `medsec_nhi_codes` → 接 secretary.html 報價優化（§11.3）
-5. ⏳ 等 Lynn 拍 §9 四題 → 動 `medsec_cases` 接 medteam-app 詢價
-6. ⏳ Week 3-2 起依路線圖推
+2. ✅ Lynn §9 五題拍板 → V3.3 SQL 批次（`sql/v33/`）schema 落地
+3. ⏳ Lynn 把 `sql/v33/` 01–05 五支貼進 SQL Editor 跑，順序見 `sql/v33/README.md`
+4. ⏳ 從 INVI02「商品描述」抽 768 筆衛署字號 → seed `medsec_regulatory_approvals` + `medsec_approval_products` → 接 cindie.html 90/60/30 提醒（§5.4 + §11.1）
+5. ⏳ Lynn 提供歷史成交價 → seed `medsec_sales_history` → `compute_case_decision_package()` 才有米下鍋（§11.3）
+6. ⏳ Lynn 拿底價檔 → 灌 `product_base_prices`（§11.2）
+7. ⏳ medteam-app 端做「提詢價」按鈕（V3.3 動工順序 Step 8）
+8. ⏳ 前端寫 SOP 提示卡 8-12 個（V3.3 Q5 範圍）
+9. ⏳ Week 3-2 起依路線圖推
 
 碰到沒寫到的情境 → 直接問 Lynn，不要自己猜。
 
-— 接手 · 2026-05-13 V3.2（完整 schema 對齊版）
+— 接手 · 2026-05-13 V3.3（Lynn §9 拍板後）
+
+---
+
+## 13. V3.3 SQL 批次摘要（commit `564172d`）
+
+完整代碼在 `sql/v33/`。給 Lynn 套用 + 後人快速看懂。
+
+### 13.1 套用順序
+
+| Step | 檔 | 動作 | 時間 |
+|---|---|---|---|
+| 1 | `01_alter_medsec_cases.sql` | medsec_cases ALTER 4 欄 + status 9 種 + 2 個函數 + autofill trigger | 5 秒 |
+| 2 | `02_medsec_cases_sales_insert_policy.sql` | `auth_medteam_role()` + 2 條新 policy（不動既有 2 條） | 5 秒 |
+| 3 | `03_consignment_inventory.sql` | 建 `medsec_consignment_inventory` + RLS | 5 秒 |
+| 4 | `04_product_units.sql` | 建 `medsec_product_units` + RLS + warranty view | 5 秒 |
+| 5 | `05_decision_package_function.sql` | `compute_case_decision_package()` V1 純 aggregate | 5 秒 |
+
+### 13.2 新增 / 修改的 schema 物件清單
+
+**新增表（2）**
+- `medsec_consignment_inventory`（WIS07）
+- `medsec_product_units`（WIS09）
+
+**新增 view（1）**
+- `medsec_product_units_warranty`（自動分流 in/out warranty）
+
+**新增 function（5）**
+- `calc_erp_doc_code(company, action_type) → text` — 25 種映射
+- `calc_sop_ref(action_type) → text` — WIS01~WIS10
+- `medsec_cases_autofill()` trigger function
+- `auth_medteam_role() → text` — 鏡像 `auth_medsec_role()`
+- `compute_case_decision_package(case_id) → jsonb` — V1 決策包
+
+**新增 trigger（3）**
+- `medsec_cases_autofill_trg` — BEFORE INSERT/UPDATE
+- `mci_updated_at` / `mpu_updated_at` — touch updated_at
+
+**新增 RLS policy（6）**
+- `medsec_cases_sales_insert` / `medsec_cases_sales_select`
+- `mci_select` / `mci_write`
+- `mpu_select` / `mpu_write`
+
+**修改 medsec_cases（既有表，只 ALTER 不 DROP）**
+- 補 4 欄、補 / 改 3 條 CHECK（company / action_type / status）
+
+### 13.3 設計決策（為什麼這樣寫）
+
+1. **`erp_doc_code` 用 BEFORE trigger 不用 generated column** — Lynn 拍板 secretary 可改 AECO → AEEQ/AEIN。Generated column 在 UPDATE 會強制重算覆蓋掉手動修改。Trigger 只在 INSERT NULL 時帶預設，UPDATE 不動。
+2. **`case_no` 在 trigger 即席算流水** — V1 業務量低，accept race condition。V2 改 advisory lock 或 day-stamped sequence。
+3. **`compute_case_decision_package` 寫 SECURITY DEFINER** — 跨 RLS 邊界讀 `medsec_sales_history` 等表算 aggregate。沒這個 sales 透過 RLS 看不到別人的成交歷史。
+4. **不 DROP 既有 22 張表的 policy** — Lynn V3.3 Q4 守則。所有 V3.3 policy 都用 `DROP POLICY IF EXISTS <new_name>` 後 `CREATE POLICY <new_name>`，不覆寫既有的。
+
+### 13.4 已知限制
+
+- `compute_case_decision_package()` 在 `medsec_sales_history` seed 之前跑出來會全是 NULL / 信心度 0 — 函式 OK，沒米下鍋。
+- SOP 提示卡是 HTML 端工作，這批 SQL 沒做。
+- medteam-app 端「提詢價」按鈕還沒做（V3.3 動工順序 Step 8 由 Lynn 另外規劃）。
