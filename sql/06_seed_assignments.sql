@@ -50,6 +50,7 @@ with src(copi01_code, employee_id, role, is_primary, source) as (values
   ('CHAN', '0134', 'salesperson', true, 'csv'),
   ('CHAN', '0150', 'secretary', true, 'xlsx_20260511'),
   ('CHCM', '0017', 'salesperson', true, 'csv'),
+  ('CHCM', '0089', 'salesperson', true, 'csv'),
   ('CHCM', '0011', 'secretary', true, 'xlsx_20260511'),
   ('CHCS', '0023', 'salesperson', true, 'csv'),
   ('CHCS', '0099', 'salesperson', true, 'csv'),
@@ -330,6 +331,7 @@ with src(copi01_code, employee_id, role, is_primary, source) as (values
   ('TCHE', '0020', 'secretary', true, 'xlsx_20260511'),
   ('TCHE', '0150', 'secretary', true, 'xlsx_20260511'),
   ('TCTM', '0113', 'salesperson', true, 'csv'),
+  ('TCTM', '0089', 'salesperson', true, 'csv'),
   ('TCTM', '0011', 'secretary', true, 'xlsx_20260511'),
   ('TCTN', '0134', 'salesperson', true, 'csv'),
   ('TCTN', '0168', 'secretary', true, 'xlsx_20260511'),
@@ -437,5 +439,5 @@ join public.hospitals h on h.copi01_code = src.copi01_code
 join public.profiles  p on p.employee_id = src.employee_id
 on conflict (hospital_id, staff_id, role) do nothing;
 
--- 共 421 筆 assignment 會寫入
--- 跳過 2 筆（lookup 不到員工）
+-- 共 423 筆 assignment 會寫入
+-- 跳過 0 筆（lookup 不到員工）

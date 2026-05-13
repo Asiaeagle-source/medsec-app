@@ -153,11 +153,14 @@ def _xlsx_to_csv_str(path: Path) -> str:
 # 2. 處理邏輯
 # ============================================================
 def split_names(s: str) -> list[str]:
-    """把『王思閔/李泓寬』或『ABBY/BOB』拆陣列；去掉換行空白"""
+    """把『王思閔/李泓寬』或『ABBY/BOB』拆陣列；去掉換行 / 括號註記"""
     if not s:
         return []
     s = s.replace("\n", "").replace("\r", "")
-    return [n.strip() for n in re.split(r"[/／、]", s) if n.strip()]
+    names = [n.strip() for n in re.split(r"[/／、]", s) if n.strip()]
+    # 去掉括號內附註（例：「鄒婉萱(SCS)」→「鄒婉萱」、「子恩(SPS)」→「子恩」）
+    names = [re.sub(r"[（(][^）)]*[)）]", "", n).strip() for n in names]
+    return [n for n in names if n]
 
 
 def build_systems(copi01_data: list[dict]) -> list[dict]:

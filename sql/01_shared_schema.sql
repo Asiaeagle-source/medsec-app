@@ -143,9 +143,9 @@ create table if not exists public.products (
   purchaser_name  text,
 
   -- 價格
-  std_price       numeric(12,2),                 -- 標準售價（INVI02 提供）
-  base_price      numeric(12,2),                 -- 業務底價（INVI02 為 0，等 Lynn 底價檔）
-  cost_unit       numeric(12,2),                 -- 單位成本
+  std_price       numeric(12,2),                 -- 標準售價（INVI02 提供，公開）
+  cost_unit       numeric(12,2),                 -- 單位成本（敏感、暫共用，未來可遷出）
+  -- 業務底價：拆到 product_base_prices 表 + RLS 鎖只 manager 可讀寫
 
   -- 庫存
   stock_qty       integer,                      -- 庫存數量
@@ -234,4 +234,30 @@ create trigger products_updated_at before update on public.products
 
 drop trigger if exists hospital_assignments_updated_at on public.hospital_assignments;
 create trigger hospital_assignments_updated_at before update on public.hospital_assignments
+  for each row execute function public.touch_updated_at();
+
+-- ============================================================
+-- 6. product_base_prices · 產品業務底價（敏感）
+--    Lynn 拍板：鎖定最高權限，只 manager 可讀寫
+--    schema 先建空表，Lynn 之後提供底價檔再 import
+-- ============================================================
+create table if not exists public.product_base_prices (
+  product_id          uuid primary key references public.products(id) on delete cascade,
+  base_price          numeric(12,2) not null,         -- 業務底價（未稅）
+  base_price_with_tax numeric(12,2),                  -- 業務底價（含稅）
+  effective_from      date,                           -- 此底價生效日（用於審核歷史）
+  effective_to        date,                           -- 此底價結束日，null = 仍生效
+  source              text,                           -- 'manual' / 'lynn_upload_20260513' / ...
+  note                text,
+  updated_by          uuid references public.profiles(id),
+  updated_at          timestamptz not null default now()
+);
+
+create index if not exists pbp_effective_idx on public.product_base_prices(effective_from, effective_to);
+
+comment on table public.product_base_prices
+  is 'AE Hub · 產品業務底價（RLS 限只 manager 可讀寫；Lynn 拍板的敏感資料）';
+
+drop trigger if exists pbp_updated_at on public.product_base_prices;
+create trigger pbp_updated_at before update on public.product_base_prices
   for each row execute function public.touch_updated_at();

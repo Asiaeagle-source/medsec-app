@@ -85,7 +85,19 @@ create policy products_write on public.products
   using (public.auth_medsec_role() in ('manager','purchasing'))
   with check (public.auth_medsec_role() in ('manager','purchasing'));
 
--- 2.4 hospital_assignments · 自己 + 代理人 + manager
+-- 2.4 product_base_prices · 只 manager 可讀可寫（Lynn 拍板：最高權限）
+alter table public.product_base_prices enable row level security;
+drop policy if exists pbp_select on public.product_base_prices;
+create policy pbp_select on public.product_base_prices
+  for select to authenticated
+  using (public.auth_medsec_role() = 'manager');
+drop policy if exists pbp_write on public.product_base_prices;
+create policy pbp_write on public.product_base_prices
+  for all to authenticated
+  using (public.auth_medsec_role() = 'manager')
+  with check (public.auth_medsec_role() = 'manager');
+
+-- 2.5 hospital_assignments · 自己 + 代理人 + manager
 alter table public.hospital_assignments enable row level security;
 drop policy if exists ha_select on public.hospital_assignments;
 create policy ha_select on public.hospital_assignments
