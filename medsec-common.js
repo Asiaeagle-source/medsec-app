@@ -6,7 +6,7 @@
 
 // ⚠️ 替換成 medteam-app 同樣的 Supabase 設定（共用同一個 Project）
 const SUPABASE_URL = 'https://yincuegybnuzgojakkuc.supabase.co';
-const SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpbmN1ZWd5Ym51emdvamFra3VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjYzNDQsImV4cCI6MjA5MDEwMjM0NH0.cYy7YQpmNAqQ49wG1q_hgiujLroWdkVaKlqlMx5zIFM; // ⚠️ 貼上你的 anon key（跟 medteam-app 一樣）
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpbmN1ZWd5Ym51emdvamFra3VjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjYzNDQsImV4cCI6MjA5MDEwMjM0NH0.cYy7YQpmNAqQ49wG1q_hgiujLroWdkVaKlqlMx5zIFM'; // ⚠️ 貼上你的 anon key（跟 medteam-app 一樣）
 
 // 全域 supabase client
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
