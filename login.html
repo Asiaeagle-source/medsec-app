@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AE MED Hub · MedSec 登入</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="brand">AE MED Hub</div>
+      <div class="sub">MedSec 業務祕書平台</div>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="form-group">
+      <label for="emp">員工編號</label>
+      <input type="text" id="emp" placeholder="例：0006" autocomplete="username" inputmode="numeric">
+    </div>
+
+    <div class="form-group">
+      <label for="pwd">密碼</label>
+      <input type="password" id="pwd" placeholder="預設為 AE + 員工編號" autocomplete="current-password">
+    </div>
+
+    <button id="btn-login" class="btn-primary" onclick="handleLogin()">登入</button>
+
+    <div class="login-footer">
+      亞洲鷹眼醫療儀器股份有限公司<br>
+      Powered by AE MED Hub · V1.0
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+// 進來先檢查：如果已登入，直接跳到對應頁面
+(async function autoRedirect() {
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) return;
+
+  const { data: profile } = await supa
+    .from('profiles')
+    .select('medsec_role, has_medsec_access')
+    .eq('id', session.user.id)
+    .single();
+
+  if (profile && profile.has_medsec_access && ROLE_PAGE_MAP[profile.medsec_role]) {
+    window.location.href = ROLE_PAGE_MAP[profile.medsec_role];
+  }
+})();
+
+function showAlert(msg, type = 'error') {
+  const el = document.getElementById('alert');
+  el.textContent = msg;
+  el.className = 'alert show ' + type;
+}
+
+function hideAlert() {
+  document.getElementById('alert').className = 'alert';
+}
+
+async function handleLogin() {
+  hideAlert();
+  const emp = document.getElementById('emp').value.trim();
+  const pwd = document.getElementById('pwd').value;
+
+  if (!emp || !pwd) {
+    showAlert('請輸入員工編號和密碼');
+    return;
+  }
+
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true;
+  btn.textContent = '登入中...';
+
+  try {
+    // 用 employee_id@medteam.internal 格式（跟 medteam-app 同帳號系統）
+    const email = `${emp}@medteam.internal`;
+    const { data, error } = await supa.auth.signInWithPassword({
+      email: email,
+      password: pwd,
+    });
+
+    if (error) {
+      showAlert('登入失敗：員工編號或密碼錯誤');
+      btn.disabled = false;
+      btn.textContent = '登入';
+      return;
+    }
+
+    // 查 profile
+    const { data: profile, error: pErr } = await supa
+      .from('profiles')
+      .select('employee_id, name, medsec_role, has_medsec_access')
+      .eq('id', data.user.id)
+      .single();
+
+    if (pErr || !profile) {
+      showAlert('帳號資料異常，請聯繫管理員');
+      await supa.auth.signOut();
+      btn.disabled = false;
+      btn.textContent = '登入';
+      return;
+    }
+
+    if (!profile.has_medsec_access) {
+      showAlert('您沒有 MedSec Hub 的存取權限，請聯繫 Lynn 開通');
+      await supa.auth.signOut();
+      btn.disabled = false;
+      btn.textContent = '登入';
+      return;
+    }
+
+    const targetPage = ROLE_PAGE_MAP[profile.medsec_role];
+    if (!targetPage) {
+      showAlert('角色未設定，請聯繫管理員');
+      await supa.auth.signOut();
+      btn.disabled = false;
+      btn.textContent = '登入';
+      return;
+    }
+
+    // 顯示歡迎訊息後跳轉
+    showAlert(`歡迎 ${profile.name}，正在進入${ROLE_LABEL_MAP[profile.medsec_role]}畫面...`, 'success');
+    setTimeout(() => { window.location.href = targetPage; }, 600);
+
+  } catch (err) {
+    console.error(err);
+    showAlert('系統錯誤，請稍後再試');
+    btn.disabled = false;
+    btn.textContent = '登入';
+  }
+}
+
+// Enter 鍵登入
+document.getElementById('pwd').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') handleLogin();
+});
+document.getElementById('emp').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') document.getElementById('pwd').focus();
+});
+</script>
+
+</body>
+</html>

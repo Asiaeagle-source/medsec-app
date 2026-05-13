@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE MED Hub · 標案團隊</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+</head>
+<body>
+
+<div id="loading-mask" class="loading-mask"><div class="spinner"></div></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">AE MED Hub</div>
+      <span class="role-tag bidding">標案團隊</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-module="overview" onclick="switchModule('overview')">
+        <span class="icon">📊</span><span>我的儀表板</span>
+      </div>
+      <div class="nav-item" data-module="tenders" onclick="switchModule('tenders')">
+        <span class="icon">🎯</span><span>標案案件</span>
+      </div>
+      <div class="nav-item" data-module="checklist" onclick="switchModule('checklist')">
+        <span class="icon">✅</span><span>Checklist 管理</span>
+      </div>
+      <div class="nav-item" data-module="bonds" onclick="switchModule('bonds')">
+        <span class="icon">💎</span><span>押標金 / 履保金</span>
+      </div>
+      <div class="nav-item" data-module="docs" onclick="switchModule('docs')">
+        <span class="icon">📂</span><span>標案文件庫</span>
+      </div>
+      <div class="nav-item" data-module="history" onclick="switchModule('history')">
+        <span class="icon">🏥</span><span>同體系標案查詢</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-name" id="user-name">—</div>
+      <div class="user-id" id="user-id">—</div>
+      <button class="btn-logout" onclick="handleLogout()">登出</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="mod-overview">
+      <div class="page-header">
+        <div>
+          <div class="breadcrumb">MedSec Hub / 標案 / 總覽</div>
+          <h1>Candy 的標案儀表板</h1>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card accent">
+          <div class="label">進行中的標案</div>
+          <div class="value">—</div>
+          <div class="delta">本週開標 / 截標</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">本月新標案</div>
+          <div class="value">—</div>
+          <div class="delta">已接收</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">押標金待退</div>
+          <div class="value">—</div>
+          <div class="delta">含逾期未退</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">履保金 / 保固金到期</div>
+          <div class="value">—</div>
+          <div class="delta">30 天內</div>
+        </div>
+      </div>
+
+      <div class="placeholder">
+        <div class="icon">🎯</div>
+        <div class="title">標案儀表板開發中</div>
+        <div class="desc">這裡會集中顯示你手上所有標案的開標日、Checklist 進度、文件包狀態、保證金生命週期。一人扛全公司標案不再「資料散在 30 個資料夾」。</div>
+        <div class="stage">V1 · Week 10-12 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-tenders" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 標案案件</div><h1>標案案件</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">🎯</div>
+        <div class="title">新增 / 管理標案</div>
+        <div class="desc">上傳標書 PDF → AI 抽出標案名稱、預算、開標日、押標金 % → 套用伶華的「三總標案 SOP」自動產出 checklist。</div>
+        <div class="stage">V1 · Week 10-12 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-checklist" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / Checklist</div><h1>Checklist 管理</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">✅</div>
+        <div class="title">資格 8 + 規格 6 + 價格 2 的標準 Checklist</div>
+        <div class="desc">每個標案自動帶出 16 項標準檢查，你勾選進度，系統幫你記住卡住的環節。</div>
+        <div class="stage">V1 · Week 10-12 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-bonds" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 保證金</div><h1>押標金 / 履保金 / 保固金</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">💎</div>
+        <div class="title">保證金完整生命週期</div>
+        <div class="desc">EF 申請單預填（合約到期時間自動算）→ Candy 貼到 EF 系統 → 會計回填傳票號 → 系統追蹤到退還。逾期自動提醒。</div>
+        <div class="stage">V1 · Week 13-14 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-docs" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 標案文件庫</div><h1>標案文件庫</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">📂</div>
+        <div class="title">文件包組裝</div>
+        <div class="desc">衛署、QSD、規格表、報價單、切結書範本一鍵組裝。每家醫院的特殊格式逐步累積。</div>
+        <div class="stage">V1 · Week 11-12 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-history" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 同體系標案</div><h1>同體系標案查詢</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">🏥</div>
+        <div class="title">查同體系醫院的過往標案</div>
+        <div class="desc">查中榮投過什麼？嘉榮怎麼報？台大歷年得標價？做新標案參考用。</div>
+        <div class="stage">V1 · Week 12 開發</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+(async function init() {
+  const profile = await guardRole('bidding_team');
+  if (!profile) return;
+  renderUserInfo(profile);
+  hideLoading();
+})();
+</script>
+
+</body>
+</html>

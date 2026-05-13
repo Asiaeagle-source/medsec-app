@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE MED Hub · 管理者</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+</head>
+<body>
+
+<div id="loading-mask" class="loading-mask"><div class="spinner"></div></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">AE MED Hub</div>
+      <span class="role-tag manager">管理者</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-module="overview" onclick="switchModule('overview')">
+        <span class="icon">📊</span><span>總覽儀表板</span>
+      </div>
+      <div class="nav-item" data-module="quote-decision" onclick="switchModule('quote-decision')">
+        <span class="icon">💰</span><span>報價決策</span>
+      </div>
+      <div class="nav-item" data-module="case-board" onclick="switchModule('case-board')">
+        <span class="icon">📋</span><span>案件總覽</span>
+      </div>
+      <div class="nav-item" data-module="bond-tracker" onclick="switchModule('bond-tracker')">
+        <span class="icon">💎</span><span>保證金追蹤</span>
+      </div>
+      <div class="nav-item" data-module="hospitals" onclick="switchModule('hospitals')">
+        <span class="icon">🏥</span><span>醫院主檔</span>
+      </div>
+      <div class="nav-item" data-module="products" onclick="switchModule('products')">
+        <span class="icon">📦</span><span>產品主檔</span>
+      </div>
+      <div class="nav-item" data-module="assignments" onclick="switchModule('assignments')">
+        <span class="icon">👥</span><span>業祕分區</span>
+      </div>
+      <div class="nav-item" data-module="settings" onclick="switchModule('settings')">
+        <span class="icon">⚙️</span><span>系統設定</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-name" id="user-name">—</div>
+      <div class="user-id" id="user-id">—</div>
+      <button class="btn-logout" onclick="handleLogout()">登出</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="mod-overview">
+      <div class="page-header">
+        <div>
+          <div class="breadcrumb">MedSec Hub / 總覽</div>
+          <h1>總覽儀表板</h1>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card accent">
+          <div class="label">待我決策的報價</div>
+          <div class="value">—</div>
+          <div class="delta">需在 24h 內回覆</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">本月案件數</div>
+          <div class="value">—</div>
+          <div class="delta">業祕處理中</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">即將到期保證金</div>
+          <div class="value">—</div>
+          <div class="delta">30 天內</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">本月新標案</div>
+          <div class="value">—</div>
+          <div class="delta">Candy 處理中</div>
+        </div>
+      </div>
+
+      <div class="placeholder">
+        <div class="icon">📊</div>
+        <div class="title">儀表板開發中</div>
+        <div class="desc">這裡未來會顯示：本週決策待辦、業祕案件流速、Candy 標案進度、保證金日曆、衛署效期警示。資料表已建好，等模組接上來。</div>
+        <div class="stage">V1 · Week 3-5 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-quote-decision" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 報價決策</div><h1>報價決策</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">💰</div>
+        <div class="title">報價決策畫面（V1 核心模組）</div>
+        <div class="desc">業務在 medteam-app 提詢價 → 業祕整理決策包（CRM 規則、歷史成交、體系報價、產品底價）→ 你 2 分鐘按「採納 / 調整」→ 業祕打鼎新 CRM 報價單。</div>
+        <div class="stage">V1 · Week 3-5 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-case-board" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 案件總覽</div><h1>案件總覽</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">📋</div>
+        <div class="title">所有案件的儀表板</div>
+        <div class="desc">看每位業祕手上的案件數、處理速度、卡住的案件。</div>
+        <div class="stage">V1 · Week 6 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-bond-tracker" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 保證金追蹤</div><h1>保證金追蹤</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">💎</div>
+        <div class="title">押標金 / 履保金 / 保固金</div>
+        <div class="desc">三類保證金的完整生命週期：申請 → EF 編號 → 到期提醒 → 退還。給你、Candy、會計三個視角。</div>
+        <div class="stage">V1 · Week 13-14 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-hospitals" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 醫院主檔</div><h1>醫院主檔</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">🏥</div>
+        <div class="title">301 家醫院主檔</div>
+        <div class="desc">從 COPI01 匯入的醫院主檔，含體系、區域、業祕分區。</div>
+        <div class="stage">V1 · Week 1-2 ✅ 已完成 schema，等 seed data</div>
+      </div>
+    </div>
+
+    <div id="mod-products" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 產品主檔</div><h1>產品主檔</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">📦</div>
+        <div class="title">5260 筆 INVI02 產品主檔</div>
+        <div class="desc">含衛署字號、QSD 文件、健保碼、產品線。</div>
+        <div class="stage">V1 · Week 1-2 ✅ 已完成 schema，等 seed data</div>
+      </div>
+    </div>
+
+    <div id="mod-assignments" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 業祕分區</div><h1>業祕分區</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">👥</div>
+        <div class="title">業祕 vs 醫院的分區關係</div>
+        <div class="desc">4 業祕（雅婷、小飛、映晨、伶華）扛 186 家醫院的分區管理。請假代理人邏輯。</div>
+        <div class="stage">V1 · Week 2 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-settings" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 系統設定</div><h1>系統設定</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">⚙️</div>
+        <div class="title">角色 / 權限 / 帳號管理</div>
+        <div class="desc">給誰開通 MedSec、改誰的角色、密碼重設。</div>
+        <div class="stage">V1 · Week 15 開發</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+(async function init() {
+  const profile = await guardRole('manager');
+  if (!profile) return;
+  renderUserInfo(profile);
+  hideLoading();
+})();
+</script>
+
+</body>
+</html>

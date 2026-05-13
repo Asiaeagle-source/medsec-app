@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE MED Hub · 採購</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+</head>
+<body>
+
+<div id="loading-mask" class="loading-mask"><div class="spinner"></div></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">AE MED Hub</div>
+      <span class="role-tag purchasing">採購</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-module="overview" onclick="switchModule('overview')">
+        <span class="icon">📊</span><span>我的儀表板</span>
+      </div>
+      <div class="nav-item" data-module="expiry" onclick="switchModule('expiry')">
+        <span class="icon">📅</span><span>衛署 / QSD 效期</span>
+      </div>
+      <div class="nav-item" data-module="po" onclick="switchModule('po')">
+        <span class="icon">🛒</span><span>採購單管理</span>
+      </div>
+      <div class="nav-item" data-module="vendors" onclick="switchModule('vendors')">
+        <span class="icon">🏢</span><span>廠商管理</span>
+      </div>
+      <div class="nav-item" data-module="stock" onclick="switchModule('stock')">
+        <span class="icon">📦</span><span>庫存查詢</span>
+      </div>
+      <div class="nav-item" data-module="receiving" onclick="switchModule('receiving')">
+        <span class="icon">🚚</span><span>進貨對單</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-name" id="user-name">—</div>
+      <div class="user-id" id="user-id">—</div>
+      <button class="btn-logout" onclick="handleLogout()">登出</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="mod-overview">
+      <div class="page-header">
+        <div>
+          <div class="breadcrumb">MedSec Hub / 採購 / 總覽</div>
+          <h1>Cindie 的採購儀表板</h1>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card accent">
+          <div class="label">即將到期的衛署字號</div>
+          <div class="value">—</div>
+          <div class="delta">90 天內</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">即將到期的 QSD 文件</div>
+          <div class="value">—</div>
+          <div class="delta">90 天內</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">本月催貨案件</div>
+          <div class="value">—</div>
+          <div class="delta">原廠未交</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">低庫存品項</div>
+          <div class="value">—</div>
+          <div class="delta">低於安全庫存</div>
+        </div>
+      </div>
+
+      <div class="placeholder">
+        <div class="icon">📅</div>
+        <div class="title">採購儀表板開發中</div>
+        <div class="desc">這裡會集中顯示：衛署字號到期警示、QSD 文件更新提醒、原廠催貨清單、低庫存警示。讓「Cindie 一人管不來」的痛點先從提醒系統開始解決。</div>
+        <div class="stage">V1 · Week 6-7 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-expiry" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 衛署效期</div><h1>衛署 / QSD 效期管理</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">📅</div>
+        <div class="title">衛署字號 + QSD 自動提醒系統</div>
+        <div class="desc">5260 筆 INVI02 產品的衛署字號到期日 + QSD 文件版本控管。系統提前 90 / 60 / 30 天提醒。</div>
+        <div class="stage">V1 · Week 6 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-po" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 採購單</div><h1>採購單管理</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">🛒</div>
+        <div class="title">採購單追蹤</div>
+        <div class="desc">業祕詢價成交後自動產出採購建議單，你確認後送鼎新。後續追蹤交期。</div>
+        <div class="stage">V2 · 第二階段開發</div>
+      </div>
+    </div>
+
+    <div id="mod-vendors" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 廠商</div><h1>廠商管理</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">🏢</div>
+        <div class="title">原廠 / 代理商主檔</div>
+        <div class="desc">廠商聯絡人、付款條件、信用條件、交期紀錄。</div>
+        <div class="stage">V2 · 第二階段開發</div>
+      </div>
+    </div>
+
+    <div id="mod-stock" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 庫存</div><h1>庫存查詢</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">📦</div>
+        <div class="title">即時庫存（從鼎新同步）</div>
+        <div class="desc">業祕報價、Candy 投標前都需要看庫存。先做唯讀查詢，第二階段再做盤點輔助。</div>
+        <div class="stage">V2 · 第二階段開發</div>
+      </div>
+    </div>
+
+    <div id="mod-receiving" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 進貨對單</div><h1>進貨對單</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">🚚</div>
+        <div class="title">原廠進貨對單</div>
+        <div class="desc">原廠寄來的 PI / Packing list 自動比對 PO，差異標出來。</div>
+        <div class="stage">V2 · 第二階段開發</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+(async function init() {
+  const profile = await guardRole('purchasing');
+  if (!profile) return;
+  renderUserInfo(profile);
+  hideLoading();
+})();
+</script>
+
+</body>
+</html>

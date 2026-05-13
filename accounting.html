@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE MED Hub · 會計</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+</head>
+<body>
+
+<div id="loading-mask" class="loading-mask"><div class="spinner"></div></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">AE MED Hub</div>
+      <span class="role-tag accounting">會計</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-module="overview" onclick="switchModule('overview')">
+        <span class="icon">📊</span><span>我的儀表板</span>
+      </div>
+      <div class="nav-item" data-module="bid-bond" onclick="switchModule('bid-bond')">
+        <span class="icon">💵</span><span>押標金對帳</span>
+      </div>
+      <div class="nav-item" data-module="perf-bond" onclick="switchModule('perf-bond')">
+        <span class="icon">💎</span><span>履保金 / 保固金對帳</span>
+      </div>
+      <div class="nav-item" data-module="invoice" onclick="switchModule('invoice')">
+        <span class="icon">🧾</span><span>發票對帳</span>
+      </div>
+      <div class="nav-item" data-module="monthly" onclick="switchModule('monthly')">
+        <span class="icon">💰</span><span>月結報表</span>
+      </div>
+      <div class="nav-item" data-module="discount" onclick="switchModule('discount')">
+        <span class="icon">📑</span><span>折讓單管理</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-name" id="user-name">—</div>
+      <div class="user-id" id="user-id">—</div>
+      <button class="btn-logout" onclick="handleLogout()">登出</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="mod-overview">
+      <div class="page-header">
+        <div>
+          <div class="breadcrumb">MedSec Hub / 會計 / 總覽</div>
+          <h1>會計儀表板</h1>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card accent">
+          <div class="label">待回填 EF 傳票號</div>
+          <div class="value">—</div>
+          <div class="delta">Candy 申請的押標金</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">本月待對發票</div>
+          <div class="value">—</div>
+          <div class="delta">業祕已成交</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">即將到期的履保金</div>
+          <div class="value">—</div>
+          <div class="delta">30 天內</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">本月折讓單</div>
+          <div class="value">—</div>
+          <div class="delta">業祕送審</div>
+        </div>
+      </div>
+
+      <div class="placeholder">
+        <div class="icon">💰</div>
+        <div class="title">會計儀表板開發中</div>
+        <div class="desc">這裡會顯示：EF 傳票回填提醒、押標金 / 履保金 / 保固金的退還追蹤、月結對帳待辦、折讓單核銷狀態。</div>
+        <div class="stage">V1 · Week 13-14 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-bid-bond" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 押標金對帳</div><h1>押標金對帳</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">💵</div>
+        <div class="title">押標金完整流程對帳</div>
+        <div class="desc">Candy 申請 → EF 系統 → 你回填傳票號 → 開標後追蹤是否得標 → 未得標的押標金退還追蹤。</div>
+        <div class="stage">V1 · Week 13-14 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-perf-bond" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 履保金 / 保固金</div><h1>履保金 / 保固金對帳</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">💎</div>
+        <div class="title">合約期間的保證金管理</div>
+        <div class="desc">得標後轉履保金 → 合約結束轉保固金 → 保固期滿退還。每筆都要追蹤到期日。</div>
+        <div class="stage">V1 · Week 13-14 開發</div>
+      </div>
+    </div>
+
+    <div id="mod-invoice" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 發票對帳</div><h1>發票對帳</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">🧾</div>
+        <div class="title">業祕成交後的發票對帳</div>
+        <div class="desc">業祕在 medteam-app 提交的發票 → 對應的醫院 PO → 應收帳款。</div>
+        <div class="stage">V2 · 第二階段開發</div>
+      </div>
+    </div>
+
+    <div id="mod-monthly" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 月結</div><h1>月結報表</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">💰</div>
+        <div class="title">月結對帳輔助</div>
+        <div class="desc">每月結算給 Lynn 看的營收、保證金佔用、未收應收。</div>
+        <div class="stage">V2 · 第二階段開發</div>
+      </div>
+    </div>
+
+    <div id="mod-discount" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 折讓單</div><h1>折讓單管理</h1></div></div>
+      <div class="placeholder">
+        <div class="icon">📑</div>
+        <div class="title">折讓計算 + 核銷</div>
+        <div class="desc">業祕送折讓申請 → 你審核 → 鼎新折讓單建立 → 沖抵應收。</div>
+        <div class="stage">V2 · 第二階段開發</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+(async function init() {
+  const profile = await guardRole('accounting');
+  if (!profile) return;
+  renderUserInfo(profile);
+  hideLoading();
+})();
+</script>
+
+</body>
+</html>
