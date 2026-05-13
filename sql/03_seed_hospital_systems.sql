@@ -1,6 +1,6 @@
 -- ============================================================
--- 03_seed_hospital_systems.sql — 從 COPI01 通路別名稱抽出的 33 種體系
--- 套用順序：02_shared_rls.sql 之後
+-- 03_seed_hospital_systems.sql · 33 種體系
+-- 套用：01_extend_existing_schema.sql + 02_extend_rls.sql 之後
 -- ============================================================
 
 insert into public.hospital_systems (code, name, copi01_name) values
