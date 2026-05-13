@@ -1,8 +1,21 @@
 # HANDOVER.md — AE MED Hub · medsec-app
 
-> 給接手的 AI / 工程師：請從頭看完這份文件再動工。
-> Lynn 的時間很貴，不要重複踩前人踩過的坑。
-> 最後更新：2026-05-13 · 分支 `claude/continue-work-lvZzm`
+> 給接手的 AI / 工程師：請從頭看完這份再動工。
+> Lynn 的時間很貴，不要重複前人的坑。
+> 最後更新：2026-05-13 · 分支 `claude/continue-work-lvZzm` · commit `93c2110`
+
+---
+
+## 0. 目前進度（一眼看完）
+
+| 階段 | 狀態 | 備註 |
+|---|---|---|
+| Week 1-2 主檔建立（profiles）| ✅ 完成 | 60 員工資料、5 個 medsec_role 開通、profiles RLS |
+| Week 3-0 角色頁面骨架 | ✅ 完成 | login + 5 角色 html + medsec-common.js / css |
+| **Week 3-0.5 共用底層 schema + seed**（本輪新增）| ✅ **SQL 草稿就緒，待 Lynn review + 套用** | sql/01-06 + sql/data/*.csv |
+| Week 3-1 報價模組 schema | ⏳ 等 Lynn 拍板（4 題見 §9）| 動 `medsec_cases` 之前要先回 4 題 |
+| Week 3-2 ~ 3-5 | ⏳ 排隊 | |
+| Week 6+ | ⏳ 排隊 | |
 
 ---
 
@@ -10,447 +23,310 @@
 
 ### 1.1 我是誰
 
-**AE MED Hub · MedSec 業務祕書平台**（簡稱 `medsec-app`）
+**AE MED Hub · medsec-app**（業務祕書平台）。亞洲鷹眼醫療儀器股份有限公司內部 SaaS。跟同公司另一個專案 `medteam-app`（業務團隊用）**共用 Supabase project + 帳號系統**，但兩個 app 各自獨立部署。
 
-亞洲鷹眼醫療儀器股份有限公司內部使用的 SaaS。跟另一個專案 `medteam-app`（業務團隊用）**共用同一個 Supabase Project / 同一套帳號系統**，但兩個 app 各自獨立部署、各自有自己的存取守門。
+### 1.2 5 角色清單（已實作守門）
 
-### 1.2 為什麼要做這個
+| `medsec_role` | 中文 | 對應頁面 | 真人 / 員工編號 | 角色色 |
+|---|---|---|---|---|
+| `manager` | 管理者 | `manager.html` | 賴瑩 `0006`（Lynn）| 紫 `#7c3aed` |
+| `bidding_team` | 標案團隊 | `candy.html` | 鄭欣菱 `0132`（Candy）| 青 `#0891b2` |
+| `purchasing` | 採購 | `cindie.html` | 周佳蓉 `0003`（Cindie）| 橘 `#ea580c` |
+| `accounting` | 會計 | `accounting.html` | 陳靖雅 `0176` | 綠 `#16a34a` |
+| `secretary` | 業務祕書 | `secretary.html` | 4 人主分區 ↓ | 桃紅 `#db2777` |
 
-公司現在的痛點：
-- **業務報價** → 業祕 30 分鐘整理決策包 → Lynn 看 → 業祕打鼎新 CRM。整個流程要 1 小時。
-- **257 家醫院規則**散在 13 份個人 Excel，請假代理人翻不到。
-- **5260 筆 INVI02 產品**的衛署字號 / QSD 文件到期，靠 Cindie 一個人記。
-- **Candy 一個人扛全公司標案**，資料散在 30 個資料夾。
-- **3 類保證金**（押標金 / 履保金 / 保固金）跨 Candy → 會計 → 業祕，沒有單一視圖。
+### 1.3 業祕主分區 4 人（Lynn 拍板優先開通）
 
-目標：把上面這些變成單一 web 平台，5 個角色各司其職，但資料共用。
+| 暱稱 | 員工編號 | 全名 | 負責家數 |
+|---|---|---|---|
+| 雅婷 | `0168` | 關雅婷 | 57 |
+| 小飛 | `0011` | 楊斯閔 | 53 |
+| 映晨 | `0150` | 黃映晨 | 45 |
+| 伶華 | `0020` | 魏伶華 | 34 |
 
-### 1.3 技術棧
+> 業祕課其實還有 4 位（彭冠豪 0129、翁若安 0140、許華翔 0156、施劭宜 0167）。V1 暫不開 `has_medsec_access`，避免代理人 RLS 變複雜。
 
-- **前端**：純靜態 HTML / CSS / Vanilla JS（不用框架，故意保持簡單）
+### 1.4 技術棧
+
+- **前端**：純靜態 HTML / CSS / Vanilla JS（不引框架、不引 build step）
 - **CDN**：`@supabase/supabase-js@2`
 - **字體**：Google Fonts `Noto Sans TC`
 - **後端**：Supabase（Auth + Postgres + RLS + Storage 預留）
-- **部署**：目前在 GitHub repo `asiaeagle-source/medsec-app`，靜態檔托管（推測是 GitHub Pages 或 Cloudflare Pages，請跟 Lynn 確認）
-
-### 1.4 5 個角色清單
-
-| `medsec_role` 值 | 中文角色 | 對應頁面 | 真人 | 角色色（sidebar tag）|
-|---|---|---|---|---|
-| `manager` | 管理者 | `manager.html` | Lynn（老闆） | 紫 `#7c3aed` |
-| `bidding_team` | 標案團隊 | `candy.html` | Candy | 青 `#0891b2` |
-| `purchasing` | 採購 | `cindie.html` | Cindie | 橘 `#ea580c` |
-| `accounting` | 會計 | `accounting.html` | 陳靖雅 | 綠 `#16a34a` |
-| `secretary` | 業務祕書 | `secretary.html` | 雅婷 / 小飛 / 映晨 / 伶華（共 4 人） | 桃紅 `#db2777` |
-
-⚠️ 角色名 **不要改**。`profiles.medsec_role` 欄位用的就是上面那 5 個英文字串（snake_case），全程式碼都對應這些字串（`medsec-common.js` 的 `ROLE_PAGE_MAP`、`guardRole()` 呼叫參數）。
+- **部署**：靜態檔托管 — repo `asiaeagle-source/medsec-app`
 
 ---
 
-## 2. 檔案結構
+## 2. 檔案結構（最新）
 
 ```
 medsec-app/
-├── README.md              ← 一行字而已，先不管
-├── index.html             ← 入口：meta refresh + JS redirect → login.html
-├── login.html             ← 登入頁（員工編號 + 密碼）
-├── manager.html           ← Lynn 的後台
-├── candy.html             ← Candy 的後台（標案）
-├── cindie.html            ← Cindie 的後台（採購）
-├── accounting.html        ← 陳靖雅的後台（會計）
-├── secretary.html         ← 業祕共用後台
-├── medsec-common.css      ← 全站共用樣式
-└── medsec-common.js       ← 全站共用 JS（Supabase client、guardRole、登出、nav 切換）
-```
-
-### 2.1 各檔案職責
-
-#### `index.html`
-- 12 行的 redirect 殼。`<meta http-equiv="refresh">` + `window.location.replace('login.html')` 雙保險。
-- 不要在這加任何邏輯。
-
-#### `login.html`
-- 員工編號 + 密碼登入。
-- 員工編號會被組成 `${emp}@medteam.internal` 假 email 丟給 `supa.auth.signInWithPassword()`（跟 medteam-app 同帳號規則）。
-- 預設密碼是 `AE` + 員工編號（例如 `0006` 的預設密碼是 `AE0006`）。
-- 登入後做兩道守門：
-  1. `has_medsec_access === true`
-  2. `medsec_role` 在 `ROLE_PAGE_MAP` 內
-- 通過 → 跳到對應角色頁面，並顯示「歡迎 ${name}，正在進入 ${ROLE_LABEL}」。
-- 沒登入也會自動跑 `autoRedirect()`：若已有 session 且權限 OK，直接跳。
-
-#### `manager.html` / `candy.html` / `cindie.html` / `accounting.html` / `secretary.html`
-**結構完全一樣**，差別只在：
-1. `<title>` 跟 sidebar 的 role-tag class / 文字
-2. nav 選單項目（每個角色看到的模組不同）
-3. 底部 `guardRole('xxx')` 傳的角色字串
-4. `mod-*` placeholder 內容（目前都還是「開發中」骨架）
-
-每個頁面的開頭都是：
-```js
-(async function init() {
-  const profile = await guardRole('manager'); // ← 換成各自角色
-  if (!profile) return;
-  renderUserInfo(profile);
-  hideLoading();
-})();
-```
-
-#### `medsec-common.css`
-- 全站樣式，已用 CSS 變數定義配色（見 §6）。
-- 包含 login 樣式、後台 sidebar + main layout、stat-card、placeholder、loading spinner、RWD（768px 以下 sidebar 變上方橫條）。
-
-#### `medsec-common.js`
-- `SUPABASE_URL` / `SUPABASE_ANON_KEY`（⚠️ 改了就要全 push）
-- `ROLE_PAGE_MAP` / `ROLE_LABEL_MAP` / `ROLE_TAG_CLASS`
-- `guardRole(requiredRole)` — 每個角色頁面進來必跑的 4 道守門：
-  1. session 存在？
-  2. profile 撈得到？
-  3. `has_medsec_access === true`？
-  4. `medsec_role === requiredRole`？（不符 → 跳回他自己的頁，避免越權）
-- `renderUserInfo(profile)` — 渲染 sidebar 底部使用者資訊
-- `handleLogout()` — 登出（含 confirm）
-- `switchModule(moduleId)` — 單頁 nav 切換 placeholder
-- `hideLoading()` — 守門通過後拿掉全屏遮罩
-
-### 2.2 守門邏輯總圖
-
-```
-使用者打開任何頁面
-    ↓
-index.html ───→ login.html
-                    ↓
-            （已登入？）
-              ↓ yes      ↓ no
-       autoRedirect    停在登入頁
-              ↓
-       輸入帳密 → supa.auth.signInWithPassword
-              ↓
-       查 profiles.has_medsec_access + medsec_role
-              ↓
-       跳到 ROLE_PAGE_MAP[medsec_role]
-              ↓
-       該頁面 init() → guardRole('xxx')
-              ↓
-       不通過 → 跳回 login.html 或他自己的頁
-       通過    → renderUserInfo + hideLoading
+├── README.md
+├── HANDOVER.md                    ← 本檔
+├── index.html                     ← 入口 redirect
+├── login.html                     ← 登入頁
+├── manager.html                   ← Lynn 後台
+├── candy.html                     ← Candy 標案後台
+├── cindie.html                    ← Cindie 採購後台
+├── accounting.html                ← 會計後台
+├── secretary.html                 ← 業祕共用後台
+├── medsec-common.css              ← 全站樣式
+├── medsec-common.js               ← 全站 JS（Supabase / guardRole）
+│
+├── sql/                           ← Supabase schema + seed（本輪新增）
+│   ├── README.md
+│   ├── IMPORT_GUIDE.md            ← Lynn 套用 Supabase 的 step-by-step
+│   ├── mapping_report.md          ← 5 份原始檔暱稱 mapping 報告
+│   ├── sources_inventory.md       ← 原始檔欄位盤點 + 策略決策
+│   ├── 01_shared_schema.sql       ← 共用底層 schema（hospitals/products/...）
+│   ├── 02_shared_rls.sql          ← RLS + helper functions + search_products RPC
+│   ├── 03_seed_hospital_systems.sql  ← 33 種體系
+│   ├── 06_seed_assignments.sql    ← 423 筆 業務+業祕 分區
+│   └── data/                      ← Studio Import 用 CSV
+│       ├── employees_for_review.csv         (60 員工)
+│       ├── hospital_systems.csv             (33 體系)
+│       ├── hospitals.csv                    (184 家醫院)
+│       ├── products.csv                     (5239 筆產品，25 MB)
+│       └── hospital_assignments.csv         (423 筆分區)
+│
+└── tools/                         ← 從原始檔產資料的 Python 腳本（本輪新增）
+    ├── generate_import_data.py    ← 讀 5 份原始檔 → 產 CSV
+    └── generate_seed_sql.py       ← 從 CSV → 產 INSERT SQL
 ```
 
 ---
 
-## 3. Supabase Schema 現狀
+## 3. AE Hub 分層原則（**最重要的架構決策**）
 
-### 3.1 已建好（跟 medteam-app 共用）
+Lynn 拍板：**「員工 / 客戶 / 區域分配等等底層資料」全 AE Hub 共用**。
 
-**`profiles` table**（重點欄位）：
+### 3.1 共用底層（不加前綴）
 
-| 欄位 | 型別 | 說明 |
+| 表 | 內容 | 用到的 app |
 |---|---|---|
-| `id` | uuid (PK) | = `auth.users.id` |
-| `employee_id` | text | 員工編號，例如 `0006` |
-| `name` | text | 真實姓名 |
-| `nickname` | text | 暱稱（sidebar 優先顯示） |
-| `has_medteam_access` | bool | medteam-app 存取權 |
-| `has_medsec_access` | bool | **medsec-app 存取權**（本專案用） |
-| `medteam_role` | text | medteam-app 角色 |
-| `medsec_role` | text | **本專案角色**（5 個值之一） |
+| `profiles` | 60 員工 + role flag | 全 app（已建）|
+| `hospital_systems` | 33 種體系（榮民 / 長庚 / 署立 / …）| 全 app |
+| `hospitals` | 184 家醫院主檔（COPI01）| 全 app |
+| `products` | 5239 筆產品（INVI02）| 全 app |
+| `hospital_assignments` | 通用「誰負責哪家」分配 | 全 app |
+| `product_base_prices` | 產品業務底價 | **只 manager 可讀寫** |
 
-### 3.2 RLS 政策現狀
+### 3.2 medsec-app 專屬（`medsec_` 前綴）
 
-- `profiles` 表 **已開 RLS**。
-- `select` 政策：登入使用者只能讀自己的 row（`auth.uid() = id`）。
-- 這對 `guardRole()` 夠用，但**後續加業務表時，RLS 要重新設計**（見 §4）。
+V1 預計建這 4 張表（Week 3-1+）：
 
-### 3.3 5 人權限狀態（請進 Supabase Studio 驗證）
-
-| 員工編號 | 名字 | `has_medsec_access` | `medsec_role` | 狀態 |
-|---|---|---|---|---|
-| ? | Lynn | true | `manager` | ✅ 已測 |
-| ? | Candy | ? | `bidding_team` | ⚠️ 待驗證 |
-| ? | Cindie | ? | `purchasing` | ⚠️ 待驗證 |
-| ? | 陳靖雅 | ? | `accounting` | ⚠️ 待驗證 |
-| ? | 雅婷 / 小飛 / 映晨 / 伶華 | ? | `secretary` | ⚠️ 待驗證 |
-
-**接手第一件事**：去 Supabase Studio 把上表填完整，並確認 4 角色（Candy / Cindie / 會計 / 業祕）的 access flag 已開、role 已填正確。
+- `medsec_cases` — 業祕案件（業務詢價 / 建碼需求）
+- `medsec_case_items` — 案件項目（每個案件下的多個產品）
+- `medsec_quote_decisions` — 決策包（AI 自動組裝 + Lynn 採納 / 調整）
+- `medsec_bonds` — 保證金（押標 / 履保 / 保固）
 
 ---
 
-## 4. 下一步要做的事（Week 3-1 ~ 3-5 路線圖）
+## 4. Supabase Schema 現狀
 
-### Week 3-1：完成 4 角色登入驗證（最優先 · 1~2 天）
+### 4.1 已建好（Week 1-2）
 
-**目標**：除了 Lynn 以外的 4 個角色（Candy、Cindie、會計、業祕）都能登入、被正確守門到自己頁面。
+`profiles` 表既有欄位重點：
+- `id` (uuid PK = auth.users.id)
+- `employee_id` (text，例 `0006`) — 員工編號（**text 不是 integer**，0 開頭會掉）
+- `name` / `nickname`
+- `has_medteam_access` / `has_medsec_access` (bool)
+- `medteam_role` / `medsec_role` (text)
 
-**步驟**：
-1. 在 Supabase Studio 確認 5 個 profile 的 `has_medsec_access` + `medsec_role` 都填好。
-2. 開無痕視窗用每個帳號實際登入跑一遍（重要：用無痕避開 session cache）。
-3. 順便測**越權跳轉**：用 Candy 帳號直接打 `manager.html`，應該被踢回 `candy.html`。
+`profiles` RLS：自己只能讀自己 row（`auth.uid() = id`）。
 
-### Week 3-2：建立業務資料表（5 天）
+### 4.2 待 Lynn review + 套用（本輪產出）
 
-照 Lynn 之前畫的 schema 草稿建以下幾張表（**SQL 草稿在 §4.6**）：
+`sql/01_shared_schema.sql` 建 5 張表 + 1 個 trigger function：
+- `hospital_systems`（33 種）
+- `hospitals`（含 COPI01 全 159 欄位的精選 + 全欄存 `raw_copi01_data` jsonb）
+- `products`（INVI02 5239 筆 + 全欄存 `raw_invi02_data` jsonb）
+- `hospital_assignments`（含 enum `salesperson` / `secretary` / `backup_secretary`）
+- `product_base_prices`（**獨立鎖 manager**，等 Lynn 底價檔）
 
-- `hospitals` — 301 家醫院主檔（從 COPI01 匯入）
-- `products` — 5260 筆產品主檔（從 INVI02 匯入）
-- `hospital_systems` — 體系主檔（榮總體系 / 台大體系 …）
-- `secretary_assignments` — 業祕 ↔ 醫院 分區
-- `hospital_rules` — 257 家醫院的規則（取代散在 Excel）
+`sql/02_shared_rls.sql` 開：
+- Helper functions：`auth_medsec_role()`、`is_global_hospital_viewer()`、`can_see_hospital()`
+- 5 表 RLS policy
+- `search_products(q, max_results)` RPC（前端唯一查產品入口）
+- `hospitals_with_system` view（自動 join 體系，給前端方便用）
 
-### Week 3-3：seed data 匯入（2 天）
+### 4.3 RLS 守門邏輯一覽
 
-寫一個 Node script 或直接用 Supabase Studio 的 CSV import：
-- COPI01 → `hospitals`
-- INVI02 → `products`
-- 4 業祕 × 186 醫院 → `secretary_assignments`
+| 表 | SELECT | INSERT/UPDATE/DELETE |
+|---|---|---|
+| `profiles` | 自己 | 自己 |
+| `hospital_systems` | 全員工 | 只 manager |
+| `hospitals` | 業務/業祕只看分配；manager/Candy/Cindie/會計 全看 | 只 manager |
+| `products` | 全員工（但前端走 `search_products` RPC）| 只 manager + purchasing |
+| `hospital_assignments` | 自己 + 代理人 + manager | 只 manager |
+| `product_base_prices` | **只 manager** | **只 manager** |
 
-### Week 3-4：重設 RLS（2 天）
-
-5 角色對業務表的讀寫權限完全不同，**舊的「只能讀自己」邏輯不夠用**。要按下表重新寫 RLS：
-
-| 表 | manager | bidding_team | purchasing | accounting | secretary |
-|---|---|---|---|---|---|
-| `hospitals` | RW | R | R | R | R |
-| `products` | RW | R | **RW** | R | R |
-| `hospital_rules` | RW | R | R | R | RW（只自己分區的）|
-| `secretary_assignments` | RW | R | — | — | R（只自己的）|
-| `tenders` (Week 10) | R | **RW** | — | R | R |
-| `bonds` (Week 13) | R | RW（押標金）| — | RW（傳票回填）| R |
-
-RLS 邏輯要靠一個 helper function：
-```sql
-create or replace function auth_medsec_role() returns text
-language sql stable as $$
-  select medsec_role from profiles where id = auth.uid()
-$$;
-```
-
-然後每個表的 policy 寫成 `auth_medsec_role() = 'manager' OR ...`。
-
-### Week 3-5：報價決策 V1 核心模組（10 天）
-
-把 manager.html 的「報價決策」placeholder 換成實際畫面：
-1. 業祕在 secretary.html 提交決策包 → insert 到 `quote_decisions` 表
-2. Lynn 在 manager.html 看 list（依 created_at desc + status='pending'）
-3. Lynn 點開看 → 顯示 CRM 規則、歷史成交、體系報價、產品底價（auto-join）
-4. Lynn 按「採納 / 調整」→ update status
-5. 業祕看到狀態變化 → 打鼎新 CRM
-
-### 4.6 Week 3-2 SQL 草稿（給接手直接貼）
-
-```sql
--- hospitals
-create table public.hospitals (
-  id           uuid primary key default gen_random_uuid(),
-  copi01_code  text unique not null,        -- COPI01 系統代碼
-  name         text not null,
-  short_name   text,
-  system_id    uuid references public.hospital_systems(id),
-  region       text,                         -- 北/中/南/東
-  level        text,                         -- 醫學中心/區域/地區
-  address      text,
-  phone        text,
-  is_active    bool default true,
-  created_at   timestamptz default now(),
-  updated_at   timestamptz default now()
-);
-create index on public.hospitals(system_id);
-create index on public.hospitals(region);
-
--- hospital_systems
-create table public.hospital_systems (
-  id          uuid primary key default gen_random_uuid(),
-  code        text unique not null,         -- 'VGH', 'NTU', ...
-  name        text not null,                -- '榮總體系'
-  note        text,
-  created_at  timestamptz default now()
-);
-
--- products
-create table public.products (
-  id              uuid primary key default gen_random_uuid(),
-  invi02_code     text unique not null,     -- 鼎新 INVI02 品號
-  name            text not null,
-  spec            text,
-  product_line    text,                     -- 產品線
-  vendor          text,                     -- 原廠
-  health_code     text,                     -- 健保碼
-  moh_license     text,                     -- 衛署字號
-  moh_expiry      date,                     -- 衛署到期日
-  qsd_version     text,
-  qsd_expiry      date,
-  base_price      numeric(12,2),
-  is_active       bool default true,
-  created_at      timestamptz default now(),
-  updated_at      timestamptz default now()
-);
-create index on public.products(moh_expiry);
-create index on public.products(qsd_expiry);
-
--- secretary_assignments
-create table public.secretary_assignments (
-  id             uuid primary key default gen_random_uuid(),
-  secretary_id   uuid not null references public.profiles(id),
-  hospital_id    uuid not null references public.hospitals(id),
-  is_primary     bool default true,
-  backup_for     uuid references public.profiles(id), -- 代理人關係
-  created_at     timestamptz default now(),
-  unique (secretary_id, hospital_id)
-);
-
--- hospital_rules
-create table public.hospital_rules (
-  id             uuid primary key default gen_random_uuid(),
-  hospital_id    uuid not null references public.hospitals(id),
-  category       text not null,             -- 'payment' | 'invoice' | 'logistics' | 'other'
-  title          text not null,             -- 例：「付款條件」
-  content        text not null,             -- 例：「月結 60 天」
-  updated_by     uuid references public.profiles(id),
-  updated_at     timestamptz default now()
-);
-create index on public.hospital_rules(hospital_id, category);
-
--- 全部開 RLS（policy 在 Week 3-4 再寫）
-alter table public.hospitals             enable row level security;
-alter table public.hospital_systems      enable row level security;
-alter table public.products              enable row level security;
-alter table public.secretary_assignments enable row level security;
-alter table public.hospital_rules        enable row level security;
-```
+⚠️ 如果未來 Candy / Cindie / 會計 要分區，改 `is_global_hospital_viewer()` 函數。
 
 ---
 
-## 5. 踩過的坑（不要再踩）
+## 5. 主檔資料現狀（待套用）
 
-### 5.1 anon key 單引號的奇葩 bug
-之前 `SUPABASE_ANON_KEY` 從 Supabase Studio 複製時，貼進 `medsec-common.js` 後**頭尾各多了一個看不見的 zero-width space**，導致 Auth API 401。
-- 修法：用編輯器選取整段 key 看長度（JWT 應該長到 220 字左右），不對就重複製。
-- 補刀：每次更新 key 後**強制刷新瀏覽器**（Ctrl+Shift+R / Cmd+Shift+R），瀏覽器會 cache 舊的 JS。
+### 5.1 來源檔 5 份
 
-### 5.2 Legacy anon key 還沒換 JWT-based key
-Supabase 在 2026 初開始推新版「publishable key」，舊的 anon key 仍有效但建議遷移。**先不要急著換**，等業務表 / RLS 都 stable 再一次性升級。
+| 來源 | 用途 |
+|---|---|
+| `_______4.xlsx` 員工總表 | 60 員工 → profiles |
+| `0fc190f9-COPI01_1.XLSX` | 301 客戶 → 篩 184 醫院 + 33 體系 |
+| `719f7d88-INVI02_1.XLSX` | 5260 筆 → 篩 5239 產品（商品分類一=商品）|
+| `93c2ca1b-hospitals_template_20260505_filled.csv` | Lynn 親自填的醫院白名單 185 家 |
+| `239363ab-_____202605111.xlsx` 分區歷史 | 取 `20260511分區` 欄當業祕最新分區 |
 
-### 5.3 強制刷新 ≠ 清 cache
-改完 JS 後即使 Ctrl+Shift+R，有時 service worker 還是吃舊版。
-- 修法：DevTools → Application → Service Workers → Unregister；或直接無痕視窗開。
+### 5.2 業務暱稱 mapping（Lynn 已拍板）
 
-### 5.4 一定要用無痕視窗測角色守門
-非無痕視窗會記住上一個 session，測「Candy 越權打 manager.html」這種場景**一定要無痕**，否則永遠看到自己 cache 的 profile。
+44 個業務暱稱，已對到員工編號 38 個 / 離職 1 個（JOSIE）/ 找不到 5 個（宇容 / 小駱 / 欣怡 / 欣翎 / 靜彤 已補 0077 董靜彤）。
 
-### 5.5 員工編號 0 開頭被當數字
-員工編號 `0006` 是 text，不是 number。如果哪天有人在 Supabase Studio 把欄位改成 integer，0006 會變 6，登入就掛了。**永遠保持 `employee_id text`**。
+> 完整 mapping：`sql/mapping_report.md`
 
-### 5.6 `meta refresh` + `window.location.replace` 雙保險
-某些瀏覽器（特別是企業 GPO 鎖過的 Edge）會擋 meta refresh，所以 `index.html` 同時用 JS。**不要拿掉其中任何一個。**
+### 5.3 醫院 4 個特殊處理
+
+| 醫院 | 處理 |
+|---|---|
+| 員榮（CSV 缺 code）| Lynn 拍板：= COPI01 `S-YUM` |
+| 星采（CSV 缺 code）| Lynn 拍板：= COPI01 `C02` |
+| 博仁綜合醫院（COPI01 沒）| Lynn 拍板：跳過 |
+| 天祥醫院 TNTC（xlsx 獨有）| Lynn 拍板：= 天成（已不納入主檔，CSV 未列）|
+
+### 5.4 衛署字號
+
+INVI02 沒有獨立的衛署字號欄位。腳本 regex 從「商品描述」抽出 768/5239 筆（剩下的格式不一致，待後續優化）。
+
+### 5.5 產品底價
+
+INVI02 「業務底價」欄全部是 0。Lynn 拍板：底價是敏感資料，鎖定最高權限。  
+→ 拆獨立表 `product_base_prices`、RLS 只 manager。**等 Lynn 提供底價檔再 import**。
 
 ---
 
-## 6. 設計風格規範
+## 6. 接手的人怎麼開始
 
-### 6.1 配色（CSS 變數已定）
+### 6.1 第一步（Week 3-0.5 收尾）
+
+跟 Lynn 確認 `sql/01_shared_schema.sql` + `sql/02_shared_rls.sql` 設計後，依 `sql/IMPORT_GUIDE.md` 把 6 個 step 跑完：
+
+1. 跑 `01_shared_schema.sql`（建表）
+2. 跑 `02_shared_rls.sql`（RLS + RPC）
+3. 跑 `03_seed_hospital_systems.sql`（33 體系）
+4. Studio Import `hospitals.csv` 到 tmp table → 合併 SQL（含 system_code → system_id lookup）
+5. Studio Import `products.csv`（5239 筆，25 MB）
+6. 跑 `06_seed_assignments.sql`（423 筆分區）
+
+跑完後**做 RLS 守門測試**（IMPORT_GUIDE.md §3）：用無痕視窗逐角色登入，看分區守門有效。
+
+### 6.2 第二步（Week 3-1 動 medsec_cases）
+
+等 Lynn 拍 §9 的 4 題後動。
+
+---
+
+## 7. 重要設計規範
+
+### 7.1 配色（CSS 變數，`medsec-common.css`）
 
 ```css
---primary: #1e3a8a;          /* 深靛主色 */
---primary-light: #3b82f6;    /* 互動 hover */
---primary-dark: #1e293b;     /* sidebar 底色 */
---accent: #6366f1;           /* 強調 */
+--primary:        #1e3a8a;   /* 深靛 */
+--primary-light:  #3b82f6;
+--primary-dark:   #1e293b;
+--accent:         #6366f1;
 
-/* 角色色（sidebar 頂部 tag 用） */
---role-manager: #7c3aed;     /* 紫 */
---role-bidding: #0891b2;     /* 青 */
---role-purchasing: #ea580c;  /* 橘 */
---role-accounting: #16a34a;  /* 綠 */
---role-secretary: #db2777;   /* 桃紅 */
-
-/* 中性 */
---bg: #f8fafc;
---surface: #ffffff;
---border: #e2e8f0;
---text: #1e293b;
+--role-manager:     #7c3aed;
+--role-bidding:     #0891b2;
+--role-purchasing:  #ea580c;
+--role-accounting:  #16a34a;
+--role-secretary:   #db2777;
 ```
 
-### 6.2 字體
+### 7.2 不要做的事
 
-- 中文：`Noto Sans TC`（已從 Google Fonts 載入）
-- 數字 / 英文：fallback 到 `-apple-system, BlinkMacSystemFont, 'Segoe UI'`
-- **不要引入新字體**，會破壞品牌一致性。
+- ❌ 不引框架（React / Vue / Svelte）
+- ❌ 不引 build step（vite / webpack）
+- ❌ 不在頁面內 hardcode Supabase URL/key（共用變數在 `medsec-common.js`）
+- ❌ 不用 inline `<style>`（樣式統一進 `medsec-common.css`）
+- ❌ 不要寫 `supa.from('products').select('*')`（5239 筆撈光，要走 `search_products` RPC）
+- ❌ 不要在 commit / PR 提到模型名稱（claude-opus-4-7 那種）
 
-### 6.3 元件用法
+### 7.3 產品搜尋（前端範例）
 
-- 頁面開頭固定有 `<div id="loading-mask">`，守門通過後才 `hideLoading()`，避免閃一下未授權的內容。
-- 大塊未實作功能 → 用 `.placeholder` 元件（dashed border + emoji icon + 「V1 · Week X 開發」黃標）。
-- 統計數字 → 用 `.stat-grid` + `.stat-card`，accent 樣式留給「最重要的那一格」。
-- 一般容器 → `.card`。
+```js
+// ✓ 用 RPC（伺服端 trgm 比對，回 10 筆最像的）
+const { data } = await supa.rpc('search_products', { q: '內視鏡', max_results: 10 });
 
-### 6.4 不要做的事
+// ✗ 不要這樣（5239 筆全撈）
+const { data } = await supa.from('products').select('*');
+```
 
-- ❌ **不要引入框架**（React / Vue / Svelte）。保持 vanilla 是刻意決定。
-- ❌ **不要引入 build step**（webpack / vite）。直接 HTML 就能跑。
-- ❌ **不要用 inline `<style>`**。樣式統一寫進 `medsec-common.css`。
-- ❌ **不要在頁面內 hardcode Supabase URL/key**。共用變數在 `medsec-common.js`。
-- ❌ **不要動 sidebar 寬度**（240px 是排版基準）。
-- ❌ **不要加任何 emoji 到 commit message / 文件以外的地方**（除非 Lynn 明確要求）。
+### 7.4 醫院查詢（用 view 含體系名）
+
+```js
+// hospitals_with_system view 已 join 進 hospital_systems
+const { data } = await supa.from('hospitals_with_system')
+  .select('id, name, short_name, region, system_name, payment_term')
+  .order('name');
+// RLS 自動擋住分配外的醫院
+```
 
 ---
 
-## 7. Lynn 的偏好
+## 8. 踩過的坑（不要再踩）
 
-- **講話直接**。不要寫「您好我是 AI 助理，很高興為您服務」這種開場。直接回答。
-- **不過度問**。能從上下文推出來的不要問。真的需要選擇時，給 2~3 個選項 + 你的推薦。
-- **繁中、台灣用語**。不要「软件」、「服务器」、「项目」、「视频」——用「軟體」、「伺服器」、「專案」、「影片」。
-- **不要用 emoji**（產出檔案內部除外，像 `medsec-common.css` 已有的 emoji icon 留著）。
-- **不要過度抽象**。三段相似的程式碼比一個過早的抽象好。
-- **commit message 要說「為什麼」**，不要只描述「改了什麼」。
-- **不要在 commit / PR 中提到 model 名稱**（claude-opus-4-7 那種 ID 不要寫進去）。
+### 8.1 anon key zero-width space
+從 Supabase Studio 複製 anon key 有時頭尾多隱形字元 → 401。長度應該 ~220 字。每次更新 key 後**強制刷新瀏覽器**（Ctrl+Shift+R）。
 
----
+### 8.2 必須用無痕視窗測角色守門
+非無痕會記前一個 session、永遠看自己 cache 的 profile。測「越權」一定要無痕。
 
-## 8. 立刻可以動工的第一步
+### 8.3 員工編號 text 不要 integer
+`0006` 是 text，改 integer 會變 6。
 
-**Week 3-1 — 完成 4 角色登入驗證**
+### 8.4 鼎新 xlsx 匯出有壞 style
+COPI01 / INVI02 用 openpyxl 讀會掛（`_NamedCellStyle.name should be str but None`），改用 `xlsx2csv` 套件穩定。
 
-```
-1. 開 Supabase Studio
-   → Authentication > Users：確認 5 個帳號都存在
-   → Table Editor > profiles：5 個 row 的
-     - has_medsec_access = true
-     - medsec_role ∈ {manager, bidding_team, purchasing, accounting, secretary}
+### 8.5 「鄒婉萱(SCS)」/「子恩(SPS)」括號註記
+CSV 業務全名有時帶 `(SCS)` `(SPS)` 品牌標註。`split_names()` 內已 regex 去掉括號內容才能對到員工。
 
-2. 開 5 個無痕視窗，分別用 5 個帳號登入：
-   - Lynn   → 應跳到 manager.html
-   - Candy  → 應跳到 candy.html
-   - Cindie → 應跳到 cindie.html
-   - 陳靖雅 → 應跳到 accounting.html
-   - 業祕   → 應跳到 secretary.html
-
-3. 測越權：用 Candy 登入後手動改 URL 到 /manager.html
-   → 應被 guardRole('manager') 踢回 /candy.html
-
-4. 測登出：每個帳號按登出 → 應跳回 login.html，session 清空
-
-5. 全部 PASS 後，到 GitHub 開 issue「Week 3-1 完成」並列出測試結果。
-   PASS 才能動 Week 3-2 schema。
-```
-
-如果某個帳號登不進去，常見原因排序：
-1. profile.has_medsec_access 是 false（最常見）
-2. medsec_role 拼錯（例如 `Manager` 而不是 `manager`）
-3. 密碼錯（重設用 Supabase Studio 的 Reset password）
+### 8.6 Supabase Studio CSV import 不支援自動 FK lookup
+`hospitals.csv` 有 `system_code` 但表是 `system_id` (uuid)。  
+→ 解法：先 import 到 tmp table，再 SQL 一支 join 寫進正式表（見 `sql/IMPORT_GUIDE.md` Step 2.2）。
 
 ---
 
-## 9. 最後叮嚀
+## 9. ⏳ 等 Lynn 拍板的 4 題（動 Week 3-1 之前要回）
 
-**先幫 Lynn 做完 4 角色登入驗證。**
+| # | 問題 | 用途 |
+|---|---|---|
+| 1 | `medsec_cases` ↔ medteam-app 怎麼關聯？業務在 medteam INSERT 進 `medsec_cases`（共用同表），還是 medteam 有自己的 `medteam_cases`、靠 `medteam_case_id` 外鍵？ | 影響 schema 設計 |
+| 2 | 案件編號格式（`YYMMDD-NNN`？`MS-2026-0001`？）| 影響 trigger |
+| 3 | `medsec_cases.status` 完整 enum（pending → claimed → packaging → pending_decision → decided → crm_sent → closed？有沒有「退回」「補件」？）| 影響 enum |
+| 4 | AI 決策包用什麼引擎（Claude API / OpenAI / SQL aggregate）？影響 `medsec_quote_decisions.reasoning` 是 text 還是 jsonb | 影響 schema |
 
-骨架已經寫好了，剩下的是資料層的事。不要急著開新模組、不要急著重構、不要急著「順手優化」guardRole — 它已經夠用了。
+---
 
-接到任務的順序：
-1. ✅ 跑 §8 把 4 角色登入驗完
-2. ✅ 把 §3.3 的表格填完整、推給 Lynn 確認
-3. ✅ 開始 §4.6 的 schema（**先 review SQL，等 Lynn 點頭再 apply**，schema 一旦動了 RLS 也要跟著動）
-4. ✅ Week 3-3 seed data 之前，先用 5~10 筆假資料測 RLS
-5. ✅ 任何疑問 → 直接問 Lynn，**不要自己猜**
+## 10. Lynn 偏好
 
-Good luck. 把這個平台做出來，4 個業祕扛 186 家醫院的日子會輕鬆很多。
+- **直接**。不要寫「您好我是 AI 助理」這種開場。
+- **不過度問**。能從上下文推出來的不問。需要選擇時，給 2-3 個選項 + 推薦。
+- **繁中、台灣用語**（軟體 / 伺服器 / 專案 / 影片）。
+- **不用 emoji**（產品檔內既有的 icon emoji 留著）。
+- **不過度抽象**。三段相似程式碼比一個過早抽象好。
+- **commit message 說「為什麼」**而非「改了什麼」。
+- **commit / PR 不寫模型 ID**。
 
-— 前一棒交接 · 2026-05-13
+---
+
+## 11. 最後叮嚀
+
+照順序：
+
+1. ✅ 先把 §6.1 的 6 個 Supabase step 跑完
+2. ✅ 做 RLS 守門測試（每個角色用無痕視窗實際登入測一遍）
+3. ⏳ 跟 Lynn 拿產品底價檔 → 跑 update script 灌 `product_base_prices`
+4. ⏳ 等 Lynn 拍 §9 四題 → 動 `medsec_cases` schema
+5. ⏳ Week 3-2 起依路線圖推
+
+碰到沒寫到的情境 → 直接問 Lynn，不要自己猜。
+
+— 接手 · 2026-05-13
