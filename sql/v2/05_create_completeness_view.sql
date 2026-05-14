@@ -26,7 +26,7 @@
 CREATE OR REPLACE VIEW public.medsec_hospital_rule_completeness AS
 SELECT
   h.id            AS hospital_id,
-  h.name          AS hospital_name,
+  h.name_short    AS hospital_name,                              -- V1 是 name_full / name_short 兩欄，UI 卡用短名
   CASE
     WHEN r.hospital_id IS NULL THEN 0
     ELSE (
