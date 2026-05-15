@@ -67,6 +67,18 @@
     <div class="rules-grid" id="rules-grid"></div>
   </div>
 
+  <!-- 院內碼對照 (COPI10) -->
+  <div class="hp-section">
+    <div class="hp-section-title">
+      院內碼對照
+      <input type="text" id="hpc-search" placeholder="搜我方品號 / 院內碼 / 品名..." class="search-input" style="width:280px;margin-left:8px">
+      <span class="hp-section-pct" id="hpc-count">0 筆</span>
+    </div>
+    <div class="hpc-list-wrap" id="hpc-list">
+      <div class="hp-empty">載入中…</div>
+    </div>
+  </div>
+
   <!-- 收件地址 -->
   <div class="hp-section">
     <div class="hp-section-title">
@@ -132,6 +144,8 @@ const state = {
   addresses: [],            // medsec_hospital_shipping_addresses
   credentials: [],          // medsec_hospital_credentials
   discounts: [],            // medsec_discount_rules
+  productCodes: [],         // medsec_hospital_product_codes
+  pcSearch: '',
   primarySecretary: null,   // profiles row (主祕)
   coSecretary: null,        // profiles row (副祕)
 };
@@ -159,15 +173,18 @@ const state = {
     loadCredentials(),
     loadDiscounts(),
     loadAssignment(),
+    loadProductCodes(),
   ]);
 
   renderHospitalHeader();
   renderCompleteness();
   renderRules();
+  renderProductCodes();
   renderAddresses();
   renderCredentials();
   renderDiscounts();
   maybeShowModeA();
+  bindProductCodeSearch();
 
   mountAskFab({ hospitalId: state.hospitalId });
   hideLoading();
@@ -240,6 +257,17 @@ async function loadDiscounts() {
     .select('*')
     .eq('hospital_id', state.hospitalId);
   state.discounts = data || [];
+}
+
+async function loadProductCodes() {
+  // 單一醫院可能上千筆 (CKUS 1992),撈全部 client-side filter
+  const { data, error } = await supa.from('medsec_hospital_product_codes')
+    .select('product_code, product_name, product_spec, hospital_item_code, hospital_item_name, warranty_months, effective_date')
+    .eq('hospital_id', state.hospitalId)
+    .order('product_code')
+    .limit(5000);
+  if (error) console.warn('[loadProductCodes]', error);
+  state.productCodes = data || [];
 }
 
 async function loadAssignment() {
@@ -315,6 +343,59 @@ function renderRules() {
       </div>
     `;
   }).join('');
+}
+
+function bindProductCodeSearch() {
+  const inp = document.getElementById('hpc-search');
+  if (!inp || inp.dataset.bound === '1') return;
+  inp.dataset.bound = '1';
+  inp.addEventListener('input', e => {
+    state.pcSearch = e.target.value.trim().toLowerCase();
+    renderProductCodes();
+  });
+}
+
+function renderProductCodes() {
+  const wrap = document.getElementById('hpc-list');
+  const all = state.productCodes;
+  const q = state.pcSearch;
+  const rows = q
+    ? all.filter(r =>
+        (r.product_code || '').toLowerCase().includes(q) ||
+        (r.product_name || '').toLowerCase().includes(q) ||
+        (r.hospital_item_code || '').toLowerCase().includes(q) ||
+        (r.hospital_item_name || '').toLowerCase().includes(q))
+    : all;
+  document.getElementById('hpc-count').textContent = q
+    ? `${rows.length} / ${all.length} 筆`
+    : `${all.length} 筆`;
+  if (all.length === 0) {
+    wrap.innerHTML = '<div class="hp-empty">無院內碼對照 (COPI10 沒這家 / ETL 未灌)</div>';
+    return;
+  }
+  if (rows.length === 0) {
+    wrap.innerHTML = `<div class="hp-empty">無符合「${escapeHtml(q)}」</div>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <table class="discounts-table">
+      <thead>
+        <tr><th style="width:110px">我方品號</th><th>我方品名</th><th style="width:130px">院內碼</th><th>院方品名</th><th style="width:70px">保固月</th></tr>
+      </thead>
+      <tbody>
+        ${rows.slice(0, 1000).map(r => `
+          <tr>
+            <td><code>${escapeHtml(r.product_code || '—')}</code></td>
+            <td>${escapeHtml(r.product_name || '—')}</td>
+            <td><code>${escapeHtml(r.hospital_item_code || '—')}</code></td>
+            <td>${escapeHtml(r.hospital_item_name || '—')}</td>
+            <td>${r.warranty_months != null ? r.warranty_months : '—'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ${rows.length > 1000 ? `<div class="hp-empty">… 共 ${rows.length} 筆,顯示前 1000,用搜尋縮小</div>` : ''}
+  `;
 }
 
 function renderAddresses() {
