@@ -455,6 +455,25 @@ body {
   color: var(--text-muted);
 }
 
+/* search input (filter-bar 內) */
+.search-input {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+  width: 280px;
+  max-width: 100%;
+  transition: border-color 0.12s;
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+}
+
 /* 案件列表 */
 .case-list-wrap {
   background: var(--surface);
@@ -702,9 +721,543 @@ body {
 /* modal 內主 btn 沿用 .btn-primary，覆寫 width auto */
 .modal-footer .btn-primary { width: auto; padding: 8px 18px; font-size: 13px; }
 
+/* ============================================================
+   V2 Sprint 1 §3.1 · 我負責的醫院 grid + 完整度卡片
+   ============================================================ */
+
+.section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 4px 0 14px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.section-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.section-hint {
+  font-size: 12px;
+  color: var(--text-light);
+  font-weight: 400;
+  margin-left: auto;
+}
+
+.my-hospitals-section {
+  margin-bottom: 32px;
+}
+
+.hospital-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.hospital-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.hospital-card:hover {
+  border-color: var(--primary-light);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.hospital-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+.hospital-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 公司別徽章（int 1=AE 雄鷹紫 / 2=LD 君華綠）*/
+.company-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  color: white;
+  flex-shrink: 0;
+}
+.company-AE { background: #1e3a8a; }
+.company-LD { background: #16a34a; }
+
+/* 完整度 progress bar */
+.completeness-bar-wrap {
+  background: var(--border);
+  height: 6px;
+  border-radius: 3px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.completeness-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+  min-width: 2px;            /* 0% 也看得到一點點起始位 */
+}
+.completeness-bar.tone-good { background: var(--success); }
+.completeness-bar.tone-warn { background: var(--warning); }
+.completeness-bar.tone-bad  { background: var(--danger); }
+
+.completeness-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.completeness-text strong {
+  color: var(--text);
+  font-weight: 700;
+}
+.completeness-done {
+  color: var(--success);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* 缺欄位 chips */
+.missing-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+  min-height: 22px;
+}
+.missing-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.missing-chip.more {
+  background: #f1f5f9;
+  color: var(--text-muted);
+}
+
+/* 卡片底部按鈕 */
+.hospital-card-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-fill-rules,
+.btn-detail {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn-fill-rules:hover:not(:disabled) {
+  background: #fef3c7;
+  border-color: #fbbf24;
+  color: #92400e;
+}
+.btn-detail:hover {
+  background: #eff6ff;
+  border-color: var(--primary-light);
+  color: var(--primary);
+}
+.btn-fill-rules:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   V2 Sprint 1 §3.2 · hospital.html 單一醫院詳細頁
+   ============================================================ */
+
+body.hospital-page {
+  background: var(--bg);
+}
+
+/* 頂列（取代 sidebar，hospital.html 跨角色共用）*/
+.topbar {
+  background: var(--primary-dark);
+  color: white;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.topbar-back {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+}
+.topbar-back:hover { background: rgba(255,255,255,0.2); }
+.topbar-title {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  flex: 1;
+}
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.topbar-user-name { font-weight: 500; }
+.btn-logout-topbar {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.85);
+  padding: 5px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+.btn-logout-topbar:hover { background: rgba(255,255,255,0.1); }
+
+.hospital-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 32px 60px;
+}
+
+/* 醫院 header */
+.hospital-header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.hospital-header-id {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.hospital-header-name {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.hospital-header-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+.badge-warn {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 模式 A 提醒卡 */
+.mode-a-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(90deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #fbbf24;
+  border-left: 4px solid #d97706;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.mode-a-icon { font-size: 28px; }
+.mode-a-body { flex: 1; }
+.mode-a-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #78350f;
+  margin-bottom: 2px;
+}
+.mode-a-desc {
+  font-size: 13px;
+  color: #92400e;
+}
+.mode-a-actions {
+  display: flex;
+  gap: 8px;
+}
+.mode-a-actions .btn-primary,
+.mode-a-actions .btn-secondary {
+  width: auto;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+/* hospital page section 共用 */
+.hp-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 22px;
+  margin-bottom: 14px;
+}
+.hp-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hp-section-pct {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  margin-left: auto;
+}
+.hp-section-pct strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+.hp-section-hint {
+  font-size: 11px;
+  color: var(--text-light);
+  font-weight: 400;
+}
+.hp-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 12px 0;
+}
+
+/* 完整度 bar 大版 */
+.completeness-bar-wrap.large {
+  height: 8px;
+  margin-bottom: 10px;
+}
+
+/* 9 欄操作規則 grid */
+.rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 8px 24px;
+}
+.rule-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.rule-row:last-child { border-bottom: none; }
+.rule-label {
+  flex-shrink: 0;
+  width: 80px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.rule-value {
+  flex: 1;
+  color: var(--text);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.rule-row-empty .rule-label { color: var(--warning); }
+.rule-missing {
+  color: var(--text-light);
+  font-style: italic;
+}
+
+/* 收件地址卡 */
+.addresses-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+}
+.addr-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+.addr-card.addr-primary {
+  border-color: var(--primary-light);
+  background: #eff6ff;
+}
+.addr-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.addr-recipient { font-weight: 600; }
+.addr-title { color: var(--text-muted); font-size: 12px; }
+.addr-primary-tag {
+  background: var(--primary);
+  color: white;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  margin-left: auto;
+}
+.addr-line { color: var(--text); margin-bottom: 4px; }
+.addr-contact { color: var(--text-muted); font-size: 12px; }
+.addr-notes {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #f8fafc;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 平台帳密卡 */
+.credentials-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 10px;
+}
+.cred-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 13px;
+  background: #fafafa;
+}
+.cred-card.cred-needs-review {
+  border-color: #fbbf24;
+  background: #fefce8;
+}
+.cred-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cred-platform { font-weight: 700; }
+.cred-review-tag {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  margin-left: auto;
+}
+.cred-url {
+  font-size: 12px;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+.cred-url a { color: var(--primary-light); text-decoration: none; }
+.cred-url a:hover { text-decoration: underline; }
+.cred-secret-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+}
+.cred-label {
+  width: 36px;
+  color: var(--text-muted);
+  font-family: 'Noto Sans TC', sans-serif;
+}
+.cred-secret { flex: 1; color: var(--text); }
+.cred-meta {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.cred-notes {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: white;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.btn-copy {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn-copy:hover { background: var(--bg); border-color: var(--primary-light); }
+
+/* 折讓表格 */
+.discounts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.discounts-table thead th {
+  text-align: left;
+  background: #f1f5f9;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid var(--border);
+}
+.discounts-table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.discounts-table tbody tr:last-child td { border-bottom: none; }
+.discount-notes {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 280px;
+}
+
 /* RWD（手機簡單支援，後續再優化）*/
 @media (max-width: 768px) {
   .sidebar { width: 100%; position: relative; height: auto; }
   .main { margin-left: 0; padding: 16px; }
   .modal-meta-grid { grid-template-columns: 1fr; }
+  .hospital-grid { grid-template-columns: 1fr; }
+  .hospital-main { padding: 16px; }
+  .rules-grid { grid-template-columns: 1fr; }
+  .addresses-list { grid-template-columns: 1fr; }
+  .credentials-list { grid-template-columns: 1fr; }
 }

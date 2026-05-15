@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE MED Hub · 醫院規則</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+</head>
+<body class="hospital-page">
+
+<div id="loading-mask" class="loading-mask"><div class="spinner"></div></div>
+
+<!-- 頂列 (取代 sidebar - hospital.html 跨角色共用，不掛固定 nav) -->
+<div class="topbar">
+  <button class="topbar-back" onclick="onBack()">← 返回</button>
+  <div class="topbar-title">MedSec Hub · 醫院規則</div>
+  <div class="topbar-user">
+    <span class="topbar-user-name" id="topbar-user-name">—</span>
+    <span class="role-tag" id="topbar-role-tag">—</span>
+    <button class="btn-logout-topbar" onclick="handleLogout()">登出</button>
+  </div>
+</div>
+
+<main class="hospital-main">
+
+  <!-- 醫院 header -->
+  <div class="hospital-header">
+    <div class="hospital-header-id" id="h-id">—</div>
+    <div class="hospital-header-name" id="h-name">載入中…</div>
+    <div class="hospital-header-meta" id="h-meta">—</div>
+  </div>
+
+  <!-- 模式 A 提醒卡 (completeness < 80% 時跳，7 天頻率) -->
+  <div id="mode-a-card" class="mode-a-card" hidden>
+    <div class="mode-a-icon">⚠️</div>
+    <div class="mode-a-body">
+      <div class="mode-a-title">這家醫院的規則還沒填齊</div>
+      <div class="mode-a-desc">完整度 <strong id="mode-a-pct">—</strong>%。3 分鐘逐題補完，下次代理 / 新人接手不用問你。</div>
+    </div>
+    <div class="mode-a-actions">
+      <button class="btn-primary" id="mode-a-fill" onclick="onFillRules()">逐題補</button>
+      <button class="btn-secondary" onclick="dismissModeA()">下次再說</button>
+    </div>
+  </div>
+
+  <!-- 規則完整度 -->
+  <div class="hp-section">
+    <div class="hp-section-title">
+      規則完整度
+      <span class="hp-section-pct" id="completeness-text">—</span>
+    </div>
+    <div class="completeness-bar-wrap large">
+      <div class="completeness-bar" id="completeness-bar" style="width:0%"></div>
+    </div>
+    <div class="missing-chips" id="missing-chips"></div>
+  </div>
+
+  <!-- 9 欄操作規則 -->
+  <div class="hp-section">
+    <div class="hp-section-title">
+      操作規則 (9 欄)
+      <span class="hp-section-hint">改動須經 Lynn 或伶華 approve</span>
+    </div>
+    <div class="rules-grid" id="rules-grid"></div>
+  </div>
+
+  <!-- 收件地址 -->
+  <div class="hp-section">
+    <div class="hp-section-title">
+      收件地址
+      <span class="hp-section-hint" id="addresses-count">0 筆</span>
+    </div>
+    <div class="addresses-list" id="addresses-list">
+      <div class="hp-empty">載入中…</div>
+    </div>
+  </div>
+
+  <!-- 平台帳密 (RLS 限主祕 + 副祕 + manager / 伶華) -->
+  <div class="hp-section">
+    <div class="hp-section-title">
+      平台帳密
+      <span class="hp-section-hint">RLS 限主/副祕 + 管理層</span>
+      <span class="hp-section-pct" id="credentials-count">0 筆</span>
+    </div>
+    <div class="credentials-list" id="credentials-list">
+      <div class="hp-empty">載入中…</div>
+    </div>
+  </div>
+
+  <!-- 折讓規則 -->
+  <div class="hp-section">
+    <div class="hp-section-title">
+      折讓規則
+      <span class="hp-section-pct" id="discounts-count">0 筆</span>
+    </div>
+    <div class="discounts-list" id="discounts-list">
+      <div class="hp-empty">載入中…</div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+
+const RULE_FIELD_LABEL = {
+  order_mode:           '叫貨方式',
+  shipping_destination: '出貨地點',
+  shipping_method:      '出貨方式',
+  packaging_notes:      '包貨注意',
+  invoice_mode:         '發票模式',
+  invoice_track:        '發票字軌',
+  payment_cycle_note:   '付款週期',
+  invoice_product_name: '發票品名',
+  case_close_method:    '結案方式',
+};
+const RULE_FIELDS_ORDER = Object.keys(RULE_FIELD_LABEL);
+
+const MODE_A_LOCALSTORAGE_PREFIX = 'mode_a_shown_';
+const MODE_A_SUPPRESS_DAYS = 7;
+
+const state = {
+  profile: null,
+  hospitalId: null,
+  hospital: null,           // medsec_hospitals row
+  rules: null,              // medsec_hospital_operation_rules row (or null)
+  completeness: null,       // {completeness_pct, missing_fields}
+  addresses: [],            // medsec_hospital_shipping_addresses
+  credentials: [],          // medsec_hospital_credentials
+  discounts: [],            // medsec_discount_rules
+  primarySecretary: null,   // profiles row (主祕)
+  coSecretary: null,        // profiles row (副祕)
+};
+
+(async function init() {
+  // URL ?id=XXX
+  const params = new URLSearchParams(window.location.search);
+  state.hospitalId = params.get('id');
+  if (!state.hospitalId) {
+    document.body.innerHTML = '<div style="padding:60px;text-align:center;color:#dc2626">缺 ?id 參數。範例：hospital.html?id=NTHN</div>';
+    return;
+  }
+
+  state.profile = await guardAnyMedsecRole();
+  if (!state.profile) return;
+
+  renderTopbar(state.profile);
+
+  // 平行撈 7 個 datasource
+  await Promise.all([
+    loadHospital(),
+    loadRules(),
+    loadCompleteness(),
+    loadAddresses(),
+    loadCredentials(),
+    loadDiscounts(),
+    loadAssignment(),
+  ]);
+
+  renderHospitalHeader();
+  renderCompleteness();
+  renderRules();
+  renderAddresses();
+  renderCredentials();
+  renderDiscounts();
+  maybeShowModeA();
+
+  hideLoading();
+})();
+
+/* ----- topbar ----- */
+function renderTopbar(profile) {
+  document.getElementById('topbar-user-name').textContent =
+    profile.nickname || profile.name || profile.employee_id;
+  const tagEl = document.getElementById('topbar-role-tag');
+  tagEl.textContent = ROLE_LABEL_MAP[profile.medsec_role] || profile.medsec_role;
+  tagEl.className = `role-tag ${ROLE_TAG_CLASS[profile.medsec_role] || ''}`;
+}
+
+function onBack() {
+  if (document.referrer && document.referrer !== window.location.href) {
+    window.history.back();
+  } else {
+    const home = ROLE_PAGE_MAP[state.profile.medsec_role] || 'login.html';
+    window.location.href = home;
+  }
+}
+
+/* ----- loaders ----- */
+async function loadHospital() {
+  const { data, error } = await supa.from('medsec_hospitals')
+    .select('id, name_short, name_full, invoice_company, region_name, system_prefix, customer_type, primary_secretary, co_secretary, status')
+    .eq('id', state.hospitalId)
+    .maybeSingle();
+  if (error) console.warn('[loadHospital]', error);
+  state.hospital = data;
+}
+
+async function loadRules() {
+  const { data, error } = await supa.from('medsec_hospital_operation_rules')
+    .select('*')
+    .eq('hospital_id', state.hospitalId)
+    .maybeSingle();
+  if (error) console.warn('[loadRules]', error);
+  state.rules = data;
+}
+
+async function loadCompleteness() {
+  const { data } = await supa.from('medsec_hospital_rule_completeness')
+    .select('completeness_pct, missing_fields')
+    .eq('hospital_id', state.hospitalId)
+    .maybeSingle();
+  state.completeness = data || { completeness_pct: 0, missing_fields: RULE_FIELDS_ORDER.slice() };
+}
+
+async function loadAddresses() {
+  const { data } = await supa.from('medsec_hospital_shipping_addresses')
+    .select('*')
+    .eq('hospital_id', state.hospitalId);
+  state.addresses = data || [];
+}
+
+async function loadCredentials() {
+  const { data, error } = await supa.from('medsec_hospital_credentials')
+    .select('*')
+    .eq('hospital_id', state.hospitalId);
+  // RLS denies row → data 是空陣列；error 不會丟
+  if (error) console.warn('[loadCredentials]', error);
+  state.credentials = data || [];
+}
+
+async function loadDiscounts() {
+  const { data } = await supa.from('medsec_discount_rules')
+    .select('*')
+    .eq('hospital_id', state.hospitalId);
+  state.discounts = data || [];
+}
+
+async function loadAssignment() {
+  const { data } = await supa.from('medsec_secretary_assignments')
+    .select('primary_secretary_id, co_secretary_id')
+    .eq('hospital_id', state.hospitalId)
+    .maybeSingle();
+  if (!data) return;
+  const ids = [data.primary_secretary_id, data.co_secretary_id].filter(Boolean);
+  if (!ids.length) return;
+  const { data: profs } = await supa.from('profiles')
+    .select('id, name, nickname, employee_id')
+    .in('id', ids);
+  const map = {};
+  (profs || []).forEach(p => { map[p.id] = p; });
+  state.primarySecretary = map[data.primary_secretary_id] || null;
+  state.coSecretary = map[data.co_secretary_id] || null;
+}
+
+/* ----- renders ----- */
+function renderHospitalHeader() {
+  const h = state.hospital;
+  if (!h) {
+    document.getElementById('h-name').textContent = `醫院 ${state.hospitalId} 不存在或無權限`;
+    document.getElementById('h-id').textContent = state.hospitalId;
+    return;
+  }
+  document.getElementById('h-id').textContent = h.id;
+  document.getElementById('h-name').innerHTML = `
+    ${escapeHtml(h.name_short || h.name_full || h.id)}
+    <span class="company-badge company-${companyBadge(h.invoice_company)}">${companyBadge(h.invoice_company)}</span>
+  `;
+  const metaParts = [
+    h.region_name && `區域：${escapeHtml(h.region_name)}`,
+    h.system_prefix && `體系：${escapeHtml(h.system_prefix)}`,
+    h.customer_type && `類型：${escapeHtml(h.customer_type)}`,
+    state.primarySecretary && `主祕：${escapeHtml(state.primarySecretary.nickname || state.primarySecretary.name)}`,
+    state.coSecretary && `副祕：${escapeHtml(state.coSecretary.nickname || state.coSecretary.name)}`,
+    h.status && h.status !== 'active' && `<span class="badge-warn">狀態：${escapeHtml(h.status)}</span>`,
+  ].filter(Boolean);
+  document.getElementById('h-meta').innerHTML = metaParts.join(' &nbsp;·&nbsp; ');
+}
+
+function renderCompleteness() {
+  const c = state.completeness;
+  const tone = completenessTone(c.completeness_pct);
+  document.getElementById('completeness-text').innerHTML = `<strong>${c.completeness_pct}%</strong>`;
+  const bar = document.getElementById('completeness-bar');
+  bar.style.width = `${c.completeness_pct}%`;
+  bar.className = `completeness-bar tone-${tone}`;
+  const chipsEl = document.getElementById('missing-chips');
+  if (!c.missing_fields || c.missing_fields.length === 0) {
+    chipsEl.innerHTML = '<span class="completeness-done">✓ 9 欄全填</span>';
+  } else {
+    chipsEl.innerHTML = c.missing_fields.map(f =>
+      `<span class="missing-chip">${escapeHtml(MISSING_FIELD_LABEL[f] || f)}</span>`
+    ).join('');
+  }
+}
+
+function renderRules() {
+  const grid = document.getElementById('rules-grid');
+  const r = state.rules || {};
+  grid.innerHTML = RULE_FIELDS_ORDER.map(field => {
+    const val = r[field];
+    const filled = val != null && val !== '';
+    return `
+      <div class="rule-row ${filled ? '' : 'rule-row-empty'}">
+        <div class="rule-label">${escapeHtml(RULE_FIELD_LABEL[field])}</div>
+        <div class="rule-value">${filled ? escapeHtml(String(val)) : '<span class="rule-missing">— 待補</span>'}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderAddresses() {
+  const list = document.getElementById('addresses-list');
+  document.getElementById('addresses-count').textContent = `${state.addresses.length} 筆`;
+  if (state.addresses.length === 0) {
+    list.innerHTML = '<div class="hp-empty">尚無收件地址 (medsec_hospital_shipping_addresses 0 筆)</div>';
+    return;
+  }
+  list.innerHTML = state.addresses.map(a => `
+    <div class="addr-card ${a.is_primary ? 'addr-primary' : ''}">
+      <div class="addr-header">
+        <span class="addr-recipient">${escapeHtml(a.recipient_name || a.recipient_role || '—')}</span>
+        ${a.recipient_title ? `<span class="addr-title">${escapeHtml(a.recipient_title)}</span>` : ''}
+        ${a.is_primary ? '<span class="addr-primary-tag">主要</span>' : ''}
+      </div>
+      <div class="addr-line">${escapeHtml([a.zip_code, a.address].filter(Boolean).join(' '))}</div>
+      <div class="addr-contact">
+        ${a.phone ? `📞 ${escapeHtml(a.phone)}${a.ext ? ` 分機 ${escapeHtml(a.ext)}` : ''}` : ''}
+        ${a.email ? ` ✉️ ${escapeHtml(a.email)}` : ''}
+      </div>
+      ${a.notes ? `<div class="addr-notes">${escapeHtml(a.notes)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function renderCredentials() {
+  const list = document.getElementById('credentials-list');
+  document.getElementById('credentials-count').textContent = `${state.credentials.length} 筆`;
+  if (state.credentials.length === 0) {
+    list.innerHTML = '<div class="hp-empty">無帳密（你不是這家主/副祕？或這家平台帳密真的還沒登錄）</div>';
+    return;
+  }
+  list.innerHTML = state.credentials.map(c => `
+    <div class="cred-card ${c.needs_review ? 'cred-needs-review' : ''}">
+      <div class="cred-header">
+        <span class="cred-platform">${escapeHtml(c.platform)}</span>
+        ${c.needs_review ? '<span class="cred-review-tag">⚠ 待業祕審</span>' : ''}
+      </div>
+      ${c.url ? `<div class="cred-url"><a href="${escapeAttr(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.url)}</a></div>` : ''}
+      <div class="cred-secret-row">
+        <span class="cred-label">帳號</span>
+        <span class="cred-secret">${c.account ? escapeHtml(c.account) : '—'}</span>
+        ${c.account ? `<button class="btn-copy" onclick="copyText('${escapeAttr(c.account)}')">複製</button>` : ''}
+      </div>
+      <div class="cred-secret-row">
+        <span class="cred-label">密碼</span>
+        <span class="cred-secret cred-pwd" id="pwd-${c.id}">${c.password ? '••••••••' : '—'}</span>
+        ${c.password ? `<button class="btn-copy" onclick="togglePwd('${c.id}', this)">顯示</button>` : ''}
+        ${c.password ? `<button class="btn-copy" onclick="copyText('${escapeAttr(c.password)}')">複製</button>` : ''}
+      </div>
+      ${c.tax_id ? `<div class="cred-meta">統編：${escapeHtml(c.tax_id)}</div>` : ''}
+      ${c.notes ? `<div class="cred-notes">${escapeHtml(c.notes)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function renderDiscounts() {
+  const list = document.getElementById('discounts-list');
+  document.getElementById('discounts-count').textContent = `${state.discounts.length} 筆`;
+  if (state.discounts.length === 0) {
+    list.innerHTML = '<div class="hp-empty">無折讓規則</div>';
+    return;
+  }
+  list.innerHTML = `
+    <table class="discounts-table">
+      <thead>
+        <tr>
+          <th>產品</th><th>類型</th><th>原單價</th><th>折讓</th><th>實際成交</th><th>備註</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${state.discounts.map(d => `
+          <tr>
+            <td>${escapeHtml(d.product_code || '全院通用')}</td>
+            <td>${escapeHtml(d.discount_type || '—')}</td>
+            <td>${d.unit_price != null ? Number(d.unit_price).toLocaleString() : '—'}</td>
+            <td>${d.discount_amount != null ? Number(d.discount_amount).toLocaleString() : '—'}</td>
+            <td>${d.final_price != null ? Number(d.final_price).toLocaleString() : '—'}</td>
+            <td class="discount-notes">${escapeHtml(d.notes || '')}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+/* ----- 模式 A 自動跳卡（7 天 localStorage 抑制）----- */
+function maybeShowModeA() {
+  if (!state.completeness || state.completeness.completeness_pct >= 80) return;
+  const key = MODE_A_LOCALSTORAGE_PREFIX + state.hospitalId;
+  const lastShown = parseInt(localStorage.getItem(key) || '0', 10);
+  const elapsedDays = (Date.now() - lastShown) / (24 * 3600 * 1000);
+  if (lastShown && elapsedDays < MODE_A_SUPPRESS_DAYS) return;
+
+  document.getElementById('mode-a-pct').textContent = state.completeness.completeness_pct;
+  document.getElementById('mode-a-card').hidden = false;
+  localStorage.setItem(key, String(Date.now()));
+}
+
+function dismissModeA() {
+  document.getElementById('mode-a-card').hidden = true;
+}
+
+function onFillRules() {
+  // batch E rule-chat.html 才接,這裡先 alert
+  alert('「逐題補規則」對話介面開發中（Batch E rule-chat.html?mode=fill&hospital_id=' + state.hospitalId + '）');
+}
+
+/* ----- credentials helpers ----- */
+function togglePwd(credId, btn) {
+  const el = document.getElementById('pwd-' + credId);
+  if (!el) return;
+  const cred = state.credentials.find(c => c.id === credId);
+  if (!cred) return;
+  if (el.dataset.shown === '1') {
+    el.textContent = '••••••••';
+    el.dataset.shown = '0';
+    btn.textContent = '顯示';
+  } else {
+    el.textContent = cred.password;
+    el.dataset.shown = '1';
+    btn.textContent = '隱藏';
+  }
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    // 退回 prompt 讓使用者自選複製
+    prompt('Ctrl+C 複製：', text);
+  }
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function escapeAttr(s) {
+  return escapeHtml(s);
+}
+</script>
+
+</body>
+</html>

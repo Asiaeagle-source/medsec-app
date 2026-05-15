@@ -300,6 +300,98 @@ const SOP_CARDS = {
 };
 
 /* ------------------------------------------------------------
+   守門 (任意 medsec 角色) — hospital.html 之類共用頁面用
+   ------------------------------------------------------------ */
+async function guardAnyMedsecRole() {
+  const { data: { session }, error: sessionErr } = await supa.auth.getSession();
+  if (sessionErr || !session) {
+    window.location.href = 'login.html';
+    return null;
+  }
+  const { data: profile, error: profileErr } = await supa
+    .from('profiles')
+    .select('id, employee_id, name, nickname, medsec_role, has_medsec_access')
+    .eq('id', session.user.id)
+    .single();
+  if (profileErr || !profile || !profile.has_medsec_access) {
+    alert('您沒有 MedSec Hub 的存取權限');
+    await supa.auth.signOut();
+    window.location.href = 'login.html';
+    return null;
+  }
+  currentProfile = profile;
+  return profile;
+}
+
+/* ============================================================
+   V2 Sprint 1 · 醫院規則中央化共用常數 / helpers
+   ============================================================ */
+
+/* 公司別 int → label（V1 medsec_hospitals.invoice_company 是 int）*/
+const INVOICE_COMPANY_LABEL = { 1: 'AE', 2: 'LD' };
+function companyBadge(intCode) {
+  return INVOICE_COMPANY_LABEL[intCode] || '—';
+}
+
+/* 完整度 → 視覺色（V2 §3.2 模式 A：<80% 跳提示）*/
+function completenessTone(pct) {
+  if (pct >= 80) return 'good';
+  if (pct >= 50) return 'warn';
+  return 'bad';
+}
+
+/* 規則欄位英文 → 中文 chip 顯示 */
+const MISSING_FIELD_LABEL = {
+  order_mode:           '叫貨方式',
+  shipping_destination: '出貨地點',
+  shipping_method:      '出貨方式',
+  packaging_notes:      '包貨注意',
+  invoice_mode:         '發票模式',
+  invoice_track:        '發票字軌',
+  payment_cycle_note:   '付款週期',
+  invoice_product_name: '發票品名',
+  case_close_method:    '結案方式',
+};
+
+/* ------------------------------------------------------------
+   撈業祕分區醫院 + 規則完整度（兩個 query merge client-side）
+   ------------------------------------------------------------ */
+async function loadMyHospitalsWithCompleteness(hospitalIds) {
+  if (!hospitalIds || hospitalIds.length === 0) return [];
+
+  const [hospitalsRes, completenessRes] = await Promise.all([
+    supa.from('medsec_hospitals')
+      .select('id, name_short, name_full, invoice_company')
+      .in('id', hospitalIds),
+    supa.from('medsec_hospital_rule_completeness')
+      .select('hospital_id, completeness_pct, missing_fields')
+      .in('hospital_id', hospitalIds),
+  ]);
+
+  if (hospitalsRes.error) console.warn('[loadMyHospitalsWithCompleteness] hospitals', hospitalsRes.error);
+  if (completenessRes.error) console.warn('[loadMyHospitalsWithCompleteness] completeness', completenessRes.error);
+
+  const compMap = {};
+  (completenessRes.data || []).forEach(c => { compMap[c.hospital_id] = c; });
+
+  const merged = (hospitalsRes.data || []).map(h => {
+    const c = compMap[h.id] || { completeness_pct: 0, missing_fields: [] };
+    return {
+      id: h.id,
+      name_short: h.name_short,
+      name_full: h.name_full,
+      invoice_company: h.invoice_company,
+      completeness_pct: c.completeness_pct ?? 0,
+      missing_fields: c.missing_fields || [],
+    };
+  });
+
+  // 低完整度排前面（業祕優先補）
+  merged.sort((a, b) => a.completeness_pct - b.completeness_pct);
+  return merged;
+}
+
+/* ------------------------------------------------------------
    業祕分區醫院 id list（自己是主祕或副祕的醫院）
    ------------------------------------------------------------ */
 async function loadMySecretaryHospitalIds(userId) {
