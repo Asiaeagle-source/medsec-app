@@ -61,8 +61,39 @@ serve(async (req: Request) => {
     return errorResponse(400, "messages required");
   }
 
+  // --- rate limit + 用量 log (Lynn #3 防員工刷量爆成本) ---
+  const userId = decodeJwtSub(req.headers.get("authorization"));
+  const supaUrl = Deno.env.get("SUPABASE_URL");
+  const svcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const RATE_WINDOW_MIN = Number(Deno.env.get("CHAT_RATE_WINDOW_MIN") ?? 5);
+  const RATE_MAX = Number(Deno.env.get("CHAT_RATE_MAX") ?? 20);
+  const DAILY_MAX = Number(Deno.env.get("CHAT_DAILY_MAX") ?? 200);
+
+  if (userId && supaUrl && svcKey) {
+    try {
+      const winIso = new Date(Date.now() - RATE_WINDOW_MIN * 60_000).toISOString();
+      const dayIso = new Date(new Date().toISOString().slice(0, 10)).toISOString();
+      const [winCount, dayCount] = await Promise.all([
+        countLog(supaUrl, svcKey, userId, winIso),
+        countLog(supaUrl, svcKey, userId, dayIso),
+      ]);
+      if (winCount >= RATE_MAX) {
+        return errorResponse(429, `太頻繁:${RATE_WINDOW_MIN} 分鐘最多 ${RATE_MAX} 次,稍等再問`);
+      }
+      if (dayCount >= DAILY_MAX) {
+        return errorResponse(429, `今日已達上限 ${DAILY_MAX} 次,明天再來`);
+      }
+    } catch (e) {
+      console.warn("[claude-chat] rate check failed (fail-open)", e);
+    }
+  }
+
+  const lastUserMsg = body.messages.filter((m) => m.role === "user").slice(-1)[0];
+  const promptChars = lastUserMsg ? lastUserMsg.content.length : 0;
+  const modelName = Deno.env.get("CLAUDE_MODEL") || DEFAULT_MODEL;
+
   const payload = {
-    model: Deno.env.get("CLAUDE_MODEL") || DEFAULT_MODEL,
+    model: modelName,
     max_tokens: Math.min(body.max_tokens ?? 1024, 4096),
     temperature: body.temperature ?? 0.3,
     system: body.system,
@@ -87,6 +118,18 @@ serve(async (req: Request) => {
   }
 
   const respText = await resp.text();
+
+  // 用量 log (fail-open:寫 log 失敗不影響回覆)
+  if (userId && supaUrl && svcKey) {
+    logCall(supaUrl, svcKey, {
+      user_id: userId,
+      prompt_chars: promptChars,
+      model: modelName,
+      ok: resp.ok,
+      error_msg: resp.ok ? null : respText.slice(0, 300),
+    }).catch((e) => console.warn("[claude-chat] log failed", e));
+  }
+
   if (!resp.ok) {
     console.warn("[claude-chat] upstream error", resp.status, respText);
     return new Response(respText, {
@@ -105,5 +148,57 @@ function errorResponse(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: { type: "invalid_request_error", message } }), {
     status,
     headers: { ...CORS_HEADERS, "content-type": "application/json" },
+  });
+}
+
+// JWT 已由 edge gateway 驗過 (--no-verify-jwt=false),這裡只 decode payload 取 sub
+function decodeJwtSub(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  const m = authHeader.match(/Bearer\s+(.+)/i);
+  if (!m) return null;
+  try {
+    const payload = m[1].split(".")[1];
+    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return json.sub || null;
+  } catch {
+    return null;
+  }
+}
+
+async function countLog(
+  supaUrl: string,
+  svcKey: string,
+  userId: string,
+  sinceIso: string,
+): Promise<number> {
+  const url = `${supaUrl}/rest/v1/medsec_chat_log?select=id&user_id=eq.${userId}&created_at=gte.${encodeURIComponent(sinceIso)}`;
+  const r = await fetch(url, {
+    headers: {
+      apikey: svcKey,
+      authorization: `Bearer ${svcKey}`,
+      prefer: "count=exact",
+      range: "0-0",
+    },
+  });
+  // content-range: 0-0/<total>
+  const cr = r.headers.get("content-range") || "";
+  const total = cr.split("/")[1];
+  return total ? parseInt(total, 10) : 0;
+}
+
+async function logCall(
+  supaUrl: string,
+  svcKey: string,
+  row: Record<string, unknown>,
+): Promise<void> {
+  await fetch(`${supaUrl}/rest/v1/medsec_chat_log`, {
+    method: "POST",
+    headers: {
+      apikey: svcKey,
+      authorization: `Bearer ${svcKey}`,
+      "content-type": "application/json",
+      prefer: "return=minimal",
+    },
+    body: JSON.stringify(row),
   });
 }

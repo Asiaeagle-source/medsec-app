@@ -61,10 +61,38 @@ const text = data.content[0]?.text || '';
 - 醫院規則 / 帳密等敏感資料**由前端先 query** (走 RLS),再以 system prompt 形式餵進來
   - 不在 edge function 裡查 DB → service-role key 不會洩漏業祕看不到的資料
 
-### 限額 / 監控
+### 限額 / 監控 (Lynn #3 防成本爆)
 
-V2.0 不做 rate limit,V2.1 加。
-log 在 Supabase Dashboard > Edge Functions > claude-chat > Logs。
+**前提**:先跑 `sql/v2/09_create_chat_log.sql` 建用量 log 表。
+
+rate limit (每使用者,可用 env 調):
+
+| env | 預設 | 意義 |
+|---|---|---|
+| `CHAT_RATE_WINDOW_MIN` | 5 | 滑動視窗分鐘數 |
+| `CHAT_RATE_MAX` | 20 | 視窗內最多幾次 |
+| `CHAT_DAILY_MAX` | 200 | 每人每日上限 |
+
+超過回 429「太頻繁 / 今日已達上限」。fail-open:rate 檢查本身掛掉
+不擋使用者 (避免 log 表故障 = 全公司不能問)。
+
+每次 call 寫一筆 `medsec_chat_log` (user / prompt_chars / model / ok)。
+manager 可在 SQL Editor 查用量 (檔尾有範例 query),或:
+
+```sql
+-- 今天每人問幾次 + 字數 (粗估成本)
+SELECT p.nickname, count(*) calls, sum(c.prompt_chars) chars
+FROM medsec_chat_log c JOIN profiles p ON p.id=c.user_id
+WHERE c.created_at >= current_date
+GROUP BY p.nickname ORDER BY calls DESC;
+```
+
+調 env 範例:
+```bash
+supabase secrets set CHAT_RATE_MAX=30 CHAT_DAILY_MAX=300
+```
+
+log 也在 Supabase Dashboard > Edge Functions > claude-chat > Logs。
 
 ### Troubleshooting
 
