@@ -455,6 +455,25 @@ body {
   color: var(--text-muted);
 }
 
+/* search input (filter-bar 內) */
+.search-input {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+  width: 280px;
+  max-width: 100%;
+  transition: border-color 0.12s;
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+}
+
 /* 案件列表 */
 .case-list-wrap {
   background: var(--surface);
