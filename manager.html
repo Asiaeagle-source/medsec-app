@@ -240,8 +240,58 @@
           <h1>業祕分區</h1>
         </div>
       </div>
-      <div class="assignments-grid" id="ma-grid">
-        <div class="case-empty">載入中…</div>
+
+      <div class="tabs" id="ma-tabs">
+        <div class="tab active" data-ma-tab="overview">分區總覽</div>
+        <div class="tab" data-ma-tab="edit">編輯分區</div>
+      </div>
+
+      <!-- 分區總覽 (grouped 卡片) -->
+      <div id="ma-overview-panel">
+        <div class="assignments-grid" id="ma-grid">
+          <div class="case-empty">載入中…</div>
+        </div>
+      </div>
+
+      <!-- 編輯分區 (table + CSV) -->
+      <div id="ma-edit-panel" hidden>
+        <div class="hp-section">
+          <div class="hp-section-title">CSV 批次匯入 <span class="hp-section-hint">季度大改 / 大量調整用</span></div>
+          <div class="ma-csv-row">
+            <input type="file" id="ma-csv-file" accept=".csv" class="search-input" style="width:auto">
+            <button class="btn-secondary" onclick="onImportCsv()">匯入</button>
+          </div>
+          <div class="ma-csv-help">
+            CSV 格式 (UTF-8,首列 header):<br>
+            <code>hospital_id,primary_employee_id,co_employee_id</code><br>
+            範例:<code>CACN,0168,</code> / <code>CBJS,0020,0011</code><br>
+            空 co_employee_id = 無副祕。醫院代號 / 員工編號對不到的列會 skip 並列出。
+          </div>
+          <div class="ma-csv-result" id="ma-csv-result" hidden></div>
+        </div>
+
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label>搜尋</label>
+            <input type="text" id="ma-edit-search" placeholder="醫院名稱 / 代號..." class="search-input">
+          </div>
+          <div class="filter-spacer"></div>
+          <div class="filter-summary"><span id="ma-edit-count">—</span> · 改完按該列「儲存」</div>
+        </div>
+        <div class="case-list-wrap">
+          <table class="case-list">
+            <thead>
+              <tr>
+                <th style="width:90px">代號</th>
+                <th>醫院</th>
+                <th style="width:160px">主祕</th>
+                <th style="width:160px">副祕</th>
+                <th style="width:80px">動作</th>
+              </tr>
+            </thead>
+            <tbody id="ma-edit-tbody"><tr><td colspan="5" class="case-empty">載入中…</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -714,6 +764,146 @@ async function loadAssignmentsView() {
       </div>
     `;
   }).join('');
+
+  // 同時準備「編輯分區」table 資料 (cache 在 maEdit)
+  maEdit.secretaries = secs;
+  maEdit.hospMap = hospMap;
+  maEdit.assignMap = {};
+  (aRes.data || []).forEach(a => { maEdit.assignMap[a.hospital_id] = a; });
+  maEdit.hospitals = (hRes.data || []).slice().sort((x, y) => x.id.localeCompare(y.id));
+  bindMaTabs();
+  renderMaEditTable();
+}
+
+/* ============================================================
+   編輯分區 (table 逐家 dropdown + CSV 匯入)
+   ============================================================ */
+const maEdit = {
+  secretaries: [],
+  hospMap: {},
+  assignMap: {},      // hospital_id → {primary_secretary_id, co_secretary_id}
+  hospitals: [],
+  search: '',
+  dirty: {},          // hospital_id → true (有未存改動)
+};
+
+function bindMaTabs() {
+  document.querySelectorAll('#ma-tabs .tab').forEach(tab => {
+    if (tab.dataset.bound === '1') return;
+    tab.dataset.bound = '1';
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('#ma-tabs .tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const isEdit = tab.dataset.maTab === 'edit';
+      document.getElementById('ma-overview-panel').hidden = isEdit;
+      document.getElementById('ma-edit-panel').hidden = !isEdit;
+    });
+  });
+  const se = document.getElementById('ma-edit-search');
+  if (se && se.dataset.bound !== '1') {
+    se.dataset.bound = '1';
+    se.addEventListener('input', e => { maEdit.search = e.target.value.trim().toLowerCase(); renderMaEditTable(); });
+  }
+}
+
+function secOptions(selectedId) {
+  const opts = ['<option value="">(無)</option>'];
+  maEdit.secretaries.forEach(s => {
+    const sel = s.id === selectedId ? ' selected' : '';
+    opts.push(`<option value="${s.id}"${sel}>${escapeHtml(s.nickname || s.name)} ${escapeHtml(s.employee_id || '')}</option>`);
+  });
+  return opts.join('');
+}
+
+function renderMaEditTable() {
+  const tbody = document.getElementById('ma-edit-tbody');
+  const q = maEdit.search;
+  const rows = q
+    ? maEdit.hospitals.filter(h => (h.id || '').toLowerCase().includes(q) || (h.name_short || '').toLowerCase().includes(q))
+    : maEdit.hospitals;
+  document.getElementById('ma-edit-count').textContent = q ? `${rows.length} / ${maEdit.hospitals.length} 家` : `${maEdit.hospitals.length} 家`;
+  if (rows.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="case-empty">無</td></tr>'; return; }
+  tbody.innerHTML = rows.slice(0, 500).map(h => {
+    const a = maEdit.assignMap[h.id] || {};
+    const dirty = maEdit.dirty[h.id];
+    return `
+      <tr data-hid="${escapeHtml(h.id)}">
+        <td><code>${escapeHtml(h.id)}</code></td>
+        <td>${escapeHtml(h.name_short || h.id)}</td>
+        <td><select class="ma-sel" data-role="primary" onchange="onMaChange('${escapeHtml(h.id)}')">${secOptions(a.primary_secretary_id)}</select></td>
+        <td><select class="ma-sel" data-role="co" onchange="onMaChange('${escapeHtml(h.id)}')">${secOptions(a.co_secretary_id)}</select></td>
+        <td><button class="btn-approve ma-save-btn" ${dirty ? '' : 'disabled'} onclick="onMaSave('${escapeHtml(h.id)}')">儲存</button></td>
+      </tr>`;
+  }).join('') + (rows.length > 500 ? `<tr><td colspan="5" class="case-empty">… 共 ${rows.length},顯示前 500,用搜尋縮小</td></tr>` : '');
+}
+
+function onMaChange(hid) {
+  maEdit.dirty[hid] = true;
+  const tr = document.querySelector(`#ma-edit-tbody tr[data-hid="${CSS.escape(hid)}"]`);
+  if (tr) tr.querySelector('.ma-save-btn').disabled = false;
+}
+
+async function onMaSave(hid) {
+  const tr = document.querySelector(`#ma-edit-tbody tr[data-hid="${CSS.escape(hid)}"]`);
+  if (!tr) return;
+  const primary = tr.querySelector('select[data-role="primary"]').value || null;
+  const co = tr.querySelector('select[data-role="co"]').value || null;
+  const btn = tr.querySelector('.ma-save-btn');
+  btn.disabled = true; btn.textContent = '存…';
+  const { error } = await supa.from('medsec_secretary_assignments')
+    .upsert({ hospital_id: hid, primary_secretary_id: primary, co_secretary_id: co }, { onConflict: 'hospital_id' });
+  if (error) {
+    alert(`儲存失敗 (${hid}):${error.message}`);
+    btn.disabled = false; btn.textContent = '儲存';
+    return;
+  }
+  maEdit.assignMap[hid] = { primary_secretary_id: primary, co_secretary_id: co };
+  delete maEdit.dirty[hid];
+  btn.textContent = '已存 ✓';
+  setTimeout(() => { btn.textContent = '儲存'; }, 1500);
+}
+
+async function onImportCsv() {
+  const f = document.getElementById('ma-csv-file').files[0];
+  if (!f) { alert('先選 CSV 檔'); return; }
+  const text = await f.text();
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) { alert('CSV 至少要 header + 1 列'); return; }
+  // skip header
+  const dataLines = lines.slice(1);
+
+  // employee_id → uuid map
+  const empByCode = {};
+  maEdit.secretaries.forEach(s => { if (s.employee_id) empByCode[s.employee_id] = s.id; });
+  // 也撈非業祕 (萬一 CSV 寫到別人) — 但只允許 secretary 角色,不在 map = skip
+
+  const ok = [], fail = [];
+  for (const line of dataLines) {
+    const cols = line.split(',').map(c => c.trim());
+    const [hid, pCode, cCode] = cols;
+    if (!hid) { fail.push(`${line} (無醫院代號)`); continue; }
+    if (!maEdit.hospMap[hid] && !maEdit.hospitals.find(h => h.id === hid)) {
+      fail.push(`${hid} (醫院代號不存在 V1)`); continue;
+    }
+    const pId = pCode ? empByCode[pCode] : null;
+    const cId = cCode ? empByCode[cCode] : null;
+    if (pCode && !pId) { fail.push(`${hid} (主祕 ${pCode} 非業祕/找不到)`); continue; }
+    if (cCode && !cId) { fail.push(`${hid} (副祕 ${cCode} 非業祕/找不到)`); continue; }
+    const { error } = await supa.from('medsec_secretary_assignments')
+      .upsert({ hospital_id: hid, primary_secretary_id: pId, co_secretary_id: cId }, { onConflict: 'hospital_id' });
+    if (error) { fail.push(`${hid} (${error.message})`); continue; }
+    maEdit.assignMap[hid] = { primary_secretary_id: pId, co_secretary_id: cId };
+    ok.push(hid);
+  }
+  const box = document.getElementById('ma-csv-result');
+  box.hidden = false;
+  box.innerHTML = `
+    <div style="color:var(--success);font-weight:600">成功 ${ok.length} 列</div>
+    ${fail.length ? `<div style="color:var(--danger);font-weight:600;margin-top:6px">失敗 ${fail.length} 列:</div>
+      <ul style="margin:4px 0 0 18px;font-size:12px;color:var(--text-muted)">${fail.slice(0, 50).map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>
+      ${fail.length > 50 ? `<div style="font-size:12px">… 共 ${fail.length} 筆失敗</div>` : ''}` : ''}
+  `;
+  renderMaEditTable();
 }
 
 /* ============================================================
