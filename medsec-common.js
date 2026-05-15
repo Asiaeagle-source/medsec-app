@@ -299,6 +299,30 @@ const SOP_CARDS = {
   },
 };
 
+/* ------------------------------------------------------------
+   守門 (任意 medsec 角色) — hospital.html 之類共用頁面用
+   ------------------------------------------------------------ */
+async function guardAnyMedsecRole() {
+  const { data: { session }, error: sessionErr } = await supa.auth.getSession();
+  if (sessionErr || !session) {
+    window.location.href = 'login.html';
+    return null;
+  }
+  const { data: profile, error: profileErr } = await supa
+    .from('profiles')
+    .select('id, employee_id, name, nickname, medsec_role, has_medsec_access')
+    .eq('id', session.user.id)
+    .single();
+  if (profileErr || !profile || !profile.has_medsec_access) {
+    alert('您沒有 MedSec Hub 的存取權限');
+    await supa.auth.signOut();
+    window.location.href = 'login.html';
+    return null;
+  }
+  currentProfile = profile;
+  return profile;
+}
+
 /* ============================================================
    V2 Sprint 1 · 醫院規則中央化共用常數 / helpers
    ============================================================ */
