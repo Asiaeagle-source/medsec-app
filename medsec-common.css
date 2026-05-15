@@ -1261,6 +1261,155 @@ body.hospital-page {
   max-width: 280px;
 }
 
+/* ============================================================
+   manager.html · 規則審核中心 + sidebar badge + assignments grid
+   ============================================================ */
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--danger);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rule-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rule-sugg-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+.rule-sugg-card:has(.btn-approve) { border-left-color: var(--warning); }
+.rule-sugg-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.rule-sugg-hospital {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  margin-right: 8px;
+}
+.rule-sugg-hospital code {
+  font-size: 11px;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.rule-sugg-field {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: #f8fafc;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+.rule-sugg-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.rule-sugg-diff {
+  display: grid;
+  grid-template-columns: 1fr 32px 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.rule-sugg-old, .rule-sugg-new {
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.rule-sugg-new {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+.rule-sugg-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+.rule-sugg-val {
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.rule-sugg-val em { color: var(--text-light); }
+.rule-sugg-arrow {
+  text-align: center;
+  font-size: 20px;
+  color: var(--text-muted);
+}
+.rule-sugg-reason {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: #fef3c7;
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+}
+.rule-sugg-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.btn-approve, .btn-reject {
+  padding: 6px 14px;
+  border: 1px solid;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn-approve {
+  background: var(--success);
+  color: white;
+  border-color: var(--success);
+}
+.btn-approve:hover { background: #15803d; }
+.btn-reject {
+  background: var(--surface);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.btn-reject:hover { background: #fef2f2; }
+.rule-sugg-result {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* 業祕分區 grid (manager.html) */
+.assignments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 12px;
+}
+
 /* RWD（手機簡單支援，後續再優化）*/
 @media (max-width: 768px) {
   .sidebar { width: 100%; position: relative; height: auto; }
@@ -1271,4 +1420,7 @@ body.hospital-page {
   .rules-grid { grid-template-columns: 1fr; }
   .addresses-list { grid-template-columns: 1fr; }
   .credentials-list { grid-template-columns: 1fr; }
+  .rule-sugg-diff { grid-template-columns: 1fr; }
+  .rule-sugg-arrow { display: none; }
+  .assignments-grid { grid-template-columns: 1fr; }
 }
