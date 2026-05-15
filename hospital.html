@@ -67,6 +67,18 @@
     <div class="rules-grid" id="rules-grid"></div>
   </div>
 
+  <!-- 院內碼對照 (COPI10) -->
+  <div class="hp-section">
+    <div class="hp-section-title">
+      院內碼對照
+      <input type="text" id="hpc-search" placeholder="搜我方品號 / 院內碼 / 品名..." class="search-input" style="width:280px;margin-left:8px">
+      <span class="hp-section-pct" id="hpc-count">0 筆</span>
+    </div>
+    <div class="hpc-list-wrap" id="hpc-list">
+      <div class="hp-empty">載入中…</div>
+    </div>
+  </div>
+
   <!-- 收件地址 -->
   <div class="hp-section">
     <div class="hp-section-title">
@@ -132,6 +144,8 @@ const state = {
   addresses: [],            // medsec_hospital_shipping_addresses
   credentials: [],          // medsec_hospital_credentials
   discounts: [],            // medsec_discount_rules
+  productCodes: [],         // medsec_hospital_product_codes
+  pcSearch: '',
   primarySecretary: null,   // profiles row (主祕)
   coSecretary: null,        // profiles row (副祕)
 };
@@ -159,16 +173,20 @@ const state = {
     loadCredentials(),
     loadDiscounts(),
     loadAssignment(),
+    loadProductCodes(),
   ]);
 
   renderHospitalHeader();
   renderCompleteness();
   renderRules();
+  renderProductCodes();
   renderAddresses();
   renderCredentials();
   renderDiscounts();
   maybeShowModeA();
+  bindProductCodeSearch();
 
+  mountAskFab({ hospitalId: state.hospitalId });
   hideLoading();
 })();
 
@@ -192,8 +210,9 @@ function onBack() {
 
 /* ----- loaders ----- */
 async function loadHospital() {
+  // V1 真實欄位 (Lynn 2026-05-15 dump): 沒有 status 欄,有 tax_id / is_priority / payment_terms
   const { data, error } = await supa.from('medsec_hospitals')
-    .select('id, name_short, name_full, invoice_company, region_name, system_prefix, customer_type, primary_secretary, co_secretary, status')
+    .select('id, name_short, name_full, invoice_company, region_name, system_prefix, customer_type, primary_secretary, co_secretary, tax_id, is_priority, payment_terms')
     .eq('id', state.hospitalId)
     .maybeSingle();
   if (error) console.warn('[loadHospital]', error);
@@ -240,6 +259,17 @@ async function loadDiscounts() {
   state.discounts = data || [];
 }
 
+async function loadProductCodes() {
+  // 單一醫院可能上千筆 (CKUS 1992),撈全部 client-side filter
+  const { data, error } = await supa.from('medsec_hospital_product_codes')
+    .select('product_code, product_name, product_spec, hospital_item_code, hospital_item_name, warranty_months, effective_date')
+    .eq('hospital_id', state.hospitalId)
+    .order('product_code')
+    .limit(5000);
+  if (error) console.warn('[loadProductCodes]', error);
+  state.productCodes = data || [];
+}
+
 async function loadAssignment() {
   const { data } = await supa.from('medsec_secretary_assignments')
     .select('primary_secretary_id, co_secretary_id')
@@ -274,9 +304,11 @@ function renderHospitalHeader() {
     h.region_name && `區域：${escapeHtml(h.region_name)}`,
     h.system_prefix && `體系：${escapeHtml(h.system_prefix)}`,
     h.customer_type && `類型：${escapeHtml(h.customer_type)}`,
+    h.payment_terms && `付款：${escapeHtml(h.payment_terms)}`,
+    h.tax_id && `統編：${escapeHtml(h.tax_id)}`,
     state.primarySecretary && `主祕：${escapeHtml(state.primarySecretary.nickname || state.primarySecretary.name)}`,
     state.coSecretary && `副祕：${escapeHtml(state.coSecretary.nickname || state.coSecretary.name)}`,
-    h.status && h.status !== 'active' && `<span class="badge-warn">狀態：${escapeHtml(h.status)}</span>`,
+    h.is_priority && '<span class="badge-warn">⭐ 優先客戶</span>',
   ].filter(Boolean);
   document.getElementById('h-meta').innerHTML = metaParts.join(' &nbsp;·&nbsp; ');
 }
@@ -311,6 +343,59 @@ function renderRules() {
       </div>
     `;
   }).join('');
+}
+
+function bindProductCodeSearch() {
+  const inp = document.getElementById('hpc-search');
+  if (!inp || inp.dataset.bound === '1') return;
+  inp.dataset.bound = '1';
+  inp.addEventListener('input', e => {
+    state.pcSearch = e.target.value.trim().toLowerCase();
+    renderProductCodes();
+  });
+}
+
+function renderProductCodes() {
+  const wrap = document.getElementById('hpc-list');
+  const all = state.productCodes;
+  const q = state.pcSearch;
+  const rows = q
+    ? all.filter(r =>
+        (r.product_code || '').toLowerCase().includes(q) ||
+        (r.product_name || '').toLowerCase().includes(q) ||
+        (r.hospital_item_code || '').toLowerCase().includes(q) ||
+        (r.hospital_item_name || '').toLowerCase().includes(q))
+    : all;
+  document.getElementById('hpc-count').textContent = q
+    ? `${rows.length} / ${all.length} 筆`
+    : `${all.length} 筆`;
+  if (all.length === 0) {
+    wrap.innerHTML = '<div class="hp-empty">無院內碼對照 (COPI10 沒這家 / ETL 未灌)</div>';
+    return;
+  }
+  if (rows.length === 0) {
+    wrap.innerHTML = `<div class="hp-empty">無符合「${escapeHtml(q)}」</div>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <table class="discounts-table">
+      <thead>
+        <tr><th style="width:110px">我方品號</th><th>我方品名</th><th style="width:130px">院內碼</th><th>院方品名</th><th style="width:70px">保固月</th></tr>
+      </thead>
+      <tbody>
+        ${rows.slice(0, 1000).map(r => `
+          <tr>
+            <td><code>${escapeHtml(r.product_code || '—')}</code></td>
+            <td>${escapeHtml(r.product_name || '—')}</td>
+            <td><code>${escapeHtml(r.hospital_item_code || '—')}</code></td>
+            <td>${escapeHtml(r.hospital_item_name || '—')}</td>
+            <td>${r.warranty_months != null ? r.warranty_months : '—'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ${rows.length > 1000 ? `<div class="hp-empty">… 共 ${rows.length} 筆,顯示前 1000,用搜尋縮小</div>` : ''}
+  `;
 }
 
 function renderAddresses() {
@@ -416,8 +501,7 @@ function dismissModeA() {
 }
 
 function onFillRules() {
-  // batch E rule-chat.html 才接,這裡先 alert
-  alert('「逐題補規則」對話介面開發中（Batch E rule-chat.html?mode=fill&hospital_id=' + state.hospitalId + '）');
+  window.location.href = `rule-chat.html?mode=fill&hospital_id=${encodeURIComponent(state.hospitalId)}`;
 }
 
 /* ----- credentials helpers ----- */

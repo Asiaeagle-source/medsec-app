@@ -70,3 +70,21 @@ DELETE FROM public.medsec_hospital_credentials WHERE needs_review = true;
   改 `tools/v2_seed_etl.py` 後重跑 `python3 tools/v2_seed_etl.py`。
 - V2 zip 原始檔（`medsec_v2_sprint1.sql` + `_part3.sql`）**不入 repo**，
   在 Lynn 本機 `/tmp/v2_zip/`。要重跑 ETL 先把 zip 解壓回那個位置。
+
+## COPI10 院內碼 ETL (2026-05-15 加)
+
+`tools/v2_copi10_etl.py` 生成。先跑 `sql/v2/07_create_hospital_product_codes.sql` 建表,
+再依序跑 5 個 chunk:
+
+| Step | 檔 | 列數 |
+|---|---|---|
+| 1 | `05_seed_hospital_product_codes_part1.sql` | 2000 |
+| 2 | `05_seed_hospital_product_codes_part2.sql` | 2000 |
+| 3 | `05_seed_hospital_product_codes_part3.sql` | 2000 |
+| 4 | `05_seed_hospital_product_codes_part4.sql` | 2000 |
+| 5 | `05_seed_hospital_product_codes_part5.sql` | 878 |
+
+每檔 ~370KB (在 SQL Editor 上限內)。ON CONFLICT 可重跑。
+COPI10 客戶代號 = V1 185 家完全對齊,理論上 0 skip。
+
+驗證:`SELECT count(*) FROM medsec_hospital_product_codes;` 預期 ≈ 8878。
