@@ -528,6 +528,13 @@ async function hydrateMgrLookups(rows) {
   }
 }
 
+const SUGG_TABLE_MAP = {
+  operation_rules:    'medsec_hospital_operation_rules',
+  shipping_addresses: 'medsec_hospital_shipping_addresses',
+  credentials:        'medsec_hospital_credentials',
+  discount_rules:     'medsec_discount_rules',
+};
+
 function renderRuleReview() {
   const status = mgrState.ruleReviewStatus;
   const rows = mgrState.ruleSuggestions[status] || [];
@@ -536,99 +543,131 @@ function renderRuleReview() {
     list.innerHTML = `<div class="case-empty">沒有 ${status === 'pending' ? '待審' : status === 'approved' ? '已通過' : '已退回'} 的規則 suggestion</div>`;
     return;
   }
-  list.innerHTML = rows.map(r => {
-    const h_name = mgrState.profilesMap['__h_' + r.hospital_id] || r.hospital_id;
-    const sg = mgrState.profilesMap[r.suggested_by];
-    const sg_name = sg ? (sg.nickname || sg.name) : '—';
-    const created = (r.created_at || '').slice(0, 16).replace('T', ' ');
-    const fieldLabel = (typeof MISSING_FIELD_LABEL !== 'undefined' && MISSING_FIELD_LABEL[r.field_name]) || r.field_name;
-    const isPending = status === 'pending';
+  const isPending = status === 'pending';
+
+  // 同一間醫院的 suggestion 合併成一張卡 (一起審核)
+  const groups = new Map();
+  for (const r of rows) {
+    if (!groups.has(r.hospital_id)) groups.set(r.hospital_id, []);
+    groups.get(r.hospital_id).push(r);
+  }
+
+  list.innerHTML = [...groups.entries()].map(([hid, items]) => {
+    const h_name = mgrState.profilesMap['__h_' + hid] || hid;
+    const suggesters = [...new Set(items.map(r => {
+      const sg = mgrState.profilesMap[r.suggested_by];
+      return sg ? (sg.nickname || sg.name) : null;
+    }).filter(Boolean))].join('、') || '—';
+    const latest = items.map(r => r.created_at).filter(Boolean).sort().slice(-1)[0] || '';
+    const latestStr = latest.slice(0, 16).replace('T', ' ');
+
+    const changeRows = items.map(r => {
+      const fieldLabel = (typeof MISSING_FIELD_LABEL !== 'undefined' && MISSING_FIELD_LABEL[r.field_name]) || r.field_name;
+      return `
+        <div class="rule-sugg-row">
+          ${isPending ? `<input type="checkbox" class="rsg-chk" data-id="${r.id}" checked>` : ''}
+          <div class="rule-sugg-rowbody">
+            <div class="rule-sugg-field">${escapeHtml(r.table_name)}.${escapeHtml(fieldLabel)}</div>
+            <div class="rule-sugg-diff">
+              <div class="rule-sugg-old">
+                <div class="rule-sugg-label">目前值</div>
+                <div class="rule-sugg-val">${r.current_value ? escapeHtml(r.current_value) : '<em>(空)</em>'}</div>
+              </div>
+              <div class="rule-sugg-arrow">→</div>
+              <div class="rule-sugg-new">
+                <div class="rule-sugg-label">建議改為</div>
+                <div class="rule-sugg-val">${escapeHtml(r.suggested_value)}</div>
+              </div>
+            </div>
+            ${r.reason ? `<div class="rule-sugg-reason">理由:${escapeHtml(r.reason)}</div>` : ''}
+            ${!isPending ? `<div class="rule-sugg-result">
+              ${status === 'approved' ? '✓ 已通過' : '✗ 已退回'}
+              ${r.reviewed_at ? ` · ${(r.reviewed_at || '').slice(0,16).replace('T',' ')}` : ''}
+              ${r.reason && status === 'rejected' ? ` · ${escapeHtml(r.reason)}` : ''}
+            </div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
     return `
-      <div class="rule-sugg-card">
+      <div class="rule-sugg-card" data-hid="${escapeHtml(hid)}">
         <div class="rule-sugg-header">
           <div>
-            <span class="rule-sugg-hospital">${escapeHtml(h_name)} <code>${escapeHtml(r.hospital_id)}</code></span>
-            <span class="rule-sugg-field">${escapeHtml(r.table_name)}.${escapeHtml(fieldLabel)}</span>
+            <span class="rule-sugg-hospital">${escapeHtml(h_name)} <code>${escapeHtml(hid)}</code></span>
+            <span class="rule-sugg-count">${items.length} 項改動</span>
           </div>
-          <div class="rule-sugg-meta">
-            ${escapeHtml(sg_name)} · ${created}
-          </div>
+          <div class="rule-sugg-meta">${escapeHtml(suggesters)} · ${latestStr}</div>
         </div>
-        <div class="rule-sugg-diff">
-          <div class="rule-sugg-old">
-            <div class="rule-sugg-label">目前值</div>
-            <div class="rule-sugg-val">${r.current_value ? escapeHtml(r.current_value) : '<em>(空)</em>'}</div>
-          </div>
-          <div class="rule-sugg-arrow">→</div>
-          <div class="rule-sugg-new">
-            <div class="rule-sugg-label">建議改為</div>
-            <div class="rule-sugg-val">${escapeHtml(r.suggested_value)}</div>
-          </div>
-        </div>
-        ${r.reason ? `<div class="rule-sugg-reason">理由:${escapeHtml(r.reason)}</div>` : ''}
+        <div class="rule-sugg-rows">${changeRows}</div>
         ${isPending ? `
           <div class="rule-sugg-actions">
-            <button class="btn-approve" onclick="onApprove('${r.id}')">通過 → 寫入主檔</button>
-            <button class="btn-reject" onclick="onReject('${r.id}')">退回</button>
+            <label class="rsg-all"><input type="checkbox" class="rsg-all-chk" checked onchange="toggleHospitalChecks(this)"> 全選</label>
+            <span class="filter-spacer"></span>
+            <button class="btn-approve" onclick="onApproveHospital('${escapeHtml(hid)}', this)">通過勾選 → 寫入主檔</button>
+            <button class="btn-reject" onclick="onRejectHospital('${escapeHtml(hid)}', this)">退回勾選</button>
           </div>
-        ` : `
-          <div class="rule-sugg-result">
-            ${status === 'approved' ? '✓ 已通過' : '✗ 已退回'}
-            ${r.reviewed_at ? ` · ${(r.reviewed_at || '').slice(0,16).replace('T',' ')}` : ''}
-            ${r.reason && status === 'rejected' ? ` · ${escapeHtml(r.reason)}` : ''}
-          </div>
-        `}
+        ` : ''}
       </div>
     `;
   }).join('');
 }
 
-async function onApprove(suggestionId) {
-  if (!confirm('確認通過 → 直接寫入主檔?')) return;
-  const sugg = mgrState.ruleSuggestions.pending.find(s => s.id === suggestionId);
-  if (!sugg) return;
+function toggleHospitalChecks(allChk) {
+  const card = allChk.closest('.rule-sugg-card');
+  card.querySelectorAll('.rsg-chk').forEach(c => { c.checked = allChk.checked; });
+}
 
-  // Step 1: UPDATE 主檔對應欄位
-  // table_name 對應的真實表名 mapping
-  const tableMap = {
-    operation_rules:    'medsec_hospital_operation_rules',
-    shipping_addresses: 'medsec_hospital_shipping_addresses',
-    credentials:        'medsec_hospital_credentials',
-    discount_rules:     'medsec_discount_rules',
-  };
-  const realTable = tableMap[sugg.table_name];
-  if (!realTable) {
-    alert(`未知 table_name: ${sugg.table_name}`);
-    return;
+function checkedSuggIds(card) {
+  return [...card.querySelectorAll('.rsg-chk:checked')].map(c => c.dataset.id);
+}
+
+async function onApproveHospital(hid, btn) {
+  const card = btn.closest('.rule-sugg-card');
+  const ids = checkedSuggIds(card);
+  if (ids.length === 0) { alert('沒有勾選任何改動'); return; }
+  const suggs = (mgrState.ruleSuggestions.pending || []).filter(s => ids.includes(s.id));
+  if (suggs.length === 0) return;
+
+  // 未知 table_name 先擋掉
+  const unknown = suggs.find(s => !SUGG_TABLE_MAP[s.table_name]);
+  if (unknown) { alert(`未知 table_name: ${unknown.table_name}`); return; }
+  if (!confirm(`確認通過 ${suggs.length} 項改動 → 直接寫入主檔?`)) return;
+  btn.disabled = true; btn.textContent = '寫入中…';
+
+  // 同一張主檔表的多個欄位合併成一次 update
+  const byTable = {};
+  for (const s of suggs) {
+    const t = SUGG_TABLE_MAP[s.table_name];
+    (byTable[t] = byTable[t] || {})[s.field_name] = s.suggested_value;
   }
-  const upd = await supa.from(realTable)
-    .update({ [sugg.field_name]: sugg.suggested_value })
-    .eq('hospital_id', sugg.hospital_id);
-  if (upd.error) {
-    alert('寫主檔失敗:' + upd.error.message);
-    return;
+  for (const [realTable, patch] of Object.entries(byTable)) {
+    const upd = await supa.from(realTable).update(patch).eq('hospital_id', hid);
+    if (upd.error) {
+      btn.disabled = false; btn.textContent = '通過勾選 → 寫入主檔';
+      alert(`寫主檔失敗 (${realTable}):` + upd.error.message);
+      return;
+    }
   }
 
-  // Step 2: 標記 suggestion approved
   const mark = await supa.from('medsec_rule_suggestions')
     .update({ status: 'approved', reviewed_by: mgrState.profile.id, reviewed_at: new Date().toISOString() })
-    .eq('id', suggestionId);
-  if (mark.error) {
-    alert('標記失敗 (但主檔已寫):' + mark.error.message);
-  }
+    .in('id', ids);
+  if (mark.error) alert('標記失敗 (但主檔已寫):' + mark.error.message);
 
-  // 重 load
   mgrState.ruleSuggestions.pending = null;
   mgrState.ruleSuggestions.approved = null;
   await Promise.all([loadRuleReview('pending'), loadRuleReviewBadge(), loadOverviewStats()]);
 }
 
-async function onReject(suggestionId) {
-  const reason = prompt('退回理由 (選填):');
-  if (reason === null) return;   // user cancel
+async function onRejectHospital(hid, btn) {
+  const card = btn.closest('.rule-sugg-card');
+  const ids = checkedSuggIds(card);
+  if (ids.length === 0) { alert('沒有勾選任何改動'); return; }
+  const reason = prompt(`退回 ${ids.length} 項改動的理由 (選填):`);
+  if (reason === null) return;
   const mark = await supa.from('medsec_rule_suggestions')
     .update({ status: 'rejected', reviewed_by: mgrState.profile.id, reviewed_at: new Date().toISOString(), reason })
-    .eq('id', suggestionId);
+    .in('id', ids);
   if (mark.error) { alert('退回失敗:' + mark.error.message); return; }
   mgrState.ruleSuggestions.pending = null;
   mgrState.ruleSuggestions.rejected = null;
