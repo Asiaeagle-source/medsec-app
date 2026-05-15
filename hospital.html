@@ -192,8 +192,9 @@ function onBack() {
 
 /* ----- loaders ----- */
 async function loadHospital() {
+  // V1 真實欄位 (Lynn 2026-05-15 dump): 沒有 status 欄,有 tax_id / is_priority / payment_terms
   const { data, error } = await supa.from('medsec_hospitals')
-    .select('id, name_short, name_full, invoice_company, region_name, system_prefix, customer_type, primary_secretary, co_secretary, status')
+    .select('id, name_short, name_full, invoice_company, region_name, system_prefix, customer_type, primary_secretary, co_secretary, tax_id, is_priority, payment_terms')
     .eq('id', state.hospitalId)
     .maybeSingle();
   if (error) console.warn('[loadHospital]', error);
@@ -274,9 +275,11 @@ function renderHospitalHeader() {
     h.region_name && `區域：${escapeHtml(h.region_name)}`,
     h.system_prefix && `體系：${escapeHtml(h.system_prefix)}`,
     h.customer_type && `類型：${escapeHtml(h.customer_type)}`,
+    h.payment_terms && `付款：${escapeHtml(h.payment_terms)}`,
+    h.tax_id && `統編：${escapeHtml(h.tax_id)}`,
     state.primarySecretary && `主祕：${escapeHtml(state.primarySecretary.nickname || state.primarySecretary.name)}`,
     state.coSecretary && `副祕：${escapeHtml(state.coSecretary.nickname || state.coSecretary.name)}`,
-    h.status && h.status !== 'active' && `<span class="badge-warn">狀態：${escapeHtml(h.status)}</span>`,
+    h.is_priority && '<span class="badge-warn">⭐ 優先客戶</span>',
   ].filter(Boolean);
   document.getElementById('h-meta').innerHTML = metaParts.join(' &nbsp;·&nbsp; ');
 }

@@ -771,9 +771,20 @@ body {
 .hospital-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 10px;
   gap: 8px;
+}
+.hospital-card-id-name {
+  flex: 1;
+  min-width: 0;
+}
+.hospital-card-id {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+  margin-bottom: 1px;
 }
 .hospital-name {
   font-weight: 600;
