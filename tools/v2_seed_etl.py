@@ -303,13 +303,20 @@ def write_etl_sql(
     header: str,
 ) -> None:
     col_list = ', '.join(c for c, _ in cols_typed)
-    col_typed_list = ', '.join(f'{c} {t}' for c, t in cols_typed)
+    # PostgreSQL VALUES 的 AS alias 不接 type — 只列欄名,型別靠首列 ::cast 推
+    col_alias_list = col_list
 
     body_lines = []
     n = len(rows)
     for idx, row in enumerate(rows):
         suffix = ',' if idx < n - 1 else ''
-        body_lines.append(f"  ({', '.join(row)}){suffix}")
+        if idx == 0:
+            # 首列 cast 全部 value 到目標型別,讓 PG 後面 row 推得出來
+            # (含 NULL 也要 cast,例如 tax_id/notes 全列 NULL 會卡在 unknown 型別)
+            cast_vals = [f'{v}::{t}' for v, (_, t) in zip(row, cols_typed)]
+            body_lines.append(f"  ({', '.join(cast_vals)}){suffix}")
+        else:
+            body_lines.append(f"  ({', '.join(row)}){suffix}")
     body = '\n'.join(body_lines)
 
     out = (
@@ -319,7 +326,7 @@ def write_etl_sql(
         f'SELECT v.* FROM (\n'
         f'VALUES\n'
         f'{body}\n'
-        f') AS v ({col_typed_list})\n'
+        f') AS v ({col_alias_list})\n'
         f'WHERE EXISTS (\n'
         f"  SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id\n"
         f')\n'

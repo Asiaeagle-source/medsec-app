@@ -7,8 +7,8 @@ INSERT INTO public.medsec_hospital_operation_rules
   (hospital_id, order_mode, shipping_destination, shipping_method, packaging_notes, invoice_mode, invoice_track, dual_invoice, payment_cycle_note, invoice_product_name, case_close_method, special_notes, source_secretary)
 SELECT v.* FROM (
 VALUES
-  ('NTHN', 'MAil訂貨', '業務親送', '業務親送', '發票須帶訂單/請購單號', '雄鷹電子 + 雄鷹手開 + 君華電子 + 君華手開', '06/31 / 02/32 / 03/32', TRUE, '25號之後開下個月', '依照訂單', '※出貨+開發票', '一個請購單號開一張發票，
-發票備註需要寫上請購單號', '伶華'),
+  ('NTHN'::text, 'MAil訂貨'::text, '業務親送'::text, '業務親送'::text, '發票須帶訂單/請購單號'::text, '雄鷹電子 + 雄鷹手開 + 君華電子 + 君華手開'::text, '06/31 / 02/32 / 03/32'::text, TRUE::bool, '25號之後開下個月'::text, '依照訂單'::text, '※出貨+開發票'::text, '一個請購單號開一張發票，
+發票備註需要寫上請購單號'::text, '伶華'::text),
   ('NTNN', 'MAil訂貨', '業務親送', '業務親送', '發票須帶訂單/請購單號', '雄鷹電子 + 雄鷹手開 + 君華電子 + 君華手開', '06/31 / 02/32 / 03/32', TRUE, '25號之後開下個月', '依照訂單', '※出貨+開發票', '一個請購單號開一張發票，
 發票備註需要寫上請購單號', '伶華'),
   ('NTEN', 'MAil訂貨', '業務親送', '業務親送', '發票須帶訂單/請購單號', '雄鷹電子 + 雄鷹手開 + 君華電子 + 君華手開', '06/31 / 02/32 / 03/32', TRUE, '25號之後開下個月', '依照訂單', '※出貨+開發票', '一個請購單號開一張發票，
@@ -591,7 +591,7 @@ F1/ 漸細鑽
 ※詢價：傳真詢價(現在已不是我們代理，須詢問原廠)', '伶華'),
   ('CP50', 'Mail', NULL, NULL, NULL, '雄鷹電子', '06/31', FALSE, NULL, NULL, '同義大', 'nan', '伶華'),
   ('CP44', 'Mail', NULL, NULL, NULL, '雄鷹電子', '06/31', FALSE, NULL, NULL, '同義大', 'nan', '伶華')
-) AS v (hospital_id text, order_mode text, shipping_destination text, shipping_method text, packaging_notes text, invoice_mode text, invoice_track text, dual_invoice bool, payment_cycle_note text, invoice_product_name text, case_close_method text, special_notes text, source_secretary text)
+) AS v (hospital_id, order_mode, shipping_destination, shipping_method, packaging_notes, invoice_mode, invoice_track, dual_invoice, payment_cycle_note, invoice_product_name, case_close_method, special_notes, source_secretary)
 WHERE EXISTS (
   SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id
 )

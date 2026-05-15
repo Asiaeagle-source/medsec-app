@@ -8,7 +8,7 @@ INSERT INTO public.medsec_hospital_credentials
   (hospital_id, platform, url, account, password, tax_id, notes)
 SELECT v.* FROM (
 VALUES
-  ('S-FEN', '供應商平台', 'https://depart.femh.org.tw/supp/login.aspx', '70576007', '654321', NULL, NULL),
+  ('S-FEN'::text, '供應商平台'::text, 'https://depart.femh.org.tw/supp/login.aspx'::text, '70576007'::text, '654321'::text, NULL::text, NULL::text),
   ('VGKS', '供應商平台', NULL, '28863581', '40151671', NULL, NULL),
   ('VGKS', '供應商平台', 'https://eop02p.vghks.gov.tw/Rsm/RsmVendorLogin.aspx', 'ASIA', '9917d702-2', NULL, NULL),
   ('CGKS', '供應商平台', 'https://www.e-fpg.com.tw/j2sp/mgt/mgt_logon.jsp?logonstate=Big5', 'asiaeagleM1', 'AE70576007', NULL, NULL),
@@ -26,7 +26,7 @@ VALUES
   ('S-PAE', '供應商平台', 'https://survey.pohai.org.tw/', NULL, NULL, NULL, NULL),
   ('AP51', '供應商平台', 'https://www.tyh.com.tw:88/sup/', 'SSYD001', '70576007', NULL, NULL),
   ('AP91', '廠商專區：', 'http://scm.fjuh.fju.edu.tw/SCM.NSF', '28863581', '0227089959', NULL, NULL)
-) AS v (hospital_id text, platform text, url text, account text, password text, tax_id text, notes text)
+) AS v (hospital_id, platform, url, account, password, tax_id, notes)
 WHERE EXISTS (
   SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id
 )
