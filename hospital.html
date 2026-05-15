@@ -169,6 +169,7 @@ const state = {
   renderDiscounts();
   maybeShowModeA();
 
+  mountAskFab({ hospitalId: state.hospitalId });
   hideLoading();
 })();
 
@@ -419,8 +420,7 @@ function dismissModeA() {
 }
 
 function onFillRules() {
-  // batch E rule-chat.html 才接,這裡先 alert
-  alert('「逐題補規則」對話介面開發中（Batch E rule-chat.html?mode=fill&hospital_id=' + state.hospitalId + '）');
+  window.location.href = `rule-chat.html?mode=fill&hospital_id=${encodeURIComponent(state.hospitalId)}`;
 }
 
 /* ----- credentials helpers ----- */

@@ -142,6 +142,26 @@ function hideLoading() {
   if (mask) mask.classList.add('hidden');
 }
 
+/* ------------------------------------------------------------
+   全局 FAB「💬 問問題」(V2 sprint 1 §3.5)
+   每頁 init 完叫一次 mountAskFab() 即可
+   ------------------------------------------------------------ */
+function mountAskFab(opts) {
+  if (document.querySelector('.fab-ask')) return;   // 防雙重掛
+  const hospitalId = (opts && opts.hospitalId) || null;
+  const btn = document.createElement('button');
+  btn.className = 'fab-ask';
+  btn.type = 'button';
+  btn.innerHTML = '<span class="icon">💬</span><span>問問題</span>';
+  btn.addEventListener('click', () => {
+    const url = hospitalId
+      ? `rule-chat.html?mode=ask&hospital_id=${encodeURIComponent(hospitalId)}`
+      : 'rule-chat.html?mode=ask';
+    window.location.href = url;
+  });
+  document.body.appendChild(btn);
+}
+
 /* ============================================================
    Week 3-2 · 案件模組共用常數 / helpers
    ============================================================ */

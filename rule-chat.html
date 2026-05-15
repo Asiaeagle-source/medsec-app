@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE MED Hub · 規則對話</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+</head>
+<body class="hospital-page">
+
+<div id="loading-mask" class="loading-mask"><div class="spinner"></div></div>
+
+<div class="topbar">
+  <button class="topbar-back" onclick="onBack()">← 返回</button>
+  <div class="topbar-title" id="topbar-title">MedSec Hub · 規則對話</div>
+  <div class="topbar-user">
+    <span class="topbar-user-name" id="topbar-user-name">—</span>
+    <span class="role-tag" id="topbar-role-tag">—</span>
+    <button class="btn-logout-topbar" onclick="handleLogout()">登出</button>
+  </div>
+</div>
+
+<main class="hospital-main rule-chat-main">
+
+  <!-- Hospital header (mode=fill 一定有 / mode=ask 可選) -->
+  <div class="hospital-header" id="rc-hospital-header" hidden>
+    <div class="hospital-header-id" id="rc-h-id">—</div>
+    <div class="hospital-header-name" id="rc-h-name">—</div>
+    <div class="hospital-header-meta" id="rc-h-meta">—</div>
+  </div>
+
+  <!-- Mode B: 逐題補規則 -->
+  <div id="mode-fill-panel" hidden>
+    <div class="hp-section rc-fill-progress">
+      <div class="rc-progress-text">
+        補規則進度 <strong id="rc-progress-current">0</strong> / <span id="rc-progress-total">0</span>
+        <span class="section-hint" style="margin-left:auto">每題答完直接送審 (Lynn / 伶華)</span>
+      </div>
+      <div class="completeness-bar-wrap large">
+        <div class="completeness-bar tone-good" id="rc-progress-bar" style="width:0%"></div>
+      </div>
+    </div>
+
+    <div class="hp-section rc-question-card" id="rc-question-card">
+      <div class="rc-question-label" id="rc-q-label">—</div>
+      <div class="rc-question-text" id="rc-q-text">—</div>
+      <div class="rc-question-help" id="rc-q-help"></div>
+
+      <div class="rc-answer-area" id="rc-answer-area">
+        <!-- dynamically rendered options / textarea -->
+      </div>
+
+      <div class="rc-question-actions">
+        <button class="btn-secondary" onclick="onSkipQuestion()">跳過</button>
+        <button class="btn-primary" id="rc-submit-btn" onclick="onSubmitAnswer()">送審 → 下一題</button>
+      </div>
+    </div>
+
+    <div class="hp-section rc-finished" id="rc-finished" hidden>
+      <div class="rc-finished-icon">✓</div>
+      <div class="rc-finished-title">補完了</div>
+      <div class="rc-finished-desc">
+        共送出 <strong id="rc-finished-count">0</strong> 筆規則建議,等 Lynn 或伶華審核通過後寫入主檔。
+      </div>
+      <div class="rc-finished-actions">
+        <button class="btn-secondary" onclick="onBack()">返回醫院頁</button>
+        <button class="btn-primary" onclick="window.location.reload()">再看一輪</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mode D: 自由問答 -->
+  <div id="mode-ask-panel" hidden>
+    <div class="hp-section rc-chat-section">
+      <div class="hp-section-title">
+        問問題
+        <span class="section-hint" id="rc-chat-context-hint">—</span>
+      </div>
+
+      <div class="rc-chat-history" id="rc-chat-history">
+        <div class="rc-chat-msg rc-chat-msg-system">
+          <div class="rc-chat-bubble">
+            問醫院規則 / 帳密 / 折讓 / 出貨方式 / 過去成交都可以,我會根據主檔資料回。<br>
+            <em style="color:var(--text-muted);font-size:12px">範例:「高榮 MR8 怎麼出?」「台大新雄付款條件?」「奇美南門帳密是?」</em>
+          </div>
+        </div>
+      </div>
+
+      <div class="rc-chat-input-row">
+        <textarea id="rc-chat-input" class="rc-chat-input" placeholder="輸入問題... (Enter 送出, Shift+Enter 換行)" rows="2"></textarea>
+        <button class="btn-primary" id="rc-chat-send" onclick="onSendChat()">送出</button>
+      </div>
+
+      <div class="rc-chat-disclaimer">
+        ※ 走 Supabase Edge Function relay,你輸入的問題 + 醫院主檔 context 會送到 Claude API。
+        敏感欄位 (帳密) 走前端 RLS,Claude 看不到你看不到的資料。
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+
+/* ============================================================
+   9 個 operation_rules 欄位的問題 templates
+   ============================================================ */
+const QUESTION_TEMPLATES = {
+  order_mode: {
+    label: '叫貨方式',
+    question: '{hospital} 平常怎麼叫貨？',
+    type: 'single',
+    options: ['Mail 訂貨', '傳真', '電話', 'AHOP 跳單', 'CRM 自動跳單', '其他...'],
+  },
+  shipping_destination: {
+    label: '出貨地點',
+    question: '{hospital} 出貨主要送到哪？',
+    type: 'single',
+    options: ['開刀房', '庫房', '中央倉', '業務親送至業務手上', '門診部', '其他...'],
+  },
+  shipping_method: {
+    label: '出貨方式',
+    question: '{hospital} 出貨怎麼送？',
+    type: 'single',
+    options: ['業務親送', '嘉里物流', '郵局', '黑貓', '其他...'],
+  },
+  packaging_notes: {
+    label: '包貨注意',
+    question: '{hospital} 出貨時，有沒有以下哪些情況？(可多選)',
+    type: 'multi',
+    options: ['需貼院內碼貼紙', '要拆仿單/外盒', '手寫批號效期', '同訂單同箱', '部分品項要分開出', '發票須帶訂單/請購單號', '都不需要'],
+  },
+  invoice_mode: {
+    label: '發票模式',
+    question: '{hospital} 主要的發票模式是？',
+    type: 'single',
+    options: ['雄鷹電子', '雄鷹手開', '君華電子', '君華手開', '雄鷹電子 + 君華手開 (雙開)', '雄鷹電子 + 雄鷹手開 + 君華電子 + 君華手開 (四開)', '其他...'],
+  },
+  invoice_track: {
+    label: '發票字軌',
+    question: '{hospital} 對應的發票字軌組合？',
+    type: 'free',
+    placeholder: '06/31 / 02/32 / 03/32',
+    helpText: '雙開以上請用「 / 」分開，順序對應發票模式 (06/31 = 雄鷹電子；02/32 = 雄鷹手開；03/32 = 君華手開)',
+  },
+  payment_cycle_note: {
+    label: '付款週期',
+    question: '{hospital} 付款週期？',
+    type: 'single',
+    options: ['月結 30 天', '月結 60 天', '月結 90 天', '25 號之後開下個月', '隔月結', '貨到付款', '其他...'],
+  },
+  invoice_product_name: {
+    label: '發票品名',
+    question: '{hospital} 發票品名格式怎麼開？',
+    type: 'single',
+    options: ['依照訂單', '依照本公司品名', '依照健保碼名稱', '醫院指定格式', '其他...'],
+  },
+  case_close_method: {
+    label: '結案方式',
+    question: '{hospital} 結案 / 銷案方式？',
+    type: 'single',
+    options: ['出貨 + 開發票', '銷貨單', '借單月結', '借轉銷', '其他...'],
+  },
+};
+
+const state = {
+  profile: null,
+  mode: null,                     // 'fill' / 'ask'
+  hospitalId: null,
+  hospital: null,                 // medsec_hospitals row
+  // mode=fill state
+  missingFields: [],              // 從 view 撈的缺欄位 list
+  currentIndex: 0,
+  answers: {},                    // field → value (送審後存)
+  submittedCount: 0,
+  // mode=ask state
+  chatMessages: [],               // {role:'user'|'assistant', content}
+  hospitalContext: null,          // 全 context for Claude
+  chatBusy: false,
+};
+
+(async function init() {
+  const params = new URLSearchParams(window.location.search);
+  state.mode = params.get('mode');
+  state.hospitalId = params.get('hospital_id');
+
+  if (!state.mode || !['fill', 'ask'].includes(state.mode)) {
+    document.body.innerHTML = '<div style="padding:60px;text-align:center;color:#dc2626">缺 ?mode 參數。範例：rule-chat.html?mode=fill&hospital_id=NTHN 或 rule-chat.html?mode=ask</div>';
+    return;
+  }
+  if (state.mode === 'fill' && !state.hospitalId) {
+    document.body.innerHTML = '<div style="padding:60px;text-align:center;color:#dc2626">mode=fill 必須帶 hospital_id 參數</div>';
+    return;
+  }
+
+  state.profile = await guardAnyMedsecRole();
+  if (!state.profile) return;
+  renderTopbar();
+
+  if (state.hospitalId) {
+    await loadHospitalContext();
+    renderHospitalHeader();
+  }
+
+  if (state.mode === 'fill') {
+    document.getElementById('mode-fill-panel').hidden = false;
+    document.getElementById('topbar-title').textContent = `MedSec Hub · 補規則 (${state.hospitalId})`;
+    await initFillMode();
+  } else {
+    document.getElementById('mode-ask-panel').hidden = false;
+    document.getElementById('topbar-title').textContent = state.hospitalId
+      ? `MedSec Hub · 問問題 (${state.hospitalId})`
+      : 'MedSec Hub · 問問題';
+    initAskMode();
+  }
+
+  hideLoading();
+})();
+
+/* ----- topbar ----- */
+function renderTopbar() {
+  document.getElementById('topbar-user-name').textContent =
+    state.profile.nickname || state.profile.name || state.profile.employee_id;
+  const tagEl = document.getElementById('topbar-role-tag');
+  tagEl.textContent = ROLE_LABEL_MAP[state.profile.medsec_role] || state.profile.medsec_role;
+  tagEl.className = `role-tag ${ROLE_TAG_CLASS[state.profile.medsec_role] || ''}`;
+}
+function onBack() {
+  if (state.hospitalId && document.referrer.includes('hospital.html')) {
+    window.history.back();
+  } else if (state.hospitalId) {
+    window.location.href = `hospital.html?id=${encodeURIComponent(state.hospitalId)}`;
+  } else if (document.referrer && document.referrer !== window.location.href) {
+    window.history.back();
+  } else {
+    const home = ROLE_PAGE_MAP[state.profile.medsec_role] || 'login.html';
+    window.location.href = home;
+  }
+}
+
+/* ----- 醫院 context (兩 mode 共用) ----- */
+async function loadHospitalContext() {
+  const [hRes, rRes, addrRes, credRes, discRes] = await Promise.all([
+    supa.from('medsec_hospitals')
+      .select('id, name_short, name_full, invoice_company, region_name, system_prefix, payment_terms, tax_id')
+      .eq('id', state.hospitalId).maybeSingle(),
+    supa.from('medsec_hospital_operation_rules').select('*').eq('hospital_id', state.hospitalId).maybeSingle(),
+    supa.from('medsec_hospital_shipping_addresses').select('*').eq('hospital_id', state.hospitalId),
+    supa.from('medsec_hospital_credentials').select('*').eq('hospital_id', state.hospitalId),
+    supa.from('medsec_discount_rules').select('*').eq('hospital_id', state.hospitalId),
+  ]);
+  state.hospital = hRes.data;
+  state.hospitalContext = {
+    hospital: hRes.data,
+    operation_rules: rRes.data,
+    shipping_addresses: addrRes.data || [],
+    credentials: credRes.data || [],
+    discount_rules: discRes.data || [],
+  };
+}
+
+function renderHospitalHeader() {
+  const h = state.hospital;
+  const headerEl = document.getElementById('rc-hospital-header');
+  if (!h) {
+    headerEl.hidden = false;
+    document.getElementById('rc-h-id').textContent = state.hospitalId;
+    document.getElementById('rc-h-name').textContent = `醫院 ${state.hospitalId} 不存在或無權限`;
+    return;
+  }
+  headerEl.hidden = false;
+  document.getElementById('rc-h-id').textContent = h.id;
+  document.getElementById('rc-h-name').innerHTML = `
+    ${escapeHtml(h.name_short || h.name_full || h.id)}
+    <span class="company-badge company-${companyBadge(h.invoice_company)}">${companyBadge(h.invoice_company)}</span>
+  `;
+  const meta = [
+    h.region_name && `區域：${escapeHtml(h.region_name)}`,
+    h.system_prefix && `體系：${escapeHtml(h.system_prefix)}`,
+    h.payment_terms && `付款：${escapeHtml(h.payment_terms)}`,
+  ].filter(Boolean);
+  document.getElementById('rc-h-meta').innerHTML = meta.join(' &nbsp;·&nbsp; ');
+}
+
+/* ============================================================
+   Mode B (fill) 邏輯
+   ============================================================ */
+async function initFillMode() {
+  // 撈完整度 view 取 missing_fields
+  const { data } = await supa.from('medsec_hospital_rule_completeness')
+    .select('missing_fields').eq('hospital_id', state.hospitalId).maybeSingle();
+  // 只問我們有 template 的欄位 (9 個)
+  state.missingFields = (data && data.missing_fields || []).filter(f => QUESTION_TEMPLATES[f]);
+
+  document.getElementById('rc-progress-total').textContent = state.missingFields.length;
+
+  if (state.missingFields.length === 0) {
+    document.getElementById('rc-question-card').hidden = true;
+    document.getElementById('rc-finished').hidden = false;
+    document.getElementById('rc-finished-count').textContent = '0';
+    document.querySelector('#rc-finished .rc-finished-title').textContent = '無需要補的規則';
+    document.querySelector('#rc-finished .rc-finished-desc').textContent = '這家醫院的 9 欄關鍵規則都已填齊。';
+    return;
+  }
+  showCurrentQuestion();
+}
+
+function showCurrentQuestion() {
+  const idx = state.currentIndex;
+  if (idx >= state.missingFields.length) {
+    showFillFinished();
+    return;
+  }
+  const field = state.missingFields[idx];
+  const tpl = QUESTION_TEMPLATES[field];
+  const hospName = state.hospital ? (state.hospital.name_short || state.hospital.name_full || state.hospitalId) : state.hospitalId;
+  const questionText = (tpl.question || '').replace('{hospital}', hospName);
+
+  document.getElementById('rc-progress-current').textContent = idx + 1;
+  const pct = Math.round((idx / state.missingFields.length) * 100);
+  document.getElementById('rc-progress-bar').style.width = pct + '%';
+  document.getElementById('rc-q-label').textContent = `${idx + 1}. ${tpl.label}`;
+  document.getElementById('rc-q-text').textContent = questionText;
+  document.getElementById('rc-q-help').textContent = tpl.helpText || '';
+  document.getElementById('rc-q-help').hidden = !tpl.helpText;
+
+  renderAnswerArea(tpl);
+}
+
+function renderAnswerArea(tpl) {
+  const area = document.getElementById('rc-answer-area');
+  if (tpl.type === 'single') {
+    area.innerHTML = tpl.options.map((opt, i) => `
+      <label class="rc-option-row">
+        <input type="radio" name="rc-opt" value="${escapeHtml(opt)}" data-other="${opt.endsWith('...') ? '1' : '0'}">
+        <span>${escapeHtml(opt)}</span>
+      </label>
+    `).join('') + `
+      <div class="rc-other-input-wrap" id="rc-other-wrap" hidden>
+        <input type="text" id="rc-other-input" class="rc-text-input" placeholder="輸入內容..." />
+      </div>
+    `;
+    area.querySelectorAll('input[type=radio]').forEach(r => {
+      r.addEventListener('change', () => {
+        const isOther = r.dataset.other === '1';
+        document.getElementById('rc-other-wrap').hidden = !isOther;
+        if (isOther) document.getElementById('rc-other-input').focus();
+      });
+    });
+  } else if (tpl.type === 'multi') {
+    area.innerHTML = tpl.options.map((opt, i) => `
+      <label class="rc-option-row">
+        <input type="checkbox" name="rc-opt" value="${escapeHtml(opt)}" data-other="${opt.endsWith('...') ? '1' : '0'}">
+        <span>${escapeHtml(opt)}</span>
+      </label>
+    `).join('') + `
+      <div class="rc-other-input-wrap" id="rc-other-wrap" hidden>
+        <input type="text" id="rc-other-input" class="rc-text-input" placeholder="其他情況..." />
+      </div>
+    `;
+    area.querySelectorAll('input[type=checkbox]').forEach(c => {
+      c.addEventListener('change', () => {
+        const anyOther = Array.from(area.querySelectorAll('input[data-other="1"]:checked')).length > 0;
+        document.getElementById('rc-other-wrap').hidden = !anyOther;
+      });
+    });
+  } else {
+    area.innerHTML = `
+      <textarea id="rc-free-input" class="rc-text-input" rows="3" placeholder="${escapeHtml(tpl.placeholder || '')}"></textarea>
+    `;
+  }
+}
+
+function collectAnswer() {
+  const idx = state.currentIndex;
+  const field = state.missingFields[idx];
+  const tpl = QUESTION_TEMPLATES[field];
+  if (tpl.type === 'single') {
+    const checked = document.querySelector('input[name="rc-opt"]:checked');
+    if (!checked) return null;
+    if (checked.dataset.other === '1') {
+      const other = (document.getElementById('rc-other-input').value || '').trim();
+      return other || null;
+    }
+    return checked.value;
+  } else if (tpl.type === 'multi') {
+    const checks = Array.from(document.querySelectorAll('input[name="rc-opt"]:checked'));
+    if (checks.length === 0) return null;
+    const vals = checks.map(c => {
+      if (c.dataset.other === '1') {
+        return (document.getElementById('rc-other-input').value || '').trim();
+      }
+      return c.value;
+    }).filter(Boolean);
+    return vals.length > 0 ? vals.join(' | ') : null;
+  } else {
+    const v = (document.getElementById('rc-free-input').value || '').trim();
+    return v || null;
+  }
+}
+
+async function onSubmitAnswer() {
+  const ans = collectAnswer();
+  if (!ans) {
+    alert('請先填答案');
+    return;
+  }
+  const field = state.missingFields[state.currentIndex];
+  const btn = document.getElementById('rc-submit-btn');
+  btn.disabled = true; btn.textContent = '送審中…';
+
+  // 撈 current_value 給 suggestion snapshot
+  const { data: cur } = await supa.from('medsec_hospital_operation_rules')
+    .select(field).eq('hospital_id', state.hospitalId).maybeSingle();
+  const currentValue = cur ? cur[field] : null;
+
+  const { error } = await supa.from('medsec_rule_suggestions').insert({
+    hospital_id: state.hospitalId,
+    table_name: 'operation_rules',
+    field_name: field,
+    current_value: currentValue,
+    suggested_value: ans,
+    suggested_by: state.profile.id,
+    status: 'pending',
+  });
+  if (error) {
+    alert('送審失敗：' + error.message);
+    btn.disabled = false; btn.textContent = '送審 → 下一題';
+    return;
+  }
+  state.answers[field] = ans;
+  state.submittedCount++;
+  state.currentIndex++;
+  btn.disabled = false; btn.textContent = '送審 → 下一題';
+  showCurrentQuestion();
+}
+
+function onSkipQuestion() {
+  state.currentIndex++;
+  showCurrentQuestion();
+}
+
+function showFillFinished() {
+  document.getElementById('rc-question-card').hidden = true;
+  document.getElementById('rc-finished').hidden = false;
+  document.getElementById('rc-finished-count').textContent = state.submittedCount;
+  document.getElementById('rc-progress-bar').style.width = '100%';
+  document.getElementById('rc-progress-current').textContent = state.missingFields.length;
+}
+
+/* ============================================================
+   Mode D (ask) 邏輯
+   ============================================================ */
+function initAskMode() {
+  const hint = document.getElementById('rc-chat-context-hint');
+  if (state.hospitalId && state.hospital) {
+    hint.textContent = `Context：${state.hospital.name_short || state.hospitalId} 的主檔規則 + 收件 + 帳密 + 折讓`;
+  } else if (state.hospitalId) {
+    hint.textContent = `醫院 ${state.hospitalId} 不存在或無權限`;
+  } else {
+    hint.textContent = '無醫院 context — 一般問答';
+  }
+
+  const ta = document.getElementById('rc-chat-input');
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      onSendChat();
+    }
+  });
+}
+
+async function onSendChat() {
+  if (state.chatBusy) return;
+  const ta = document.getElementById('rc-chat-input');
+  const text = ta.value.trim();
+  if (!text) return;
+  ta.value = '';
+  state.chatBusy = true;
+  document.getElementById('rc-chat-send').disabled = true;
+
+  appendChatBubble('user', text);
+  state.chatMessages.push({ role: 'user', content: text });
+
+  const placeholderBubble = appendChatBubble('assistant', '<em class="rc-typing">思考中…</em>', true);
+
+  try {
+    const reply = await callClaudeChat();
+    placeholderBubble.querySelector('.rc-chat-bubble').innerHTML = renderChatReply(reply);
+    state.chatMessages.push({ role: 'assistant', content: reply });
+  } catch (e) {
+    placeholderBubble.querySelector('.rc-chat-bubble').innerHTML =
+      `<span style="color:var(--danger)">錯誤：${escapeHtml(e.message)}</span>`;
+    state.chatMessages.pop();   // remove user message that triggered
+  } finally {
+    state.chatBusy = false;
+    document.getElementById('rc-chat-send').disabled = false;
+  }
+}
+
+function appendChatBubble(role, html, returnEl = false) {
+  const list = document.getElementById('rc-chat-history');
+  const div = document.createElement('div');
+  div.className = `rc-chat-msg rc-chat-msg-${role}`;
+  div.innerHTML = `<div class="rc-chat-bubble">${html}</div>`;
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
+  return div;
+}
+
+function renderChatReply(text) {
+  // 簡單 escape + 換行轉 <br>
+  return escapeHtml(text).replace(/\n/g, '<br>');
+}
+
+async function callClaudeChat() {
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) throw new Error('未登入');
+
+  const systemPrompt = buildSystemPrompt();
+  const messages = state.chatMessages.map(m => ({ role: m.role, content: m.content }));
+
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/claude-chat`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      system: systemPrompt,
+      messages,
+      max_tokens: 1024,
+      temperature: 0.3,
+    }),
+  });
+  if (!r.ok) {
+    const err = await r.text();
+    throw new Error(`edge fn ${r.status}: ${err.slice(0, 200)}`);
+  }
+  const data = await r.json();
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  return text || '(空回應)';
+}
+
+function buildSystemPrompt() {
+  let sys = `你是 AE MED Hub (亞洲鷹眼醫療儀器) 業祕助手。
+- 只用提供的 context 回答,不要編造規則
+- 回答用繁體中文 (台灣用語)
+- 簡潔,優先列關鍵欄位 (3-5 條 bullet),最後才寫一句話總結
+- 帳密 / 統編這類敏感資料如 context 有就明確列出 (使用者已通過 RLS,你看得到 = 他看得到)
+- 如果 context 缺對應欄位,直接說「主檔沒這個資料,需業祕補規則」
+`;
+  if (state.hospitalContext && state.hospitalContext.hospital) {
+    sys += `\n\n### 此次對話 context (單一醫院主檔)\n` +
+      JSON.stringify(state.hospitalContext, null, 2);
+  } else {
+    sys += `\n\n### 此次對話 context\n無特定醫院。如使用者問特定醫院,請建議他先到「醫院規則查詢」找該醫院再開「問問題」。`;
+  }
+  return sys;
+}
+
+/* ----- shared ----- */
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+</script>
+
+</body>
+</html>
