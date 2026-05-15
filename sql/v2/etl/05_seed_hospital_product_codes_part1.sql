@@ -2005,7 +2005,7 @@ VALUES
   ('CKUS', '43103', 'DISTAL CATHETER BARIUM 90CM 腹腔導管標準型,含鋇 4裂孔', 'CATH 43103 C/P CATH STANDARD BAR IMP', 'K2981', NULL, NULL, NULL, '0.00%', 0, '2023-04-06'::date),
   ('CKUS', '43103', 'DISTAL CATHETER BARIUM 90CM 腹腔導管標準型,含鋇 4裂孔', 'CATH 43103 C/P CATH STANDARD BAR IMP', 'K3015', NULL, NULL, NULL, '0.00%', 0, '2023-04-06'::date),
   ('CKUS', '43103', 'DISTAL CATHETER BARIUM 90CM 腹腔導管標準型,含鋇 4裂孔', 'CATH 43103 C/P CATH STANDARD BAR IMP', 'K3027', NULL, NULL, NULL, '0.00%', 0, '2024-03-06'::date)
-) AS v (hospital_id text, product_code text, product_name text, product_spec text, hospital_item_code text, hospital_item_name text, hospital_item_spec text, hospital_item_desc text, warranty_ratio text, warranty_months int, effective_date date)
+) AS v (hospital_id, product_code, product_name, product_spec, hospital_item_code, hospital_item_name, hospital_item_spec, hospital_item_desc, warranty_ratio, warranty_months, effective_date)
 WHERE EXISTS (
   SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id
 )

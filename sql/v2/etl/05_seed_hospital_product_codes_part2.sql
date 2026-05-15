@@ -2005,7 +2005,7 @@ VALUES
   ('KMMS', 'T12MH20D', 'T12 TUBE 2MM MATCH DIAMOND', 'TOOL T12MH20D LEGEND 12CM 2MM DIAM', '61800022', 'T12MH20D', 'T12 TUBE 2MM MATCH DIAMOND', 'T12 TUBE 2MM MATCH DIAMOND', '0.00%', 0, NULL),
   ('KMMS', 'T12MH25D', 'T12 TUBE 2.5MM MATCH DIAMOND', 'TOOL T12MH25D LEGEND 12CM 2.5MM DIAM', '61800022', 'T12MH25D', 'T12 TUBE 2.5MM MATCH DIAMOND', 'T12 TUBE 2.5MM MATCH DIAMOND', '0.00%', 0, NULL),
   ('KMUS', '2968245', 'CAGE 2968245 CLYDESDALE PEEK IB 6 12X45', 'CAGE 2968245 CLYDESDALE PEEK IB 6 12X45', 'N9999019480M001', NULL, NULL, NULL, '0.00%', 0, '2025-05-15'::date)
-) AS v (hospital_id text, product_code text, product_name text, product_spec text, hospital_item_code text, hospital_item_name text, hospital_item_spec text, hospital_item_desc text, warranty_ratio text, warranty_months int, effective_date date)
+) AS v (hospital_id, product_code, product_name, product_spec, hospital_item_code, hospital_item_name, hospital_item_spec, hospital_item_desc, warranty_ratio, warranty_months, effective_date)
 WHERE EXISTS (
   SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id
 )

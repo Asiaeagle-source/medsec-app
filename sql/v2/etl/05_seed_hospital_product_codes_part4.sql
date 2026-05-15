@@ -2005,7 +2005,7 @@ VALUES
   ('TSGN', '92856', 'VALVE 92856 STRATA SML BIOGLIDE', 'VALVE 92856 STRATA SML BIOGLIDE', '08184176', NULL, NULL, NULL, '0.00%', 0, '2025-04-29'::date),
   ('TSGN', '92866', 'VALVE 92866 STRATA REG BIOGLIDE', 'VALVE 92866 STRATA REG BIOGLIDE', '08184176', NULL, NULL, NULL, '0.00%', 0, '2025-04-29'::date),
   ('TSGN', '95001', 'ARES Antibiotic-Impregnated Catheter Kit瑞思腦室及腹膜抗菌導管', 'ARES Antibiotic-Impregted Catheter Kit', '08065330', '95001', '瑞思腦室及腹膜抗菌導管', '瑞思腦室及腹膜抗菌導管', '0.00%', 0, '2023-06-01'::date)
-) AS v (hospital_id text, product_code text, product_name text, product_spec text, hospital_item_code text, hospital_item_name text, hospital_item_spec text, hospital_item_desc text, warranty_ratio text, warranty_months int, effective_date date)
+) AS v (hospital_id, product_code, product_name, product_spec, hospital_item_code, hospital_item_name, hospital_item_spec, hospital_item_desc, warranty_ratio, warranty_months, effective_date)
 WHERE EXISTS (
   SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id
 )

@@ -2005,7 +2005,7 @@ VALUES
   ('MMTN', '54850016560', 'Ø4.75 SOLERA VOYAGER, MAS 6.5 × 60', 'Ø4.75 SOLERA VOYAGER, MAS 6.5 × 60', '55442', NULL, NULL, NULL, '0.00%', 0, NULL),
   ('MMTN', '54850016565', 'Ø4.75 SOLERA VOYAGER, MAS 6.5 × 65', 'Ø4.75 SOLERA VOYAGER, MAS 6.5 × 65', '55442', NULL, NULL, NULL, '0.00%', 0, NULL),
   ('MMTN', '54850017530', 'Ø4.75 SOLERA VOYAGER, MAS 7.5 × 30', 'Ø4.75 SOLERA VOYAGER, MAS 7.5 × 30', '55442', NULL, NULL, NULL, '0.00%', 0, NULL)
-) AS v (hospital_id text, product_code text, product_name text, product_spec text, hospital_item_code text, hospital_item_name text, hospital_item_spec text, hospital_item_desc text, warranty_ratio text, warranty_months int, effective_date date)
+) AS v (hospital_id, product_code, product_name, product_spec, hospital_item_code, hospital_item_name, hospital_item_spec, hospital_item_desc, warranty_ratio, warranty_months, effective_date)
 WHERE EXISTS (
   SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id
 )

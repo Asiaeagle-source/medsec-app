@@ -138,13 +138,14 @@ def main() -> None:
             else:
                 lines.append(f"  ({', '.join(vals)}){suffix}")
         body = '\n'.join(lines)
+        # PG VALUES 的 AS alias 不接 type — 只列欄名,型別靠首列 ::cast 推
         out = (
             f'-- 05_seed_hospital_product_codes_part{part}.sql '
             f'(part {part}/{n_chunks}, {len(chunk)} 列) — COPI10 ETL\n'
             f'-- self-skip dingxin_code 不在 V1 185 的列;ON CONFLICT 可重跑\n\n'
             f'INSERT INTO public.medsec_hospital_product_codes\n'
             f'  ({cols})\n'
-            f'SELECT v.* FROM (\nVALUES\n{body}\n) AS v ({col_types})\n'
+            f'SELECT v.* FROM (\nVALUES\n{body}\n) AS v ({cols})\n'
             f'WHERE EXISTS (\n'
             f'  SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id\n'
             f')\n'

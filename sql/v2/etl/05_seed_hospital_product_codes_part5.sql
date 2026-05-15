@@ -883,7 +883,7 @@ VALUES
   ('VGYN', '95001', 'ARES Antibiotic-Impregnated Catheter Kit瑞思腦室及腹膜抗菌導管', 'ARES Antibiotic-Impregted Catheter Kit', 'CK5550021038', NULL, NULL, NULL, '0.00%', 0, '2024-01-04'::date),
   ('VGYN', 'F2/8TA23', 'Legend 8 cm, 2.3 mm Tapered', 'TOOL F2/8TA23 LEGEND 8CM 2.3MM TAPER', 'CI4820004135', NULL, NULL, NULL, '0.00%', 0, '2023-07-10'::date),
   ('VGYN', 'PA100-A', 'LUBRICANT/DUFFUSER PACK', 'ACCY PA100-A LEGEND LUB/DIFFUSER 4 PACK', 'NS182', 'PA100-A', 'LUBRICANT/DUFFUSER PACK', 'LUBRICANT/DUFFUSER PACK', '0.00%', 0, NULL)
-) AS v (hospital_id text, product_code text, product_name text, product_spec text, hospital_item_code text, hospital_item_name text, hospital_item_spec text, hospital_item_desc text, warranty_ratio text, warranty_months int, effective_date date)
+) AS v (hospital_id, product_code, product_name, product_spec, hospital_item_code, hospital_item_name, hospital_item_spec, hospital_item_desc, warranty_ratio, warranty_months, effective_date)
 WHERE EXISTS (
   SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id
 )
