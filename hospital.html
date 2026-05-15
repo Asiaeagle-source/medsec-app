@@ -464,18 +464,18 @@ function renderDiscounts() {
     <table class="discounts-table">
       <thead>
         <tr>
-          <th>產品</th><th>類型</th><th>原單價</th><th>折讓</th><th>實際成交</th><th>備註</th>
+          <th>產品</th><th>計算方式</th><th>固定折讓</th><th>折%</th><th>捐贈額</th><th>說明</th>
         </tr>
       </thead>
       <tbody>
         ${state.discounts.map(d => `
           <tr>
             <td>${escapeHtml(d.product_code || '全院通用')}</td>
-            <td>${escapeHtml(d.discount_type || '—')}</td>
-            <td>${d.unit_price != null ? Number(d.unit_price).toLocaleString() : '—'}</td>
-            <td>${d.discount_amount != null ? Number(d.discount_amount).toLocaleString() : '—'}</td>
-            <td>${d.final_price != null ? Number(d.final_price).toLocaleString() : '—'}</td>
-            <td class="discount-notes">${escapeHtml(d.notes || '')}</td>
+            <td>${escapeHtml(d.calc_method || '—')}</td>
+            <td>${d.fixed_amount != null ? Number(d.fixed_amount).toLocaleString() : '—'}</td>
+            <td>${d.percentage_rate != null ? d.percentage_rate + '%' : '—'}</td>
+            <td>${d.donation_amount != null ? Number(d.donation_amount).toLocaleString() : '—'}</td>
+            <td class="discount-notes">${escapeHtml(d.description || '')}</td>
           </tr>
         `).join('')}
       </tbody>
