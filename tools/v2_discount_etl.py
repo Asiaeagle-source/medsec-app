@@ -91,7 +91,10 @@ def main() -> None:
             q(code), q(prod), q(calc), fixed_amt, donation_amt, q(description),
         ))
 
-    cols = 'hospital_id, product_code, calc_method, fixed_amount, donation_amount, description, source, is_active'
+    # VALUES 帶原始 raw_product_code;SELECT 時用 CASE 判斷:
+    #   品號在 medsec_products → 進 product_code
+    #   不在 (是產品線名 Burr/mesh 等) → 進 product_line,product_code 留 NULL
+    #   (V1 medsec_discount_rules.product_code 有 FK → medsec_products)
     lines = []
     n = len(out_rows)
     for i, (hid, prod, calc, fx, dn, desc) in enumerate(out_rows):
@@ -107,16 +110,27 @@ def main() -> None:
                 f"'V2_part3_折讓總表', true){suffix}"
             )
     body = '\n'.join(lines)
+    v_cols = 'hospital_id, raw_product_code, calc_method, fixed_amount, donation_amount, description, source, is_active'
     out = (
         '-- 06_seed_discount_rules.sql — V2 part3 折讓總表 ETL (406 列)\n'
         '-- 不 TRUNCATE (保留 V1 既有 3 筆)。重跑前先:\n'
         "--   DELETE FROM medsec_discount_rules WHERE source='V2_part3_折讓總表';\n"
-        '-- self-skip dingxin_code 不在 V1 185 的列\n\n'
+        '-- self-skip dingxin_code 不在 V1 185 的列\n'
+        '-- product_code 在 medsec_products → product_code 欄;\n'
+        '-- 不在 (產品線名 Burr/mesh 等) → product_line 欄 (避開 FK)\n\n'
         'INSERT INTO public.medsec_discount_rules\n'
-        f'  ({cols})\n'
-        'SELECT v.* FROM (\nVALUES\n'
+        '  (hospital_id, product_code, product_line, calc_method, '
+        'fixed_amount, donation_amount, description, source, is_active)\n'
+        'SELECT\n'
+        '  v.hospital_id,\n'
+        '  CASE WHEN EXISTS (SELECT 1 FROM public.medsec_products p WHERE p.id = v.raw_product_code)\n'
+        '       THEN v.raw_product_code ELSE NULL END,\n'
+        '  CASE WHEN EXISTS (SELECT 1 FROM public.medsec_products p WHERE p.id = v.raw_product_code)\n'
+        '       THEN NULL ELSE v.raw_product_code END,\n'
+        '  v.calc_method, v.fixed_amount, v.donation_amount, v.description, v.source, v.is_active\n'
+        'FROM (\nVALUES\n'
         f'{body}\n'
-        f') AS v ({cols})\n'
+        f') AS v ({v_cols})\n'
         'WHERE EXISTS (\n'
         '  SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id\n'
         ');\n'

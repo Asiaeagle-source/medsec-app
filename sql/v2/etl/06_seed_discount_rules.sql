@@ -2,10 +2,19 @@
 -- 不 TRUNCATE (保留 V1 既有 3 筆)。重跑前先:
 --   DELETE FROM medsec_discount_rules WHERE source='V2_part3_折讓總表';
 -- self-skip dingxin_code 不在 V1 185 的列
+-- product_code 在 medsec_products → product_code 欄;
+-- 不在 (產品線名 Burr/mesh 等) → product_line 欄 (避開 FK)
 
 INSERT INTO public.medsec_discount_rules
-  (hospital_id, product_code, calc_method, fixed_amount, donation_amount, description, source, is_active)
-SELECT v.* FROM (
+  (hospital_id, product_code, product_line, calc_method, fixed_amount, donation_amount, description, source, is_active)
+SELECT
+  v.hospital_id,
+  CASE WHEN EXISTS (SELECT 1 FROM public.medsec_products p WHERE p.id = v.raw_product_code)
+       THEN v.raw_product_code ELSE NULL END,
+  CASE WHEN EXISTS (SELECT 1 FROM public.medsec_products p WHERE p.id = v.raw_product_code)
+       THEN NULL ELSE v.raw_product_code END,
+  v.calc_method, v.fixed_amount, v.donation_amount, v.description, v.source, v.is_active
+FROM (
 VALUES
   ('CMAS'::text, '46128'::text, 'fixed_amount'::text, 632::numeric, NULL::numeric, '原單價=2662 | 折讓=632 | 成交=2030 | 體系:中國 | 公司別:雄鷹'::text, 'V2_part3_折讓總表'::text, true::boolean),
   ('CMAS', '46118', 'fixed_amount', 481, NULL, '原單價=1454 | 折讓=481 | 成交=973 | 體系:中國 | 公司別:雄鷹', 'V2_part3_折讓總表', true),
@@ -413,7 +422,7 @@ VALUES
   ('CKUS', '42365', 'donation', NULL, 10600, '捐贈支票(donation_check) | 原單價=47700 | 折讓=10600 | 成交=37100 | 類型:捐贈支票 | 體系:None | 公司別:雄鷹', 'V2_part3_折讓總表', true),
   ('CKUS', '42355', 'donation', NULL, 10600, '捐贈支票(donation_check) | 原單價=47700 | 折讓=10600 | 成交=37100 | 類型:捐贈支票 | 體系:None | 公司別:雄鷹', 'V2_part3_折讓總表', true),
   ('CKUS', '44420', 'donation', NULL, 2500, '捐贈支票(donation_check) | 原單價=112000 | 折讓=2500 | 成交=109500 | 類型:捐贈支票 | 體系:None | 公司別:雄鷹', 'V2_part3_折讓總表', true)
-) AS v (hospital_id, product_code, calc_method, fixed_amount, donation_amount, description, source, is_active)
+) AS v (hospital_id, raw_product_code, calc_method, fixed_amount, donation_amount, description, source, is_active)
 WHERE EXISTS (
   SELECT 1 FROM public.medsec_hospitals h WHERE h.id = v.hospital_id
 );
