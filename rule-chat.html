@@ -495,7 +495,7 @@ async function onSendChat() {
     state.chatMessages.push({ role: 'assistant', content: reply });
   } catch (e) {
     placeholderBubble.querySelector('.rc-chat-bubble').innerHTML =
-      `<span style="color:var(--danger)">錯誤：${escapeHtml(e.message)}</span>`;
+      `<span style="color:var(--danger)">錯誤：${escapeHtml(edgeFnError(e)).replace(/\n/g, '<br>')}</span>`;
     state.chatMessages.pop();   // remove user message that triggered
   } finally {
     state.chatBusy = false;

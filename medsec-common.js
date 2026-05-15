@@ -360,6 +360,19 @@ function completenessTone(pct) {
   return 'bad';
 }
 
+/* edge function 呼叫失敗 → 給可行動的訊息（取代裸 "Failed to fetch"）*/
+function edgeFnError(e) {
+  const msg = (e && e.message) || String(e);
+  if (/Failed to fetch|NetworkError|Load failed|ERR_|^TypeError/i.test(msg)) {
+    return 'claude-chat edge function 連不到（多半還沒部署）。\n'
+      + '請在能連 Supabase 的環境執行:\n'
+      + '  supabase functions deploy claude-chat\n'
+      + '  supabase secrets set ANTHROPIC_API_KEY=sk-ant-...\n'
+      + '部署前「AI 解析」「問問題」都會這樣 — 先用「表格解析」或手動加品項。';
+  }
+  return msg;
+}
+
 /* 規則欄位英文 → 中文 chip 顯示 */
 const MISSING_FIELD_LABEL = {
   order_mode:           '叫貨方式',
