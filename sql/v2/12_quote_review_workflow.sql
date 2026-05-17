@@ -15,21 +15,33 @@
 -- ============================================================
 
 -- ---------- 1. medsec_quotes status 擴充 ----------
--- 1a. 先把舊值 remap 成新值(否則換 CHECK 會被既有列擋下)
+-- ⚠️ 順序關鍵:v10 的 status 是「欄內 inline CHECK」,Postgres 自動命名
+--   medsec_quotes_status_check,只認 5 個舊值。必須「先 DROP 約束」
+--   才能把舊值 remap 成新值,否則 UPDATE 會立刻違反舊 CHECK 而整批中止。
+
+-- 1a. 先拆掉舊 CHECK(沒有它擋著才能 remap)
+ALTER TABLE public.medsec_quotes DROP CONSTRAINT IF EXISTS medsec_quotes_status_check;
+ALTER TABLE public.medsec_quotes DROP CONSTRAINT IF EXISTS quote_status_check;
+
+-- 1b. 舊值 remap 成新值
 UPDATE public.medsec_quotes SET status = 'pending_review'  WHERE status = 'pending_decision';
 UPDATE public.medsec_quotes SET status = 'approved'        WHERE status = 'decided';
 UPDATE public.medsec_quotes SET status = 'crm_keyed'       WHERE status = 'sent';
 UPDATE public.medsec_quotes SET status = 'cancelled'       WHERE status = 'closed';
 
--- 1b. 換 CHECK(11 值)
-ALTER TABLE public.medsec_quotes DROP CONSTRAINT IF EXISTS medsec_quotes_status_check;
-ALTER TABLE public.medsec_quotes DROP CONSTRAINT IF EXISTS quote_status_check;
+-- 1c. 套新 CHECK(11 值)
 ALTER TABLE public.medsec_quotes
   ADD CONSTRAINT quote_status_check CHECK (status IN (
     'draft', 'pending_review', 'pending_andrew',
     'approved', 'rejected', 'crm_keyed',
     'delivered_quote', 'negotiating', 'won', 'lost', 'cancelled'
   ));
+
+-- 1d. v10 留的 partial index 還指向已消失的 'pending_decision',改指新狀態
+DROP INDEX IF EXISTS public.idx_quotes_status;
+CREATE INDEX IF NOT EXISTS idx_quotes_status
+  ON public.medsec_quotes(status)
+  WHERE status IN ('pending_review', 'pending_andrew');
 
 -- 1c. 只 ADD 真正新欄(最終價沿用 manager_final_total / 拍板人 manager_decided_by)
 ALTER TABLE public.medsec_quotes
