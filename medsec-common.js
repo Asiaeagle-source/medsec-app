@@ -373,6 +373,62 @@ function edgeFnError(e) {
   return msg;
 }
 
+/* ---- 角色 helper(吃 guardRole 回的 profile)---- */
+function isManager(p)   { return !!p && p.medsec_role === 'manager'; }      // Lynn
+function isPurchasing(p){ return !!p && p.medsec_role === 'purchasing'; }   // Cindie
+function isSecretary(p) { return !!p && p.medsec_role === 'secretary'; }
+function isAndrew(p)    { return !!p && p.employee_id === '0001'; }          // 老闆 林群雄
+
+/* ---- 呼叫 edge function(自動帶 JWT;失敗轉可行動訊息)---- */
+async function callEdge(fnName, payload) {
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) throw new Error('未登入');
+  let r;
+  try {
+    r = await fetch(`${SUPABASE_URL}/functions/v1/${fnName}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    });
+  } catch (e) {
+    throw new Error(`${fnName} 連不到(多半還沒部署):${e.message}\n`
+      + `請在能連 Supabase 的環境跑 supabase functions deploy ${fnName}`);
+  }
+  const txt = await r.text();
+  let data; try { data = txt ? JSON.parse(txt) : {}; } catch { data = { raw: txt }; }
+  if (!r.ok) throw new Error((data && data.error) || `${fnName} ${r.status}: ${txt.slice(0,200)}`);
+  return data;
+}
+
+/* ---- 通知收件匣 ---- */
+async function fetchUnreadNotifications(profileId) {
+  const { data } = await supa.from('medsec_notifications')
+    .select('id, notification_type, title, body, reference_id, action_url, created_at, read_at')
+    .eq('recipient_id', profileId).is('read_at', null)
+    .order('created_at', { ascending: false }).limit(50);
+  return data || [];
+}
+async function markNotificationRead(id) {
+  await supa.from('medsec_notifications')
+    .update({ read_at: new Date().toISOString() }).eq('id', id);
+}
+/* sidebar / 頂端用:回未讀數,順手把數字塞進 elId */
+async function refreshNotifBadge(profileId, elId) {
+  const { count } = await supa.from('medsec_notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('recipient_id', profileId).is('read_at', null);
+  const el = document.getElementById(elId);
+  if (el) {
+    if (count) { el.hidden = false; el.textContent = count; }
+    else el.hidden = true;
+  }
+  return count || 0;
+}
+
 /* 規則欄位英文 → 中文 chip 顯示 */
 const MISSING_FIELD_LABEL = {
   order_mode:           '叫貨方式',

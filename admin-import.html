@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 資料匯入</title>
+<link rel="stylesheet" href="medsec-common.css">
+</head>
+<body>
+<div class="app-shell">
+  <main class="main" style="margin-left:0">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+      <div><div class="breadcrumb">MedSec Hub / 管理 / 資料匯入</div><h1>資料匯入(通用入口)</h1></div>
+      <div><span class="user-name" id="user-name">—</span> ·
+        <a href="manager.html" style="font-size:13px">回後台</a></div>
+    </div>
+
+    <div class="modal-section" style="max-width:880px">
+      <div class="modal-meta-grid">
+        <div><label>匯入目標</label>
+          <select id="ai-target" class="rc-text-input" onchange="renderHint()">
+            <option value="procurement">Cindie 採購主檔(交期 / 庫存 / 停產)</option>
+          </select></div>
+        <div><label>&nbsp;</label>
+          <button class="btn-copy" onclick="fillSample()">填入範例</button></div>
+      </div>
+
+      <div class="rc-question-help" id="ai-hint" style="margin:10px 0"></div>
+
+      <textarea id="ai-csv" class="rc-text-input" rows="10"
+        placeholder="貼 CSV(含表頭),逗號分隔"></textarea>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+        <button class="btn-secondary" style="width:auto;padding:6px 16px" onclick="parseCsv()">解析預覽</button>
+        <button class="btn-primary" style="width:auto;padding:6px 16px" id="ai-import-btn" onclick="doImport()" disabled>匯入</button>
+      </div>
+
+      <div id="ai-preview" style="margin-top:14px"></div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+let adminProfile = null;
+let parsedRows = null;
+
+const TARGETS = {
+  procurement: {
+    table: 'medsec_product_procurement',
+    conflict: 'product_code',
+    cols: ['product_code','factory_lead_time_days','stock_qty','is_discontinued','replacement_code','supplier_note'],
+    required: ['product_code'],
+    hint: '欄位(表頭需一致):<code>product_code,factory_lead_time_days,stock_qty,is_discontinued,replacement_code,supplier_note</code><br>'
+      + 'is_discontinued 填 true/false 或 1/0。重複 product_code 會覆蓋(upsert)。',
+    sample: 'product_code,factory_lead_time_days,stock_qty,is_discontinued,replacement_code,supplier_note\n'
+      + '27703,45,23,true,27704,原廠停產改新一代\n'
+      + '46128,30,120,false,,常備\n'
+      + '016-152,60,8,false,,交期長注意',
+  },
+};
+
+(async function init() {
+  const profile = await guardRole('manager');   // 通用入口:限 Lynn / 後台
+  if (!profile) return;
+  adminProfile = profile;
+  renderUserInfo(profile);
+  hideLoading();
+  renderHint();
+})();
+
+function curTarget() { return TARGETS[document.getElementById('ai-target').value]; }
+function renderHint() { document.getElementById('ai-hint').innerHTML = curTarget().hint; }
+function fillSample() { document.getElementById('ai-csv').value = curTarget().sample; }
+
+function splitCsvLine(line) {
+  // 簡易 CSV:支援雙引號包逗號
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) { if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+             else if (c === '"') q = false; else cur += c; }
+    else { if (c === '"') q = true; else if (c === ',') { out.push(cur); cur = ''; } else cur += c; }
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
+function parseCsv() {
+  const t = curTarget();
+  const raw = document.getElementById('ai-csv').value.trim();
+  const pv = document.getElementById('ai-preview');
+  if (!raw) { pv.innerHTML = '<div class="case-empty">沒有內容</div>'; return; }
+  const lines = raw.split(/\r?\n/).filter(l => l.trim());
+  const header = splitCsvLine(lines[0]);
+  const idx = {};
+  t.cols.forEach(c => { idx[c] = header.indexOf(c); });
+  const missing = t.required.filter(c => idx[c] < 0);
+  if (missing.length) { pv.innerHTML = `<div class="case-empty">表頭缺必要欄:${missing.join(', ')}</div>`; return; }
+  const rows = [], bad = [];
+  for (let i = 1; i < lines.length; i++) {
+    const f = splitCsvLine(lines[i]);
+    const o = {};
+    t.cols.forEach(c => {
+      if (idx[c] < 0) return;
+      let v = f[idx[c]];
+      if (v === '' || v === undefined) { o[c] = null; return; }
+      if (c === 'is_discontinued') o[c] = /^(true|1|y|yes)$/i.test(v);
+      else if (c === 'factory_lead_time_days' || c === 'stock_qty') o[c] = Number(v);
+      else o[c] = v;
+    });
+    if (t.required.some(c => !o[c])) { bad.push(lines[i]); continue; }
+    o.updated_by = adminProfile.id;
+    rows.push(o);
+  }
+  parsedRows = rows;
+  pv.innerHTML = `
+    <div style="font-size:13px;margin-bottom:6px">解析 <b>${rows.length}</b> 列${bad.length?` · ${bad.length} 列略過(缺必要欄)`:''}</div>
+    <table class="case-list"><thead><tr>${t.cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>${rows.slice(0,20).map(r=>`<tr>${t.cols.map(c=>`<td>${r[c]==null?'—':String(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    ${rows.length>20?`<div style="font-size:12px;color:#888">只顯示前 20 列,匯入全部 ${rows.length} 列</div>`:''}`;
+  document.getElementById('ai-import-btn').disabled = rows.length === 0;
+}
+
+async function doImport() {
+  if (!parsedRows || parsedRows.length === 0) return;
+  const t = curTarget();
+  if (!confirm(`確認匯入 ${parsedRows.length} 列到 ${t.table}?(重複 ${t.conflict} 會覆蓋)`)) return;
+  const btn = document.getElementById('ai-import-btn');
+  btn.disabled = true; btn.textContent = '匯入中…';
+  const { error } = await supa.from(t.table).upsert(parsedRows, { onConflict: t.conflict });
+  btn.disabled = false; btn.textContent = '匯入';
+  if (error) { alert('匯入失敗:' + error.message); return; }
+  alert(`已匯入 ${parsedRows.length} 列`);
+  parsedRows = null;
+  document.getElementById('ai-preview').innerHTML = '<div class="case-empty">已匯入</div>';
+  btn.disabled = true;
+}
+</script>
+</body>
+</html>

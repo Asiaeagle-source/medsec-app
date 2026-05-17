@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 報價確認</title>
+<link rel="stylesheet" href="medsec-common.css">
+<style>
+  body { background:#f1f5f9; font-family:system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif; margin:0; }
+  .ar-wrap { max-width:640px; margin:32px auto; background:#fff; border-radius:12px;
+    box-shadow:0 2px 16px rgba(0,0,0,.08); overflow:hidden; }
+  .ar-head { background:#1e293b; color:#fff; padding:20px 24px; }
+  .ar-head h1 { margin:0; font-size:18px; }
+  .ar-body { padding:24px; }
+  .ar-price { background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px;
+    padding:16px; text-align:center; margin:16px 0; }
+  .ar-price .lbl { font-size:13px; color:#64748b; }
+  .ar-price .val { font-size:28px; font-weight:700; color:#3730a3; }
+  .ar-tbl { width:100%; border-collapse:collapse; font-size:14px; margin:12px 0; }
+  .ar-tbl th, .ar-tbl td { padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; }
+  .ar-adv { background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:12px; margin:12px 0; font-size:13px; }
+  .ar-btns { display:flex; gap:12px; margin-top:20px; }
+  .ar-btns button { flex:1; padding:14px; border:none; border-radius:8px; font-size:15px;
+    font-weight:600; cursor:pointer; font-family:inherit; }
+  .ar-ok { background:#16a34a; color:#fff; }
+  .ar-call { background:#fff; color:#1e293b; border:1px solid #cbd5e1 !important; }
+  .ar-msg { padding:24px; text-align:center; font-size:15px; }
+  .ar-foot { padding:12px 24px; color:#94a3b8; font-size:12px; border-top:1px solid #e2e8f0; }
+</style>
+</head>
+<body>
+<div class="ar-wrap">
+  <div class="ar-head"><h1>AE MED Hub · 報價確認</h1>
+    <div style="font-size:13px;opacity:.8;margin-top:4px">Lynn 請您確認下面這份報價</div></div>
+  <div id="ar-content" class="ar-msg">載入中…</div>
+  <div class="ar-foot">此頁由專屬連結進入,無需登入。連結具時效,僅本報價可用。</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const QUOTE_ID = params.get('quote_id') || '';
+const TOKEN = params.get('token') || '';
+const TYPE_LABEL = { shipment:'出貨用', registration:'建碼', new_product:'新品',
+  replacement:'汰舊換新', repair:'維修', consumable:'耗材', budget:'設備預算' };
+
+async function callAndrew(action, extra) {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/andrew-quick-approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify({ quote_id: QUOTE_ID, token: TOKEN, action, ...(extra||{}) }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `錯誤 ${r.status}`);
+  return data;
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+async function load() {
+  const box = document.getElementById('ar-content');
+  if (!QUOTE_ID || !TOKEN) { box.innerHTML = '<div class="ar-msg">連結不完整,請回覆 Lynn 重寄。</div>'; return; }
+  try {
+    const { quote, items, advisories } = await callAndrew('view');
+    const price = quote.manager_final_total != null ? quote.manager_final_total
+                : (quote.ai_suggested_total != null ? quote.ai_suggested_total : null);
+    box.className = 'ar-body';
+    box.innerHTML = `
+      <h2 style="margin:0 0 4px;font-size:17px">${esc(quote.hospital_id)} · ${TYPE_LABEL[quote.quote_type]||esc(quote.quote_type)}</h2>
+      <div class="ar-price">
+        <div class="lbl">Lynn 建議拍板總額</div>
+        <div class="val">${price != null ? Number(price).toLocaleString() : '—'}</div>
+      </div>
+      <table class="ar-tbl"><thead><tr><th>品號</th><th>品名</th><th>量</th><th>標價</th></tr></thead>
+        <tbody>${(items||[]).map(it=>`<tr><td>${esc(it.product_code)}</td>
+          <td>${esc(it.product_name)}</td><td>${it.quantity}</td>
+          <td>${it.list_price!=null?Number(it.list_price).toLocaleString():'—'}</td></tr>`).join('')}</tbody></table>
+      ${(advisories&&advisories.length)?`<div class="ar-adv"><b>採購提醒</b><br>${advisories.map(a=>esc(a.message)).join('<br>')}</div>`:''}
+      <div class="ar-btns">
+        <button class="ar-ok" onclick="act('approve')">同意</button>
+        <button class="ar-call" onclick="act('request_call')">請 Lynn 跟我電話討論</button>
+      </div>`;
+  } catch (e) {
+    box.className = 'ar-msg';
+    box.innerHTML = `連結已過期或無效。<br><span style="color:#94a3b8">${esc(e.message)}</span><br><br>請回覆 Lynn 重寄一次。`;
+  }
+}
+
+async function act(action) {
+  if (action === 'approve' && !confirm('確認同意這份報價?')) return;
+  const box = document.getElementById('ar-content');
+  try {
+    await callAndrew(action);
+    box.className = 'ar-msg';
+    box.innerHTML = action === 'approve'
+      ? '✅ 已送出「同意」,謝謝!Lynn 與業祕會收到通知。'
+      : '已通知 Lynn 想跟您電話討論,她會主動聯繫您。';
+  } catch (e) {
+    alert('送出失敗:' + e.message);
+  }
+}
+
+load();
+</script>
+</body>
+</html>
