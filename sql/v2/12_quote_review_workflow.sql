@@ -15,21 +15,40 @@
 -- ============================================================
 
 -- ---------- 1. medsec_quotes status 擴充 ----------
--- ⚠️ 順序關鍵:v10 的 status 是「欄內 inline CHECK」,Postgres 自動命名
---   medsec_quotes_status_check,只認 5 個舊值。必須「先 DROP 約束」
---   才能把舊值 remap 成新值,否則 UPDATE 會立刻違反舊 CHECK 而整批中止。
+-- ⚠️ 線上實際的 status CHECK 叫什麼名字不一定(repo v10 是 inline 自動命名
+--   medsec_quotes_status_check,但部署上可能叫 quote_status_check)。
+--   不要用猜的 DROP，直接「動態找出 medsec_quotes 上所有引用 status 的
+--   CHECK 約束，全部 DROP」，才不會因約束名不符而整批失敗。
 
--- 1a. 先拆掉舊 CHECK(沒有它擋著才能 remap)
-ALTER TABLE public.medsec_quotes DROP CONSTRAINT IF EXISTS medsec_quotes_status_check;
-ALTER TABLE public.medsec_quotes DROP CONSTRAINT IF EXISTS quote_status_check;
+-- 1a. 動態拆掉舊 status CHECK(不管它叫什麼名字)
+DO $$
+DECLARE c text;
+BEGIN
+  FOR c IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.medsec_quotes'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%status%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.medsec_quotes DROP CONSTRAINT %I', c);
+  END LOOP;
+END $$;
 
--- 1b. 舊值 remap 成新值
+-- 1b. 已知舊值 remap 成新值
 UPDATE public.medsec_quotes SET status = 'pending_review'  WHERE status = 'pending_decision';
 UPDATE public.medsec_quotes SET status = 'approved'        WHERE status = 'decided';
 UPDATE public.medsec_quotes SET status = 'crm_keyed'       WHERE status = 'sent';
 UPDATE public.medsec_quotes SET status = 'cancelled'       WHERE status = 'closed';
 
--- 1c. 套新 CHECK(11 值)
+-- 1c. 任何無法識別 / NULL 的舊值一律收斂成 draft
+--   (否則 1d 的 ADD CONSTRAINT 會被既有不合規列卡住而失敗)
+UPDATE public.medsec_quotes
+   SET status = 'draft'
+ WHERE status IS NULL
+    OR status NOT IN ('draft','pending_review','pending_andrew','approved',
+       'rejected','crm_keyed','delivered_quote','negotiating','won','lost','cancelled');
+
+-- 1d. 套新 CHECK(11 值)
 ALTER TABLE public.medsec_quotes
   ADD CONSTRAINT quote_status_check CHECK (status IN (
     'draft', 'pending_review', 'pending_andrew',
@@ -37,7 +56,7 @@ ALTER TABLE public.medsec_quotes
     'delivered_quote', 'negotiating', 'won', 'lost', 'cancelled'
   ));
 
--- 1d. v10 留的 partial index 還指向已消失的 'pending_decision',改指新狀態
+-- 1e. v10 留的 partial index 還指向已消失的 'pending_decision',改指新狀態
 DROP INDEX IF EXISTS public.idx_quotes_status;
 CREATE INDEX IF NOT EXISTS idx_quotes_status
   ON public.medsec_quotes(status)
