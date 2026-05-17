@@ -1,0 +1,6 @@
+product_code,product_name,standard_lead_time_days,stock_lead_time_days,is_delayed,delay_reason,expected_recovery_date
+27703,範例導管A,45,7,false,,
+46128,範例支架B,30,5,true,原廠缺料,2026-07-15
+016-152,範例套組C,60,14,false,,
+46118,範例耗材D,21,3,false,,
+27637,範例配件E,90,30,true,海運延誤,2026-06-30

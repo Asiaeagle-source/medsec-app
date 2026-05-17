@@ -1,0 +1,6 @@
+product_code,product_name,current_stock_qty,safety_stock_level,stock_status,is_discontinued,replacement_product_code
+27703,範例導管A,23,10,normal,false,
+46128,範例支架B,4,8,low,false,
+016-152,範例套組C,0,5,out,false,
+46118,範例耗材D,0,0,discontinued,true,46119
+27637,範例配件E,150,40,normal,false,

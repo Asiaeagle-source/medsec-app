@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 產品庫存 / 停產</title>
+<link rel="stylesheet" href="medsec-common.css">
+<style>
+  .cm-toolbar { display:flex; gap:10px; align-items:center; margin:14px 0; flex-wrap:wrap; }
+  .cm-toolbar .spacer { flex:1; }
+  #cm-dropzone { border:2px dashed #cbd5e1; border-radius:8px; padding:18px;
+    text-align:center; color:#64748b; font-size:13px; cursor:pointer; }
+  #cm-dropzone.dz-over { border-color:#6366f1; background:#eef2ff; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <main class="main" style="margin-left:0">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+      <div><div class="breadcrumb" id="cm-bc">—</div><h1 id="cm-h1">—</h1></div>
+      <div style="font-size:13px"><span id="cm-user">—</span> · <a href="cindie.html">回採購</a></div>
+    </div>
+
+    <div class="cm-toolbar">
+      <button class="btn-primary" style="width:auto;padding:8px 16px" onclick="cmOpenUpload()">📥 上傳 Excel/CSV</button>
+      <button class="btn-secondary" style="width:auto;padding:8px 16px" onclick="cmNew()">+ 新增單筆</button>
+      <span class="spacer"></span>
+      <input id="cm-search" class="rc-text-input" style="width:220px;padding:7px" placeholder="搜尋品號…" oninput="loadRows()">
+      <span id="cm-count" style="font-size:13px;color:var(--text-muted)">—</span>
+    </div>
+
+    <table class="case-list">
+      <thead id="cm-thead"></thead>
+      <tbody id="cm-tbody"></tbody>
+    </table>
+  </main>
+</div>
+
+<!-- 上傳 modal -->
+<div id="cm-upload-modal" class="modal-overlay" hidden>
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header"><div class="modal-title">上傳產品庫存 / 停產</div>
+      <button class="modal-close" onclick="document.getElementById('cm-upload-modal').hidden=true">×</button></div>
+    <div class="modal-body">
+      <div id="cm-dropzone" onclick="document.getElementById('cm-file').click()">
+        把 .xlsx / .csv 拖到這裡,或點此選檔
+        <input type="file" id="cm-file" accept=".xlsx,.xls,.csv" hidden
+          onchange="cmHandleFile(this.files[0])">
+      </div>
+      <div style="text-align:center;font-size:12px;color:#94a3b8;margin:8px 0">或直接貼上 Excel 內容(含表頭)</div>
+      <textarea id="cm-up-paste" class="rc-text-input" rows="5" placeholder="從 Excel 複製整塊貼這裡"></textarea>
+      <div style="text-align:right;margin-top:8px">
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="cmParsePasted()">解析預覽</button>
+      </div>
+      <div id="cm-up-preview" style="margin-top:12px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="document.getElementById('cm-upload-modal').hidden=true">取消</button>
+      <button class="btn-primary" id="cm-up-apply" style="width:auto;padding:6px 16px" disabled onclick="cmApply()">套用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 單筆編輯 modal -->
+<div id="cm-edit-modal" class="modal-overlay" hidden>
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header"><div class="modal-title" id="cm-edit-title">編輯</div>
+      <button class="modal-close" onclick="document.getElementById('cm-edit-modal').hidden=true">×</button></div>
+    <div class="modal-body" id="cm-edit-body"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="document.getElementById('cm-edit-modal').hidden=true">取消</button>
+      <button class="btn-primary" style="width:auto;padding:6px 16px" onclick="cmSaveEdit()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="medsec-common.js"></script>
+<script src="cindie-maintain.js"></script>
+<script>
+const CINDIE_CFG = {
+  table: 'medsec_product_inventory',
+  title: '產品庫存 / 停產 上傳 · 編輯',
+  breadcrumb: 'MedSec Hub / 採購 / 產品庫存',
+  columns: [
+    { key:'product_code', label:'品號', required:true },
+    { key:'product_name', label:'品名' },
+    { key:'current_stock_qty', label:'目前庫存', type:'num' },
+    { key:'safety_stock_level', label:'安全庫存', type:'num' },
+    { key:'stock_status', label:'庫存狀態', type:'enum', options:['normal','low','out','discontinued'] },
+    { key:'is_discontinued', label:'已停產', type:'bool' },
+    { key:'replacement_product_code', label:'替代品號' },
+  ],
+};
+initCindieMaintain(CINDIE_CFG).then(cmBindDrop);
+</script>
+</body>
+</html>
