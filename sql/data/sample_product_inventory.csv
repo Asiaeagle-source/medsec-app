@@ -1,6 +1,6 @@
-product_code,product_name,current_stock_qty,safety_stock_level,stock_status,is_discontinued,replacement_product_code
-27703,範例導管A,23,10,normal,false,
-46128,範例支架B,4,8,low,false,
-016-152,範例套組C,0,5,out,false,
-46118,範例耗材D,0,0,discontinued,true,46119
-27637,範例配件E,150,40,normal,false,
+product_category,product_code,overdue_inbound_qty,pending_inbound_qty,pending_purchase_qty,current_stock_qty,monthly_avg_sales,available_months
+Accessories,8001215,,,,0,1,0
+Cranial bone,905-137,,,,0,1,0
+Curatios 耗材,PF3003,120,455,,7,9.14,63.7
+Legend Burr,7BA30,3,,,0,45.5,0.1
+MR8 Burr,MR8-7TD116,,38,,2,4,10.0

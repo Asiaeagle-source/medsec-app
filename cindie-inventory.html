@@ -79,19 +79,60 @@
 <script src="medsec-common.js"></script>
 <script src="cindie-maintain.js"></script>
 <script>
+const CM_STATUS = {
+  discontinued: { e:'⚫', t:'停產',     c:'#475569' },
+  out:          { e:'🔴', t:'嚴重缺貨', c:'#dc2626' },
+  low:          { e:'🟠', t:'即將缺貨', c:'#ea580c' },
+  warning:      { e:'🟡', t:'庫存偏低', c:'#ca8a04' },
+  normal:       { e:'🟢', t:'正常',     c:'#16a34a' },
+};
+function cmNum(v) { return v == null || v === '' ? 0 : Number(v) || 0; }
+
 const CINDIE_CFG = {
   table: 'medsec_product_inventory',
   title: '產品庫存 / 停產 上傳 · 編輯',
   breadcrumb: 'MedSec Hub / 採購 / 產品庫存',
+  // 全欄(解析 + 單筆編輯用;label 短、aliases 對 Cindie 真實 Excel 中文表頭)
   columns: [
-    { key:'product_code', label:'品號', required:true },
-    { key:'product_name', label:'品名' },
-    { key:'current_stock_qty', label:'目前庫存', type:'num' },
+    { key:'product_category', label:'分類', aliases:['產品分類'] },
+    { key:'product_code', label:'品號', required:true, aliases:['品號'] },
+    { key:'overdue_inbound_qty', label:'逾期未進貨', type:'int', aliases:['逾期未進貨','逾期'] },
+    { key:'pending_inbound_qty', label:'待進貨數量', type:'int', aliases:['待進貨數量','待進貨'] },
+    { key:'pending_purchase_qty', label:'採購未確認', type:'int', aliases:['採購未確認'] },
+    { key:'current_stock_qty', label:'現有數', type:'num', aliases:['現有數','現有','目前庫存'] },
+    { key:'monthly_avg_sales', label:'月均銷', type:'num', aliases:['月均銷'] },
+    { key:'available_months', label:'可用月數', type:'num', aliases:['可用月數'] },
+    { key:'product_name', label:'品名', aliases:['品名'] },
     { key:'safety_stock_level', label:'安全庫存', type:'num' },
-    { key:'stock_status', label:'庫存狀態', type:'enum', options:['normal','low','out','discontinued'] },
-    { key:'is_discontinued', label:'已停產', type:'bool' },
+    { key:'stock_status', label:'手動狀態(override)', type:'enum',
+      options:['normal','low','out','discontinued'] },
+    { key:'is_discontinued', label:'已停產', type:'bool', aliases:['停產'] },
     { key:'replacement_product_code', label:'替代品號' },
   ],
+  // 列表顯示:品號|品名|分類|逾期|現有|有效供應|月均銷|狀態
+  listColumns: [
+    { key:'product_code', label:'品號' },
+    { key:'product_name', label:'品名' },
+    { key:'product_category', label:'分類' },
+    { key:'overdue_inbound_qty', label:'逾期' },
+    { key:'current_stock_qty', label:'現有' },
+    { derived:'effective', label:'有效供應' },
+    { key:'monthly_avg_sales', label:'月均銷' },
+    { derived:'status', label:'狀態' },
+  ],
+  derived: {
+    effective(r) {
+      const eff = cmNum(r.overdue_inbound_qty) + cmNum(r.current_stock_qty);
+      const m = cmNum(r.monthly_avg_sales);
+      const sub = m > 0 ? `約 ${(eff / m).toFixed(1)} 月銷量` : '無月均銷';
+      return `<b>${eff}</b><br><small style="color:#94a3b8">(逾期+現有, ${sub})</small>`;
+    },
+    status(r) {
+      const s = CM_STATUS[r.stock_status_auto] || CM_STATUS.normal;
+      const ov = r.stock_status ? ` <small style="color:#94a3b8">(手動:${r.stock_status})</small>` : '';
+      return `<span style="color:${s.c};font-weight:600">${s.e} ${s.t}</span>${ov}`;
+    },
+  },
 };
 initCindieMaintain(CINDIE_CFG).then(cmBindDrop);
 </script>

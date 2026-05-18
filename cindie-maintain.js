@@ -42,25 +42,28 @@ async function initCindieMaintain(cfg) {
   loadRows();
 }
 
+function cmListCols() { return CM.listColumns || CM.columns; }
+
 function buildTableHead() {
   document.getElementById('cm-thead').innerHTML =
-    '<tr>' + CM.columns.map(c => `<th>${cmEsc(c.label)}</th>`).join('') + '<th style="width:70px">操作</th></tr>';
+    '<tr>' + cmListCols().map(c => `<th>${cmEsc(c.label)}</th>`).join('') + '<th style="width:70px">操作</th></tr>';
 }
 
 async function loadRows() {
   const tb = document.getElementById('cm-tbody');
-  tb.innerHTML = `<tr><td colspan="${CM.columns.length + 1}" class="case-empty">載入中…</td></tr>`;
+  tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入中…</td></tr>`;
   const kw = (document.getElementById('cm-search').value || '').trim();
   let q = supa.from(CM.table).select('*').order('updated_at', { ascending: false }).limit(500);
   if (kw) q = q.ilike('product_code', `%${kw}%`);
   const { data, error } = await q;
-  if (error) { tb.innerHTML = `<tr><td colspan="${CM.columns.length + 1}" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
+  if (error) { tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
   document.getElementById('cm-count').textContent = `${(data || []).length} 筆`;
   if (!data || data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="${CM.columns.length + 1}" class="case-empty">尚無資料,點「上傳」或「新增單筆」</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">尚無資料,點「上傳」或「新增單筆」</td></tr>`;
     return;
   }
-  tb.innerHTML = data.map(r => '<tr>' + CM.columns.map(c => {
+  tb.innerHTML = data.map(r => '<tr>' + cmListCols().map(c => {
+    if (c.derived && CM.derived && CM.derived[c.derived]) return `<td>${CM.derived[c.derived](r)}</td>`;
     let v = r[c.key];
     if (c.type === 'bool') v = v ? '是' : '—';
     else if (v == null || v === '') v = '—';
@@ -122,24 +125,35 @@ function cmHeaderIndex(header) {
   const norm = s => String(s || '').trim().toLowerCase();
   const idx = {};
   CM.columns.forEach(c => {
-    const h = header.findIndex(x => norm(x) === norm(c.key) || norm(x) === norm(c.label));
+    const names = [c.key, c.label, ...(c.aliases || [])].map(norm);
+    const h = header.findIndex(x => names.includes(norm(x)));
     idx[c.key] = h;
   });
   return idx;
 }
 
+const CM_TOTAL_RE = /^(總和|總計|合計|小計|總數|total|sum)$/i;
+
 function cmRowsFromMatrix(matrix) {
   const rows = matrix.filter(r => r && r.some(c => String(c).trim() !== ''));
   if (rows.length < 2) return { rows: [], bad: 0 };
-  const header = rows[0].map(x => String(x));
-  const idx = cmHeaderIndex(header);
-  if (idx.product_code < 0) return { error: '表頭找不到「品號 / product_code」欄' };
+  // 動態找表頭列:第一個含「品號 / product_code」的列(前面若有「總和」摘要列就跳過)
+  let hi = -1, idx = null;
+  for (let i = 0; i < rows.length; i++) {
+    const cand = cmHeaderIndex(rows[i].map(x => String(x)));
+    if (cand.product_code >= 0) { hi = i; idx = cand; break; }
+  }
+  if (hi < 0) return { error: '表頭找不到「品號 / product_code」欄' };
   const out = [], skip = [];
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = hi + 1; i < rows.length; i++) {
     const f = rows[i];
     const rec = { updated_by: CM_PROFILE.id };
     CM.columns.forEach(c => { if (idx[c.key] >= 0) rec[c.key] = cmCoerce(c, f[idx[c.key]]); });
-    if (!rec.product_code) { skip.push(i); continue; }
+    const code = rec.product_code == null ? '' : String(rec.product_code).trim();
+    // 跳:無品號 / 總和摘要列(品號或第一格為 總和/合計/total…)
+    if (!code || CM_TOTAL_RE.test(code) || CM_TOTAL_RE.test(String(f[0] || '').trim())) {
+      skip.push(i); continue;
+    }
     out.push(rec);
   }
   return { rows: out, bad: skip.length };
