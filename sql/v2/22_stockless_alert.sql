@@ -146,6 +146,8 @@ LEFT JOIN LATERAL (
     (SELECT COALESCE(sum((e.value #>> '{}')::numeric), 0)
        FROM jsonb_each(COALESCE(i.monthly_sales_history, '{}'::jsonb)) e
        WHERE e.key >= to_char(now() - interval '6 months', 'YYYY-MM')) AS r6_total,
+    -- 已上傳的月歷史筆數(沒資料不能斷言「連 N 月無銷」)
+    (SELECT count(*) FROM jsonb_each(COALESCE(i.monthly_sales_history, '{}'::jsonb))) AS hist_keys,
     (COALESCE(i.current_stock_qty, 0)
        + COALESCE(i.pending_inbound_qty, 0)
        + COALESCE(i.overdue_inbound_qty, 0))
@@ -156,7 +158,9 @@ LEFT JOIN LATERAL (
 LEFT JOIN LATERAL (
   SELECT CASE
     WHEN i.is_discontinued THEN '⚫ 已停產'
-    WHEN x.mws >= 6 AND COALESCE(i.current_stock_qty, 0) > 0 THEN '☠️ 真滯銷'
+    -- 需至少 6 個月歷史才能斷言「連 6 月無銷」(否則是沒上傳資料,非真滯銷)
+    WHEN x.hist_keys >= 6 AND x.mws >= 6 AND COALESCE(i.current_stock_qty, 0) > 0
+      THEN '☠️ 真滯銷'
     WHEN x.std_ratio > 24 THEN '💸 嚴重過度備貨'
     WHEN x.std_ratio > 12 THEN '⚠️ 過度備貨'
     WHEN x.decline > 0.5  THEN '📉 市場萎縮'

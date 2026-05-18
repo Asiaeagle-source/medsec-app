@@ -186,6 +186,10 @@ const CINDIE_CFG = {
     { derived:'alert', label:'警示' },
     { derived:'reorder', label:'訂貨建議' },
   ],
+  filterEmptyHint: {
+    star: '目前沒有「⭐ 高頻穩定品」。需先上傳含 18 個月 YYYYMM 月銷的 Excel,系統才能算使用頻率/穩定度;只上傳當下快照不會有此分級。',
+    dead: '目前沒有「滯銷/過貨」品。滯銷需 ≥6 個月歷史才判定;過度備貨看供需比(現有+在途)/月均銷。確認已執行 sql/v2/20→21→22 且月明細已上傳。',
+  },
   sortModes: [
     { key:'priority', label:'優先處理', cmp:(a,b)=>cmPriRank(a)-cmPriRank(b)
         || String(a.product_code).localeCompare(String(b.product_code)) },

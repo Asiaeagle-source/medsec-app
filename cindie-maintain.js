@@ -114,7 +114,8 @@ function renderRows() {
   document.getElementById('cm-count').textContent =
     `${rows.length} 筆${CM_DATA.length !== rows.length ? ` / 共 ${CM_DATA.length}` : ''}`;
   if (rows.length === 0) {
-    tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">沒有符合的資料</td></tr>`;
+    const hint = (CM.filterEmptyHint && CM.filterEmptyHint[CM_FILTER]) || '沒有符合的資料';
+    tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">${hint}</td></tr>`;
     return;
   }
   CM_VIEW_ROWS = rows;
