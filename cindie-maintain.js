@@ -49,26 +49,53 @@ function buildTableHead() {
     '<tr>' + cmListCols().map(c => `<th>${cmEsc(c.label)}</th>`).join('') + '<th style="width:70px">操作</th></tr>';
 }
 
-async function loadRows() {
+let CM_DATA = [];
+let CM_FILTER = 'all';
+
+function renderFilters() {
+  const box = document.getElementById('cm-filters');
+  if (!box || !CM.filters) return;
+  box.innerHTML = CM.filters.map(f =>
+    `<button class="qm-pill ${CM_FILTER === f.key ? 'active' : ''}" onclick="cmSetFilter('${f.key}')">${f.label}</button>`
+  ).join('');
+}
+function cmSetFilter(k) { CM_FILTER = k; renderFilters(); renderRows(); }
+
+function renderRows() {
   const tb = document.getElementById('cm-tbody');
-  tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入中…</td></tr>`;
-  const kw = (document.getElementById('cm-search').value || '').trim();
-  let q = supa.from(CM.table).select('*').order('updated_at', { ascending: false }).limit(500);
-  if (kw) q = q.ilike('product_code', `%${kw}%`);
-  const { data, error } = await q;
-  if (error) { tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
-  document.getElementById('cm-count').textContent = `${(data || []).length} 筆`;
-  if (!data || data.length === 0) {
-    tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">尚無資料,點「上傳」或「新增單筆」</td></tr>`;
+  const f = (CM.filters || []).find(x => x.key === CM_FILTER);
+  const rows = (f && f.match) ? CM_DATA.filter(f.match) : CM_DATA;
+  document.getElementById('cm-count').textContent =
+    `${rows.length} 筆${CM_DATA.length !== rows.length ? ` / 共 ${CM_DATA.length}` : ''}`;
+  if (rows.length === 0) {
+    tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">沒有符合的資料</td></tr>`;
     return;
   }
-  tb.innerHTML = data.map(r => '<tr>' + cmListCols().map(c => {
+  tb.innerHTML = rows.map(r => '<tr>' + cmListCols().map(c => {
     if (c.derived && CM.derived && CM.derived[c.derived]) return `<td>${CM.derived[c.derived](r)}</td>`;
     let v = r[c.key];
     if (c.type === 'bool') v = v ? '是' : '—';
     else if (v == null || v === '') v = '—';
     return `<td>${cmEsc(v)}</td>`;
   }).join('') + `<td><button class="btn-copy" onclick='cmEdit(${JSON.stringify(JSON.stringify(r))})'>編輯</button></td></tr>`).join('');
+}
+
+async function loadRows() {
+  const tb = document.getElementById('cm-tbody');
+  tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入中…</td></tr>`;
+  const kw = (document.getElementById('cm-search').value || '').trim();
+  let q = supa.from(CM.table).select('*').order('updated_at', { ascending: false }).limit(2000);
+  if (kw) q = q.ilike('product_code', `%${kw}%`);
+  const { data, error } = await q;
+  if (error) { tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
+  CM_DATA = data || [];
+  if (CM_DATA.length === 0) {
+    document.getElementById('cm-count').textContent = '0 筆';
+    tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">尚無資料,點「上傳」或「新增單筆」</td></tr>`;
+    return;
+  }
+  renderFilters();
+  renderRows();
 }
 
 /* ---------- 單筆新增 / 編輯 ---------- */
@@ -226,6 +253,11 @@ async function cmApply() {
   const btn = document.getElementById('cm-up-apply');
   if (!confirm(`套用 ${CM_PARSED.length} 列到 ${CM.table}?(重複品號會覆蓋)`)) return;
   btn.disabled = true; btn.textContent = '套用中…';
+  // 標記本批 Excel 匯入時間(config 指定欄位才寫)
+  if (CM.uploadStamp) {
+    const ts = new Date().toISOString();
+    CM_PARSED.forEach(r => { r[CM.uploadStamp] = ts; });
+  }
   // 分批 upsert,避免單批過大
   let done = 0, err = null;
   for (let i = 0; i < CM_PARSED.length; i += 500) {

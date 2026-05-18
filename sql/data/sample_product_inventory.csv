@@ -1,4 +1,4 @@
-product_category,product_code,overdue_inbound_qty,pending_inbound_qty,pending_purchase_qty,current_stock_qty,monthly_avg_sales,available_months
+產品分類,品號,逾期未進貨,待進貨數量,採購未確認,現有數,月均銷,可用月數
 Accessories,8001215,,,,0,1,0
 Cranial bone,905-137,,,,0,1,0
 Curatios 耗材,PF3003,120,455,,7,9.14,63.7
