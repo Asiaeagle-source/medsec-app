@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 季節月曆設定</title>
+<link rel="stylesheet" href="medsec-common.css">
+</head>
+<body>
+<div class="app-shell">
+  <main class="main" style="margin-left:0">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+      <div><div class="breadcrumb">MedSec Hub / 系統設定 / 季節月曆</div><h1>季節月曆設定</h1></div>
+      <div style="font-size:13px"><span id="cm-user">—</span> · <a href="manager.html">回後台</a></div>
+    </div>
+
+    <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
+      🗓 醫療器材有季節性。這裡由你(Lynn)用業務知識定義每月旺/淡季與
+      <b>訂貨係數</b>(旺季 &gt;1 多備、淡季 &lt;1 少訂),系統據此調整 Cindie
+      的訂購點與缺貨警示。改完按「儲存全部」。
+    </div>
+
+    <table class="case-list">
+      <thead><tr><th style="width:50px">月</th><th style="width:120px">季節</th>
+        <th>標籤</th><th style="width:120px">訂貨係數</th><th>備註(為何)</th></tr></thead>
+      <tbody id="sc-tbody"><tr><td colspan="5" class="case-empty">載入中…</td></tr></tbody>
+    </table>
+    <div style="text-align:right;margin-top:12px">
+      <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="saveAll()">儲存全部</button>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+let SC_PROFILE = null;
+const SEASONS = ['peak', 'normal', 'low'];
+
+(async function init() {
+  const profile = await guardRole('manager');   // 只有 Lynn(全域職代)
+  if (!profile) return;
+  SC_PROFILE = profile;
+  renderUserInfo(profile);
+  const u = document.getElementById('cm-user');
+  if (u) u.textContent = profile.nickname || profile.name || '';
+  hideLoading();
+  load();
+})();
+
+async function load() {
+  const tb = document.getElementById('sc-tbody');
+  const { data, error } = await supa.from('medsec_seasonal_calendar')
+    .select('*').order('month_num');
+  if (error) { tb.innerHTML = `<tr><td colspan="5" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
+  const by = {}; (data || []).forEach(r => { by[r.month_num] = r; });
+  let html = '';
+  for (let m = 1; m <= 12; m++) {
+    const r = by[m] || { month_num: m, season: 'normal', season_label: '', reorder_multiplier: 1.0, notes: '' };
+    html += `<tr data-m="${m}">
+      <td><b>${m}</b></td>
+      <td><select class="rc-text-input sc-season" style="padding:5px">
+        ${SEASONS.map(s => `<option value="${s}" ${r.season === s ? 'selected' : ''}>${s}</option>`).join('')}
+      </select></td>
+      <td><input class="rc-text-input sc-label" style="padding:5px" value="${(r.season_label || '').replace(/"/g, '&quot;')}"></td>
+      <td><input type="number" step="0.1" class="rc-text-input sc-mult" style="padding:5px;width:90px" value="${r.reorder_multiplier == null ? 1.0 : r.reorder_multiplier}"></td>
+      <td><input class="rc-text-input sc-notes" style="padding:5px" value="${(r.notes || '').replace(/"/g, '&quot;')}"></td>
+    </tr>`;
+  }
+  tb.innerHTML = html;
+}
+
+async function saveAll() {
+  const rows = [...document.querySelectorAll('#sc-tbody tr[data-m]')].map(tr => ({
+    month_num: +tr.dataset.m,
+    season: tr.querySelector('.sc-season').value,
+    season_label: tr.querySelector('.sc-label').value.trim() || null,
+    reorder_multiplier: Number(tr.querySelector('.sc-mult').value) || 1.0,
+    notes: tr.querySelector('.sc-notes').value.trim() || null,
+    updated_by: SC_PROFILE.id,
+    updated_at: new Date().toISOString(),
+  }));
+  const { error } = await supa.from('medsec_seasonal_calendar')
+    .upsert(rows, { onConflict: 'month_num' });
+  if (error) { alert('儲存失敗:' + error.message); return; }
+  alert('已儲存 12 個月設定');
+  load();
+}
+</script>
+</body>
+</html>

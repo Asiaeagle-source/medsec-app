@@ -71,21 +71,36 @@ function renderRows() {
     tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">沒有符合的資料</td></tr>`;
     return;
   }
-  tb.innerHTML = rows.map(r => '<tr>' + cmListCols().map(c => {
-    if (c.derived && CM.derived && CM.derived[c.derived]) return `<td>${CM.derived[c.derived](r)}</td>`;
-    if (c.fmt) return `<td>${cmEsc(c.fmt(r[c.key], r))}</td>`;
-    let v = r[c.key];
-    if (c.type === 'bool') v = v ? '是' : '—';
-    else if (v == null || v === '') v = '—';
-    return `<td>${cmEsc(v)}</td>`;
-  }).join('') + `<td><button class="btn-copy" onclick='cmEdit(${JSON.stringify(JSON.stringify(r))})'>編輯</button></td></tr>`).join('');
+  const exp = typeof CM.expandRow === 'function';
+  tb.innerHTML = rows.map((r, ri) => {
+    const cells = cmListCols().map(c => {
+      if (c.derived && CM.derived && CM.derived[c.derived]) return `<td>${CM.derived[c.derived](r)}</td>`;
+      if (c.fmt) return `<td>${cmEsc(c.fmt(r[c.key], r))}</td>`;
+      let v = r[c.key];
+      if (c.type === 'bool') v = v ? '是' : '—';
+      else if (v == null || v === '') v = '—';
+      return `<td>${cmEsc(v)}</td>`;
+    }).join('');
+    const tr = `<tr ${exp ? `class="cm-clickable" onclick="cmToggleExpand(${ri})"` : ''}>${cells}`
+      + `<td><button class="btn-copy" onclick='event.stopPropagation();cmEdit(${JSON.stringify(JSON.stringify(r))})'>編輯</button></td></tr>`;
+    const det = exp
+      ? `<tr id="cm-exp-${ri}" hidden><td colspan="${cmListCols().length + 1}" style="background:#f8fafc">${CM.expandRow(r)}</td></tr>`
+      : '';
+    return tr + det;
+  }).join('');
+}
+function cmToggleExpand(ri) {
+  const el = document.getElementById('cm-exp-' + ri);
+  if (el) el.hidden = !el.hidden;
 }
 
 async function loadRows() {
   const tb = document.getElementById('cm-tbody');
   tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入中…</td></tr>`;
   const kw = (document.getElementById('cm-search').value || '').trim();
-  let q = supa.from(CM.table).select('*').order('updated_at', { ascending: false }).limit(2000);
+  const src = CM.readView || CM.table;            // 顯示讀 view,寫仍 CM.table
+  const orderCol = CM.orderBy || 'updated_at';
+  let q = supa.from(src).select('*').order(orderCol, { ascending: !!CM.orderAsc }).limit(3000);
   if (kw) q = q.ilike('product_code', `%${kw}%`);
   const { data, error } = await q;
   if (error) { tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
@@ -172,7 +187,20 @@ function cmRowsFromMatrix(matrix) {
     if (cand.product_code >= 0) { hi = i; idx = cand; break; }
   }
   if (hi < 0) return { error: '表頭找不到「品號 / product_code」欄' };
+  // 動態 YYYYMM 月銷欄(202501 / 2025-01 / 2025/01 都接受)→ monthly_sales_history
+  const monthCols = [];
+  if (CM.captureMonthly) {
+    rows[hi].forEach((h, ci) => {
+      const d = String(h == null ? '' : h).replace(/[^0-9]/g, '');
+      if (/^\d{6}$/.test(d)) {
+        const mm = +d.slice(4, 6);
+        if (mm >= 1 && mm <= 12 && +d.slice(0, 4) >= 2000)
+          monthCols.push({ ci, ym: `${d.slice(0, 4)}-${d.slice(4, 6)}` });
+      }
+    });
+  }
   const out = [], skip = [];
+  let monthsSeen = 0;
   for (let i = hi + 1; i < rows.length; i++) {
     const f = rows[i];
     const rec = { updated_by: CM_PROFILE.id };
@@ -182,9 +210,20 @@ function cmRowsFromMatrix(matrix) {
     if (!code || CM_TOTAL_RE.test(code) || CM_TOTAL_RE.test(String(f[0] || '').trim())) {
       skip.push(i); continue;
     }
+    if (monthCols.length) {
+      const msh = {};
+      monthCols.forEach(mc => {
+        const raw = f[mc.ci];
+        if (raw !== '' && raw != null) {
+          const n = Number(String(raw).replace(/,/g, ''));
+          if (Number.isFinite(n)) msh[mc.ym] = n;
+        }
+      });
+      if (Object.keys(msh).length) { rec[CM.monthlyField || 'monthly_sales_history'] = msh; monthsSeen = Math.max(monthsSeen, Object.keys(msh).length); }
+    }
     out.push(rec);
   }
-  return { rows: out, bad: skip.length };
+  return { rows: out, bad: skip.length, months: monthCols.length, monthsSeen };
 }
 
 function cmParseCsvText(txt) {
@@ -213,7 +252,7 @@ async function cmPreview(matrix) {
   const master = {}; (prod || []).forEach(p => { master[p.id] = p.name; });
   CM_PARSED = res.rows;
   box.innerHTML = `
-    <div style="font-size:13px;margin-bottom:6px">解析 <b>${res.rows.length}</b> 列${res.bad ? ` · ${res.bad} 列略過(無品號)` : ''}
+    <div style="font-size:13px;margin-bottom:6px">解析 <b>${res.rows.length}</b> 列${res.bad ? ` · ${res.bad} 列略過(無品號/總和)` : ''}${res.months ? ` · 偵測 <b>${res.months}</b> 個月銷欄(合併進歷史,自動淘汰 >18 月)` : ''}
       · <span style="color:var(--success,#16a34a)">✓ 主檔有</span> / <span style="color:var(--warning,#d97706)">⚠ 主檔查無(仍可匯)</span></div>
     <table class="case-list"><thead><tr><th>對應</th>${CM.columns.map(c => `<th>${cmEsc(c.label)}</th>`).join('')}</tr></thead>
       <tbody>${res.rows.slice(0, 30).map(r => `<tr>
