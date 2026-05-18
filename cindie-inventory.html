@@ -92,7 +92,8 @@
 function cmNum(v) { return v == null || v === '' ? 0 : Number(v) || 0; }
 // view 的 stock_alert_level 是 "🔴 嚴重缺貨" 這種帶 emoji 字串
 const CM_LVL_COLOR = { '🔴':'#dc2626', '🟠':'#ea580c', '🟡':'#ca8a04', '🟢':'#16a34a', '⚫':'#475569' };
-function cmLvlEmoji(r) { return (r.stock_alert_level || '🟢').trim().charAt(0); }
+// emoji 多為 surrogate pair,charAt(0) 只取半個字 → 必須用 Array.from
+function cmLvlEmoji(r) { return Array.from((r.stock_alert_level || '🟢').trim())[0]; }
 const SEASON_TXT = { peak:'旺季', normal:'一般', low:'淡季' };
 let SEASON_MAP = {};
 // 顯示用四捨五入:≥1 取 1 位小數;0<x<1 取 2 位(更細);0 顯示 0;空值 —
@@ -165,7 +166,7 @@ const CINDIE_CFG = {
     },
     alert(r) {
       const lv = r.stock_alert_level || '🟢 正常';
-      const c = CM_LVL_COLOR[lv.trim().charAt(0)] || '#16a34a';
+      const c = CM_LVL_COLOR[Array.from(lv.trim())[0]] || '#16a34a';
       const ov = r.stock_status ? `<br><small style="color:#94a3b8">手動:${r.stock_status}</small>` : '';
       return `<span style="color:${c};font-weight:600">${lv}</span>${ov}`;
     },
