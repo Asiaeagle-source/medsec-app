@@ -175,18 +175,38 @@ function cmHeaderIndex(header) {
   return idx;
 }
 
-const CM_TOTAL_RE = /^(總和|總計|合計|小計|總數|total|sum)$/i;
+// 在 hi(及相鄰 hi-1 / hi+1)列內,為每個欄位找別名所在的欄索引。
+// 多列搜尋是為了處理合併儲存格把標籤擠到上/下一列的真實 Excel。
+function cmHeaderIndexAt(rowsArr, hi) {
+  const norm = s => String(s == null ? '' : s).trim().toLowerCase();
+  const idx = {};
+  CM.columns.forEach(c => {
+    const names = [c.key, c.label, ...(c.aliases || [])].map(norm);
+    let found = -1;
+    for (const ri of [hi, hi - 1, hi + 1]) {
+      if (ri < 0 || ri >= rowsArr.length) continue;
+      const h = (rowsArr[ri] || []).findIndex(x => names.includes(norm(x)));
+      if (h >= 0) { found = h; break; }
+    }
+    idx[c.key] = found;
+  });
+  return idx;
+}
+
+const CM_TOTAL_RE = /^(總和|總計|合計|小計|總數|total|sum)[:：\s]*$/i;
 
 function cmRowsFromMatrix(matrix) {
   const rows = matrix.filter(r => r && r.some(c => String(c).trim() !== ''));
   if (rows.length < 2) return { rows: [], bad: 0 };
-  // 動態找表頭列:第一個含「品號 / product_code」的列(前面若有「總和」摘要列就跳過)
-  let hi = -1, idx = null;
+  // 動態找表頭列:第一個含「品號 / product_code」的列
+  let hi = -1;
   for (let i = 0; i < rows.length; i++) {
-    const cand = cmHeaderIndex(rows[i].map(x => String(x)));
-    if (cand.product_code >= 0) { hi = i; idx = cand; break; }
+    if (cmHeaderIndex(rows[i].map(x => String(x))).product_code >= 0) { hi = i; break; }
   }
   if (hi < 0) return { error: '表頭找不到「品號 / product_code」欄' };
+  // 合併儲存格會把某些表頭標籤(如「產品分類」)擠到相鄰列,
+  // 故每欄在 hi / hi-1 / hi+1 三列內找別名(數字總和列不會誤命中別名)
+  const idx = cmHeaderIndexAt(rows, hi);
   // 動態 YYYYMM 月銷欄(202501 / 2025-01 / 2025/01 都接受)→ monthly_sales_history
   const monthCols = [];
   if (CM.captureMonthly) {
@@ -201,6 +221,8 @@ function cmRowsFromMatrix(matrix) {
   }
   const out = [], skip = [];
   let monthsSeen = 0;
+  const ffCols = CM.forwardFill || [];   // 合併儲存格群組:空格沿用上一筆有值
+  const ffLast = {};
   for (let i = hi + 1; i < rows.length; i++) {
     const f = rows[i];
     const rec = { updated_by: CM_PROFILE.id };
@@ -210,6 +232,12 @@ function cmRowsFromMatrix(matrix) {
     if (!code || CM_TOTAL_RE.test(code) || CM_TOTAL_RE.test(String(f[0] || '').trim())) {
       skip.push(i); continue;
     }
+    // 分類等合併欄 forward-fill:本列空 → 沿用上一筆;有值 → 更新基準
+    ffCols.forEach(k => {
+      const v = rec[k];
+      if (v == null || String(v).trim() === '') { if (ffLast[k] != null) rec[k] = ffLast[k]; }
+      else ffLast[k] = v;
+    });
     if (monthCols.length) {
       const msh = {};
       monthCols.forEach(mc => {
