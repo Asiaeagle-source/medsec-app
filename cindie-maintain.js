@@ -73,6 +73,7 @@ function renderRows() {
   }
   tb.innerHTML = rows.map(r => '<tr>' + cmListCols().map(c => {
     if (c.derived && CM.derived && CM.derived[c.derived]) return `<td>${CM.derived[c.derived](r)}</td>`;
+    if (c.fmt) return `<td>${cmEsc(c.fmt(r[c.key], r))}</td>`;
     let v = r[c.key];
     if (c.type === 'bool') v = v ? '是' : '—';
     else if (v == null || v === '') v = '—';
