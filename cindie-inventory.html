@@ -99,6 +99,15 @@ function cmLvlEmoji(r) { return Array.from((r.stock_alert_level || '🟢').trim(
 function cmIsStable(r) {
   return Number(r.stability_multiplier) >= 1.3 || String(r.stability_tier || '').startsWith('⭐');
 }
+function cmInTransit(r) {
+  if (r.in_transit_qty != null) return cmNum(r.in_transit_qty);
+  return cmNum(r.overdue_qty ?? r.overdue_inbound_qty)
+       + cmNum(r.pending_inbound_qty);
+}
+function cmIsStockless(r) {
+  const s = r.stockless_alert_level;
+  return s && s !== 'normal' && !String(s).startsWith('⚫');
+}
 // 優先處理排序:🔴缺貨 → ⭐高頻穩定且warning → 其他warning → 正常 → 停產
 function cmPriRank(r) {
   const e = cmLvlEmoji(r);
@@ -165,19 +174,17 @@ const CINDIE_CFG = {
     { key:'flat', label:'→ 同期平穩',  match:r=>String(r.yoy_trend||'').startsWith('→') },
     { key:'none', label:'— 無同期',    match:r=>String(r.yoy_trend||'').startsWith('—') },
   ],
-  // 列表:品號|分類|現有(=有效)|近3月銷|同期|YoY|穩定度|狀態|訂量建議|逾期|待進貨
+  // 列表:品號|分類|現有(=有效)|在途|近3月|YoY|穩定度|警示|訂貨建議
   listColumns: [
     { key:'product_code', label:'品號' },
     { key:'product_category', label:'分類' },
     { derived:'eff', label:'現有(=有效)' },
+    { derived:'intransit', label:'在途(逾期+待進)' },
     { key:'recent_3m_avg', label:'近3月銷', fmt:cmRound },
-    { key:'yoy_3m_avg', label:'同期(去年)', fmt:cmRound },
     { key:'yoy_trend', label:'YoY 比較' },
     { derived:'stability', label:'穩定度' },
-    { derived:'alert', label:'狀態' },
-    { derived:'reorder', label:'訂量建議' },
-    { key:'overdue_qty', label:'逾期', fmt:v=>v==null?'—':v },
-    { key:'pending_inbound_qty', label:'待進貨', fmt:v=>v==null?'—':v },
+    { derived:'alert', label:'警示' },
+    { derived:'reorder', label:'訂貨建議' },
   ],
   sortModes: [
     { key:'priority', label:'優先處理', cmp:(a,b)=>cmPriRank(a)-cmPriRank(b)
@@ -186,12 +193,10 @@ const CINDIE_CFG = {
   ],
   filters: [
     { key:'all',  label:'全部' },
-    { key:'🔴',   label:'🔴 嚴重缺貨', match:r=>cmLvlEmoji(r)==='🔴' },
-    { key:'🟠',   label:'🟠 即將缺貨', match:r=>cmLvlEmoji(r)==='🟠' },
-    { key:'🟡',   label:'🟡 低於訂購點', match:r=>cmLvlEmoji(r)==='🟡' },
-    { key:'star', label:'⭐ 高頻穩定品', match:r=>cmIsStable(r) },
-    { key:'🟢',   label:'🟢 正常',     match:r=>cmLvlEmoji(r)==='🟢' },
-    { key:'⚫',   label:'⚫ 停產',     match:r=>cmLvlEmoji(r)==='⚫' },
+    { key:'short',label:'🔴 缺貨',       match:r=>'🔴🟠🟡'.includes(cmLvlEmoji(r)) },
+    { key:'dead', label:'⚠️ 滯銷/過貨',  match:r=>cmIsStockless(r) },
+    { key:'star', label:'⭐ 高頻穩定品',  match:r=>cmIsStable(r) },
+    { key:'⚫',   label:'⚫ 停產',        match:r=>cmLvlEmoji(r)==='⚫' },
   ],
   derived: {
     eff(r) {
@@ -207,20 +212,48 @@ const CINDIE_CFG = {
       return `<span style="color:${s.c};background:${s.bg};font-weight:600;padding:2px 6px;border-radius:4px">${cmEsc(t)}</span>`
         + `<br><small style="color:#94a3b8">用量月占比 ${uf}</small>`;
     },
+    intransit(r) {
+      const it = cmInTransit(r);
+      const od = cmNum(r.overdue_qty ?? r.overdue_inbound_qty);
+      const pd = cmNum(r.pending_inbound_qty);
+      if (it === 0) return '—';
+      return `<b>${it}</b><br><small style="color:#94a3b8">逾期 ${od} + 待進 ${pd}</small>`;
+    },
     alert(r) {
       const lv = r.stock_alert_level || '🟢 正常';
       const c = CM_LVL_COLOR[Array.from(lv.trim())[0]] || '#16a34a';
-      const ov = r.stock_status ? `<br><small style="color:#94a3b8">手動:${r.stock_status}</small>` : '';
-      return `<span style="color:${c};font-weight:600">${lv}</span>${ov}`;
+      // 缺貨類:正常不顯示;滯銷類:非 normal/停產才顯示(可雙警示)
+      const stockTag = (Array.from(lv.trim())[0] === '🟢')
+        ? '' : `<span style="color:${c};font-weight:600">${cmEsc(lv)}</span>`;
+      const sl = r.stockless_alert_level;
+      const deadTag = cmIsStockless(r)
+        ? `<span style="color:#b45309;font-weight:600">${cmEsc(sl)}</span>` : '';
+      const ov = r.stock_status ? `<small style="color:#94a3b8">手動:${r.stock_status}</small>` : '';
+      const parts = [stockTag, deadTag, ov].filter(Boolean);
+      return parts.length ? parts.join('<br>') : '<span style="color:#16a34a">🟢 正常</span>';
     },
     reorder(r) {
       const soq = r.suggested_order_qty;
-      const inroute = cmNum(r.overdue_qty) + cmNum(r.pending_inbound_qty);
-      const hint = inroute > 0
-        ? `若廠商交完 ${inroute} 個可減量`
-        : `預測下月 ${r.next_month_forecast == null ? '—' : r.next_month_forecast}`;
-      return `<b>${soq == null ? '—' : soq}</b>`
-        + `<br><small style="color:#94a3b8">${hint}</small>`;
+      const act = r.suggestion_action;
+      const ratio = r.supply_to_demand_ratio;
+      const it = cmInTransit(r);
+      const mas = cmNum(r.monthly_avg_sales);
+      let why;
+      if (act) {
+        const cover = mas > 0 ? `,在途 ${it} 個約夠 ${(it / mas).toFixed(0)} 個月` : '';
+        why = `供需比 ${ratio == null ? '—' : ratio} 月`
+          + (Number(ratio) > 12 ? `(>12 月警戒線)` : '')
+          + `${cover}。建議:${act}`;
+      } else {
+        const inroute = it;
+        why = inroute > 0 ? `若廠商交完 ${inroute} 個可減量`
+          : `預測下月 ${r.next_month_forecast == null ? '—' : r.next_month_forecast}`;
+      }
+      const hint = act
+        ? `<span style="color:#b45309">${cmEsc(act)}</span>`
+        : `<small style="color:#94a3b8">${cmEsc(why)}</small>`;
+      const info = `<span title="${cmEsc(why)}" style="cursor:help;color:#94a3b8">ⓘ</span>`;
+      return `<b>${soq == null ? '—' : soq}</b> ${info}<br>${hint}`;
     },
   },
   expandRow(r) {
@@ -231,7 +264,11 @@ const CINDIE_CFG = {
       <b>外掛資訊(僅風險參考,不計入有效供應)</b><br>
       廠商欠交(逾期):<b>${cmNum(r.overdue_qty)}</b> 個　|
       已下單在途(待進貨):<b>${cmNum(r.pending_inbound_qty)}</b> 個　|
-      業祕反映需求(採購未確認):<b>${cmNum(r.pending_purchase_qty)}</b> 個</div>`;
+      業祕反映需求(採購未確認):<b>${cmNum(r.pending_purchase_qty)}</b> 個<br>
+      連續無銷:<b>${r.months_without_sales == null ? '—' : r.months_without_sales}</b> 月　|
+      供需比:<b>${r.supply_to_demand_ratio == null ? '—' : r.supply_to_demand_ratio}</b> 月　|
+      YoY 衰退率:<b>${r.yoy_decline_rate == null ? '—' : Math.round(Number(r.yoy_decline_rate) * 100) + '%'}</b>
+      ${r.suggestion_action ? `　| 建議:<b style="color:#b45309">${cmEsc(r.suggestion_action)}</b>` : ''}</div>`;
     const h = r.monthly_sales_history || {};
     const keys = Object.keys(h).sort();
     if (keys.length === 0) return `<div style="padding:8px">${risk}${supply}<div style="color:#94a3b8">無月銷歷史(請上傳含 YYYYMM 月欄的 Excel)</div></div>`;
@@ -271,7 +308,12 @@ async function loadSeasonBanner() {
     + ` <small style="color:#64748b">　系統依月份自動調整訂貨建議量</small>`;
 }
 
-initCindieMaintain(CINDIE_CFG).then(() => { cmBindDrop(); loadSeasonBanner(); });
+initCindieMaintain(CINDIE_CFG).then(() => {
+  cmBindDrop(); loadSeasonBanner();
+  const f = new URLSearchParams(location.search).get('f');
+  const ok = (CINDIE_CFG.filters || []).some(x => x.key === f);
+  if (ok) { CM_FILTER = f; renderFilters(); renderRows(); }
+});
 </script>
 </body>
 </html>

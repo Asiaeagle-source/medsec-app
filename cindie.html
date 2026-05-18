@@ -86,6 +86,29 @@
         </div>
       </div>
 
+      <div class="stat-grid" style="margin-top:4px">
+        <div class="stat-card" style="cursor:pointer" onclick="location.href='cindie-inventory.html?f=short'">
+          <div class="label">🔴 嚴重缺貨</div>
+          <div class="value" id="st-crit">—</div>
+          <div class="delta">現有 &lt; 訂購點 ×0.3</div>
+        </div>
+        <div class="stat-card" style="cursor:pointer" onclick="location.href='cindie-inventory.html?f=short'">
+          <div class="label">🟠 即將缺貨</div>
+          <div class="value" id="st-low">—</div>
+          <div class="delta">需盡快補貨</div>
+        </div>
+        <div class="stat-card" style="cursor:pointer" onclick="location.href='cindie-inventory.html?f=dead'">
+          <div class="label">☠️ 真滯銷</div>
+          <div class="value" id="st-dead">—</div>
+          <div class="delta">連 6 月無銷,佔錢</div>
+        </div>
+        <div class="stat-card" style="cursor:pointer" onclick="location.href='cindie-inventory.html?f=dead'">
+          <div class="label">💸 過度備貨</div>
+          <div class="value" id="st-over">—</div>
+          <div class="delta">供需比 &gt; 12 月</div>
+        </div>
+      </div>
+
       <div class="placeholder">
         <div class="icon">📅</div>
         <div class="title">採購儀表板開發中</div>
@@ -162,7 +185,22 @@ let cindieProfile = null;
   mountAskFab();
   hideLoading();
   refreshQaDot();
+  loadInventoryStats();
 })();
+
+async function loadInventoryStats() {
+  const V = 'v_inventory_intelligence';
+  const cnt = q => q.then(r => r.count ?? 0).catch(() => null);
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v == null ? '—' : v; };
+  set('st-crit', await cnt(supa.from(V).select('product_code', { count:'exact', head:true })
+    .eq('stock_alert_level', '🔴 嚴重缺貨')));
+  set('st-low', await cnt(supa.from(V).select('product_code', { count:'exact', head:true })
+    .eq('stock_alert_level', '🟠 即將缺貨')));
+  set('st-dead', await cnt(supa.from(V).select('product_code', { count:'exact', head:true })
+    .eq('stockless_alert_level', '☠️ 真滯銷')));
+  set('st-over', await cnt(supa.from(V).select('product_code', { count:'exact', head:true })
+    .in('stockless_alert_level', ['💸 嚴重過度備貨', '⚠️ 過度備貨'])));
+}
 
 const _cSwitch = window.switchModule;
 window.switchModule = function(m) {
