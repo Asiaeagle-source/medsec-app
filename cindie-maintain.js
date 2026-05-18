@@ -50,6 +50,7 @@ function buildTableHead() {
 }
 
 let CM_DATA = [];
+let CM_VIEW_ROWS = [];
 let CM_FILTER = 'all';
 let CM_CAT = '__all__';
 
@@ -88,6 +89,7 @@ function renderRows() {
     tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">沒有符合的資料</td></tr>`;
     return;
   }
+  CM_VIEW_ROWS = rows;
   const exp = typeof CM.expandRow === 'function';
   tb.innerHTML = rows.map((r, ri) => {
     const cells = cmListCols().map(c => {
@@ -99,7 +101,7 @@ function renderRows() {
       return `<td>${cmEsc(v)}</td>`;
     }).join('');
     const tr = `<tr ${exp ? `class="cm-clickable" onclick="cmToggleExpand(${ri})"` : ''}>${cells}`
-      + `<td><button class="btn-copy" onclick='event.stopPropagation();cmEdit(${JSON.stringify(JSON.stringify(r))})'>編輯</button></td></tr>`;
+      + `<td><button class="btn-copy" onclick="event.stopPropagation();cmEditAt(${ri})">編輯</button></td></tr>`;
     const det = exp
       ? `<tr id="cm-exp-${ri}" hidden><td colspan="${cmListCols().length + 1}" style="background:#f8fafc">${CM.expandRow(r)}</td></tr>`
       : '';
@@ -134,6 +136,7 @@ async function loadRows() {
 /* ---------- 單筆新增 / 編輯 ---------- */
 function cmNew() { openEditModal(null); }
 function cmEdit(json) { openEditModal(JSON.parse(JSON.parse(json))); }
+function cmEditAt(i) { const r = CM_VIEW_ROWS[i]; if (r) openEditModal(r); }
 
 function openEditModal(row) {
   const isNew = !row;
