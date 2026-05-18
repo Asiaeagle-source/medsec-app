@@ -135,6 +135,7 @@ const CINDIE_CFG = {
   orderBy: 'product_code', orderAsc: true,
   captureMonthly: true, monthlyField: 'monthly_sales_history',
   forwardFill: ['product_category'],   // 合併儲存格分類往下填
+  categoryFilter: 'product_category',  // 分類下拉篩選(採購依分類看)
   // 列表:品號|品名|分類|有效|近3月銷|同期(去年)|YoY 比較|狀態|訂量建議
   listColumns: [
     { key:'product_code', label:'品號' },

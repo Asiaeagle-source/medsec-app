@@ -51,20 +51,37 @@ function buildTableHead() {
 
 let CM_DATA = [];
 let CM_FILTER = 'all';
+let CM_CAT = '__all__';
 
 function renderFilters() {
   const box = document.getElementById('cm-filters');
   if (!box || !CM.filters) return;
-  box.innerHTML = CM.filters.map(f =>
+  const pills = CM.filters.map(f =>
     `<button class="qm-pill ${CM_FILTER === f.key ? 'active' : ''}" onclick="cmSetFilter('${f.key}')">${f.label}</button>`
   ).join('');
+  let cat = '';
+  if (CM.categoryFilter) {
+    const vals = [...new Set(CM_DATA
+      .map(r => r[CM.categoryFilter]).filter(v => v != null && String(v).trim() !== ''))]
+      .sort((a, b) => String(a).localeCompare(String(b), 'zh-Hant'));
+    if (!vals.includes(CM_CAT) && CM_CAT !== '__all__') CM_CAT = '__all__';
+    cat = `<select class="rc-text-input" style="width:auto;padding:6px 10px;margin-left:8px"
+        onchange="cmSetCat(this.value)">
+        <option value="__all__"${CM_CAT === '__all__' ? ' selected' : ''}>全部分類 (${vals.length})</option>
+        ${vals.map(v => `<option value="${cmEsc(v)}"${CM_CAT === v ? ' selected' : ''}>${cmEsc(v)}</option>`).join('')}
+      </select>`;
+  }
+  box.innerHTML = pills + cat;
 }
 function cmSetFilter(k) { CM_FILTER = k; renderFilters(); renderRows(); }
+function cmSetCat(v) { CM_CAT = v; renderRows(); }
 
 function renderRows() {
   const tb = document.getElementById('cm-tbody');
   const f = (CM.filters || []).find(x => x.key === CM_FILTER);
-  const rows = (f && f.match) ? CM_DATA.filter(f.match) : CM_DATA;
+  let rows = (f && f.match) ? CM_DATA.filter(f.match) : CM_DATA;
+  if (CM.categoryFilter && CM_CAT !== '__all__')
+    rows = rows.filter(r => r[CM.categoryFilter] === CM_CAT);
   document.getElementById('cm-count').textContent =
     `${rows.length} 筆${CM_DATA.length !== rows.length ? ` / 共 ${CM_DATA.length}` : ''}`;
   if (rows.length === 0) {
