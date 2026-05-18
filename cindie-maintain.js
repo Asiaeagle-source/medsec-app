@@ -54,6 +54,7 @@ let CM_VIEW_ROWS = [];
 let CM_FILTER = 'all';
 let CM_CAT = '__all__';
 let CM_TREND = '__all__';
+let CM_SORT = '';
 
 function renderFilters() {
   const box = document.getElementById('cm-filters');
@@ -81,11 +82,20 @@ function renderFilters() {
         ${CM.trendFilter.map(t => `<option value="${t.key}"${CM_TREND === t.key ? ' selected' : ''}>${cmEsc(t.label)}</option>`).join('')}
       </select>`;
   }
-  box.innerHTML = pills + cat + trend;
+  let sort = '';
+  if (CM.sortModes && CM.sortModes.length) {
+    if (!CM_SORT) CM_SORT = CM.sortModes[0].key;
+    sort = `<select class="rc-text-input" style="width:auto;padding:6px 10px;margin-left:8px"
+        onchange="cmSetSort(this.value)" title="排序">
+        ${CM.sortModes.map(s => `<option value="${s.key}"${CM_SORT === s.key ? ' selected' : ''}>↕ ${cmEsc(s.label)}</option>`).join('')}
+      </select>`;
+  }
+  box.innerHTML = pills + cat + trend + sort;
 }
 function cmSetFilter(k) { CM_FILTER = k; renderFilters(); renderRows(); }
 function cmSetCat(v) { CM_CAT = v; renderRows(); }
 function cmSetTrend(v) { CM_TREND = v; renderRows(); }
+function cmSetSort(v) { CM_SORT = v; renderRows(); }
 
 function renderRows() {
   const tb = document.getElementById('cm-tbody');
@@ -96,6 +106,10 @@ function renderRows() {
   if (CM.trendFilter && CM_TREND !== '__all__') {
     const t = CM.trendFilter.find(x => x.key === CM_TREND);
     if (t && t.match) rows = rows.filter(t.match);
+  }
+  if (CM.sortModes && CM.sortModes.length) {
+    const sm = CM.sortModes.find(x => x.key === CM_SORT) || CM.sortModes[0];
+    if (sm && sm.cmp) rows = rows.slice().sort(sm.cmp);
   }
   document.getElementById('cm-count').textContent =
     `${rows.length} 筆${CM_DATA.length !== rows.length ? ` / 共 ${CM_DATA.length}` : ''}`;
