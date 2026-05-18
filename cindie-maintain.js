@@ -53,6 +53,7 @@ let CM_DATA = [];
 let CM_VIEW_ROWS = [];
 let CM_FILTER = 'all';
 let CM_CAT = '__all__';
+let CM_TREND = '__all__';
 
 function renderFilters() {
   const box = document.getElementById('cm-filters');
@@ -72,10 +73,19 @@ function renderFilters() {
         ${vals.map(v => `<option value="${cmEsc(v)}"${CM_CAT === v ? ' selected' : ''}>${cmEsc(v)}</option>`).join('')}
       </select>`;
   }
-  box.innerHTML = pills + cat;
+  let trend = '';
+  if (CM.trendFilter && CM.trendFilter.length) {
+    trend = `<select class="rc-text-input" style="width:auto;padding:6px 10px;margin-left:8px"
+        onchange="cmSetTrend(this.value)">
+        <option value="__all__"${CM_TREND === '__all__' ? ' selected' : ''}>全部 YoY</option>
+        ${CM.trendFilter.map(t => `<option value="${t.key}"${CM_TREND === t.key ? ' selected' : ''}>${cmEsc(t.label)}</option>`).join('')}
+      </select>`;
+  }
+  box.innerHTML = pills + cat + trend;
 }
 function cmSetFilter(k) { CM_FILTER = k; renderFilters(); renderRows(); }
 function cmSetCat(v) { CM_CAT = v; renderRows(); }
+function cmSetTrend(v) { CM_TREND = v; renderRows(); }
 
 function renderRows() {
   const tb = document.getElementById('cm-tbody');
@@ -83,6 +93,10 @@ function renderRows() {
   let rows = (f && f.match) ? CM_DATA.filter(f.match) : CM_DATA;
   if (CM.categoryFilter && CM_CAT !== '__all__')
     rows = rows.filter(r => r[CM.categoryFilter] === CM_CAT);
+  if (CM.trendFilter && CM_TREND !== '__all__') {
+    const t = CM.trendFilter.find(x => x.key === CM_TREND);
+    if (t && t.match) rows = rows.filter(t.match);
+  }
   document.getElementById('cm-count').textContent =
     `${rows.length} 筆${CM_DATA.length !== rows.length ? ` / 共 ${CM_DATA.length}` : ''}`;
   if (rows.length === 0) {

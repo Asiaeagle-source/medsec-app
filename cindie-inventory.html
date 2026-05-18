@@ -27,7 +27,8 @@
     <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
       ℹ️ 這是 <b>Cindie 維護的副本</b>,真實庫存在鼎新,用於業祕報價警示 + 訂貨建議,Sprint 3 接鼎新每日 ETL。<br>
       📊 月銷歷史視窗:<b>rolling 18 個月</b>,系統自動淘汰更舊的資料。<br>
-      🆕 第一次使用請上傳過去 16 個月明細的 Excel(月份表頭範例:<code>202501, 202502, …, 202604</code>);之後每月只需上傳當月 1 列即可(系統自動合併)。
+      🆕 第一次使用請上傳過去 16 個月明細的 Excel(月份表頭範例:<code>202501, 202502, …, 202604</code>);之後每月只需上傳當月 1 列即可(系統自動合併)。<br>
+      📦 <b>有效供應 = 現有庫存</b>;逾期/待進貨/採購未確認僅做風險參考,<b>不計入</b>有效(缺貨判斷保守)。點任一列可展開外掛資訊細節。
     </div>
 
     <div class="cm-toolbar">
@@ -137,17 +138,25 @@ const CINDIE_CFG = {
   captureMonthly: true, monthlyField: 'monthly_sales_history',
   forwardFill: ['product_category'],   // 合併儲存格分類往下填
   categoryFilter: 'product_category',  // 分類下拉篩選(採購依分類看)
-  // 列表:品號|品名|分類|有效|近3月銷|同期(去年)|YoY 比較|狀態|訂量建議
+  // YoY 下拉:讓採購把成長/下滑太多的挑出來改採購計畫
+  trendFilter: [
+    { key:'up',   label:'↗ 同期成長',  match:r=>String(r.yoy_trend||'').startsWith('↗') },
+    { key:'down', label:'↘ 同期下滑',  match:r=>String(r.yoy_trend||'').startsWith('↘') },
+    { key:'flat', label:'→ 同期平穩',  match:r=>String(r.yoy_trend||'').startsWith('→') },
+    { key:'none', label:'— 無同期',    match:r=>String(r.yoy_trend||'').startsWith('—') },
+  ],
+  // 列表:品號|分類|現有(=有效)|近3月銷|同期(去年)|YoY|狀態|訂量建議|逾期|待進貨
   listColumns: [
     { key:'product_code', label:'品號' },
-    { key:'product_name', label:'品名' },
     { key:'product_category', label:'分類' },
-    { derived:'eff', label:'有效' },
+    { derived:'eff', label:'現有(=有效)' },
     { key:'recent_3m_avg', label:'近3月銷', fmt:cmRound },
     { key:'yoy_3m_avg', label:'同期(去年)', fmt:cmRound },
     { key:'yoy_trend', label:'YoY 比較' },
     { derived:'alert', label:'狀態' },
     { derived:'reorder', label:'訂量建議' },
+    { key:'overdue_qty', label:'逾期', fmt:v=>v==null?'—':v },
+    { key:'pending_inbound_qty', label:'待進貨', fmt:v=>v==null?'—':v },
   ],
   filters: [
     { key:'all',  label:'全部' },
@@ -159,10 +168,10 @@ const CINDIE_CFG = {
   ],
   derived: {
     eff(r) {
-      const eff = cmNum(r.effective_supply);
+      const eff = cmNum(r.effective_supply);   // = 現有,逾期不計
       const m = cmNum(r.recent_3m_avg);
       const sub = m > 0 ? `約 ${(eff / m).toFixed(1)} 月` : '無近期銷';
-      return `<b>${eff}</b><br><small style="color:#94a3b8">(逾期+現有, ${sub})</small>`;
+      return `<b>${eff}</b><br><small style="color:#94a3b8">(只現有, ${sub})</small>`;
     },
     alert(r) {
       const lv = r.stock_alert_level || '🟢 正常';
@@ -171,16 +180,27 @@ const CINDIE_CFG = {
       return `<span style="color:${c};font-weight:600">${lv}</span>${ov}`;
     },
     reorder(r) {
-      const arp = r.adjusted_reorder_point;
-      const nf = r.next_month_forecast;
-      return `<b>${arp == null ? '—' : arp}</b>`
-        + `<br><small style="color:#94a3b8">預測下月 ${nf == null ? '—' : nf}</small>`;
+      const soq = r.suggested_order_qty;
+      const inroute = cmNum(r.overdue_qty) + cmNum(r.pending_inbound_qty);
+      const hint = inroute > 0
+        ? `若廠商交完 ${inroute} 個可減量`
+        : `預測下月 ${r.next_month_forecast == null ? '—' : r.next_month_forecast}`;
+      return `<b>${soq == null ? '—' : soq}</b>`
+        + `<br><small style="color:#94a3b8">${hint}</small>`;
     },
   },
   expandRow(r) {
+    const risk = r.supply_risk_level && r.supply_risk_level !== 'normal'
+      ? `<div style="font-size:13px;font-weight:600;color:#b45309;margin-bottom:6px">${cmEsc(r.supply_risk_level)}</div>`
+      : '';
+    const supply = `<div style="font-size:12px;color:#475569;margin-bottom:8px;line-height:1.7">
+      <b>外掛資訊(僅風險參考,不計入有效供應)</b><br>
+      廠商欠交(逾期):<b>${cmNum(r.overdue_qty)}</b> 個　|
+      已下單在途(待進貨):<b>${cmNum(r.pending_inbound_qty)}</b> 個　|
+      業祕反映需求(採購未確認):<b>${cmNum(r.pending_purchase_qty)}</b> 個</div>`;
     const h = r.monthly_sales_history || {};
     const keys = Object.keys(h).sort();
-    if (keys.length === 0) return '<div style="padding:8px;color:#94a3b8">無月銷歷史(請上傳含 YYYYMM 月欄的 Excel)</div>';
+    if (keys.length === 0) return `<div style="padding:8px">${risk}${supply}<div style="color:#94a3b8">無月銷歷史(請上傳含 YYYYMM 月欄的 Excel)</div></div>`;
     const vals = keys.map(k => Number(h[k]) || 0);
     const max = Math.max(1, ...vals);
     const bars = keys.map((k, i) => {
@@ -194,7 +214,8 @@ const CINDIE_CFG = {
           <div style="width:16px;background:#6366f1;height:${hpx}px;border-radius:2px"></div></div>
         <small style="font-size:9px;color:#64748b">${k.slice(2)}</small></div>`;
     }).join('');
-    return `<div style="padding:8px 4px"><div style="font-size:12px;color:#64748b;margin-bottom:4px">
+    return `<div style="padding:8px 4px">${risk}${supply}
+      <div style="font-size:12px;color:#64748b;margin-bottom:4px">
       月銷 ${keys.length} 個月(<span style="background:#fee2e2;padding:0 4px">旺</span>
       <span style="background:#dbeafe;padding:0 4px">淡</span>)</div>
       <div style="display:flex;gap:2px;overflow-x:auto">${bars}</div></div>`;
