@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP1</span></div>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP2</span></div>
     </div>
 
     <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
@@ -293,6 +293,24 @@ function crmParse(wb){
       _hasNo:!!(r.crm_quote_no&&String(r.crm_quote_no).trim())
     };
   });
+  // 同 batch 內同 (報價單號,品號) 重複 → PostgreSQL upsert 會報
+  // 「ON CONFLICT DO UPDATE command cannot affect row a second time」。
+  // 先 client-side 去重(保留第一筆);無報價單號者 DB 視 NULL 相異,不去重。
+  let dupCount=0;
+  {
+    const seen=new Set(), dd=[];
+    for(const r of CRM_ROWS){
+      const no=(r.crm_quote_no||'').trim();
+      if(no){
+        const k=no+'|'+r.product_code;
+        if(seen.has(k)){ dupCount++; continue; }
+        seen.add(k);
+      }
+      dd.push(r);
+    }
+    if(dupCount) console.warn(`CRM dedup: 跳過 ${dupCount} 筆同單同品重複`);
+    CRM_ROWS=dd;
+  }
   const hm=CRM_ROWS.filter(r=>r._hm).length, pm=CRM_ROWS.filter(r=>r._pm).length;
   const noNo=CRM_ROWS.filter(r=>!r._hasNo).length;
   // 對不到的醫院代號(distinct,供眼判:真經銷商/舊碼 vs 解析問題)
@@ -304,8 +322,10 @@ function crmParse(wb){
       <div><div class="b">${nMain}</div><div class="l">主要資料行</div></div>
       <div><div class="b">${nCont}</div><div class="l">延續品項(forward fill)</div></div>
       <div><div class="b">${nHead}</div><div class="l">跳過 header 行</div></div>
+      ${dupCount?`<div><div class="b warn">${dupCount}</div><div class="l">同單同品重複(已自動去重)</div></div>`:''}
     </div>
     <div style="font-size:13px;line-height:1.8">
+      ${dupCount?`<span class="warn">⚠ 發現 ${dupCount} 筆重複(同報價單號+品號),已自動去重,只匯入第一筆</span><br>`:''}
       醫院對應:<span class="ok">✓ ${hm}</span> / <span class="warn">⚠ 找不到 ${CRM_ROWS.length-hm}</span>
       <span style="color:#94a3b8">(主檔載入 ${Object.keys(HOSP).length} 家;不重複對不到代號 ${badCodes.length} 個)</span><br>
       ${badCodes.length?`<span class="warn">缺代號:</span><span style="color:#64748b">${
