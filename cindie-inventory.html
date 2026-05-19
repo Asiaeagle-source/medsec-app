@@ -35,6 +35,7 @@
     <div class="cm-toolbar">
       <button class="btn-primary" style="width:auto;padding:8px 16px" onclick="cmOpenUpload()">📥 上傳 Excel</button>
       <button class="btn-secondary" style="width:auto;padding:8px 16px" onclick="cmNew()">+ 新增單筆</button>
+      <button class="btn-secondary" style="width:auto;padding:8px 16px" onclick="cmExportCsv()" title="匯出目前篩選/排序後的清單">⬇ 匯出 CSV</button>
       <span class="spacer"></span>
       <input id="cm-search" class="rc-text-input" style="width:200px;padding:7px" placeholder="🔍 搜尋品號…" oninput="loadRows()">
       <span id="cm-count" style="font-size:13px;color:var(--text-muted)">—</span>
@@ -191,6 +192,36 @@ const CINDIE_CFG = {
     star: '目前沒有「⭐ 高頻穩定品」。需先上傳含 18 個月 YYYYMM 月銷的 Excel,系統才能算使用頻率/穩定度;只上傳當下快照不會有此分級。',
     dead: '目前沒有「滯銷/過貨」品。滯銷需 ≥6 個月歷史才判定;過度備貨看供需比(現有+在途)/月均銷。確認已執行 sql/v2/20→21→22 且月明細已上傳。',
   },
+  exportColumns: [
+    { key:'product_code', label:'品號' },
+    { key:'product_name', label:'品名' },
+    { key:'product_category', label:'分類' },
+    { key:'current_stock_qty', label:'現有' },
+    { key:'effective_supply', label:'有效供應' },
+    { key:'in_transit_qty', label:'在途' },
+    { key:'overdue_qty', label:'逾期' },
+    { key:'pending_inbound_qty', label:'待進貨' },
+    { key:'pending_purchase_qty', label:'採購未確認' },
+    { key:'monthly_avg_sales', label:'月均銷' },
+    { key:'recent_3m_avg', label:'近3月銷' },
+    { key:'yoy_3m_avg', label:'同期(去年)' },
+    { key:'yoy_trend', label:'YoY 比較' },
+    { key:'usage_frequency', label:'使用頻率' },
+    { key:'coefficient_of_variation', label:'波動係數' },
+    { key:'stability_tier', label:'穩定度' },
+    { key:'stock_alert_level', label:'缺貨警示' },
+    { key:'stockless_alert_level', label:'滯銷警示' },
+    { key:'supply_to_demand_ratio', label:'供需比(月)' },
+    { key:'months_without_sales', label:'連續無銷月' },
+    { key:'yoy_decline_rate', label:'YoY衰退率' },
+    { key:'adjusted_reorder_point', label:'季節訂購點' },
+    { key:'final_reorder_point', label:'最終訂購點' },
+    { key:'suggested_order_qty', label:'訂貨建議' },
+    { key:'suggestion_action', label:'建議動作' },
+    { key:'next_month_forecast', label:'預測下月' },
+    { key:'season_label', label:'當月季節' },
+    { key:'reorder_multiplier', label:'季節係數' },
+  ],
   sortModes: [
     { key:'priority', label:'優先處理', cmp:(a,b)=>cmPriRank(a)-cmPriRank(b)
         || String(a.product_code).localeCompare(String(b.product_code)) },

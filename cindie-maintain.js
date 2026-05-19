@@ -97,6 +97,32 @@ function cmSetCat(v) { CM_CAT = v; renderRows(); }
 function cmSetTrend(v) { CM_TREND = v; renderRows(); }
 function cmSetSort(v) { CM_SORT = v; renderRows(); }
 
+// 匯出「目前篩選/排序後」的清單為 CSV(含 BOM,Excel 中文不亂碼)
+function cmExportCsv() {
+  const rows = CM_VIEW_ROWS || [];
+  if (!rows.length) { alert('目前沒有可匯出的資料'); return; }
+  let cols = CM.exportColumns;
+  if (!cols) {
+    cols = Object.keys(rows[0])
+      .filter(k => { const v = rows[0][k]; return v == null || typeof v !== 'object'; })
+      .map(k => ({ key: k, label: k }));
+  }
+  const esc = v => {
+    if (v == null) return '';
+    const s = String(v).replace(/"/g, '""');
+    return /[",\n]/.test(s) ? `"${s}"` : s;
+  };
+  const lines = [cols.map(c => esc(c.label)).join(',')];
+  rows.forEach(r => lines.push(cols.map(c => esc(r[c.key])).join(',')));
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const ts = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${CM.table || 'export'}_${ts}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function renderRows() {
   const tb = document.getElementById('cm-tbody');
   const f = (CM.filters || []).find(x => x.key === CM_FILTER);
