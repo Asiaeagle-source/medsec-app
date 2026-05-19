@@ -89,9 +89,9 @@
         <span id="list-count" style="font-size:13px;color:#64748b"></span>
       </div>
       <table class="case-list">
-        <thead><tr><th>報價日期</th><th>醫院</th><th>體系</th><th>品號</th><th>品名</th>
+        <thead><tr><th>報價日期</th><th>醫院</th><th>體系</th><th>品號</th><th>品名</th><th>分類</th>
           <th>報價單價</th><th>數量</th><th>總額</th><th>業務員</th><th>狀態</th><th>成交價</th></tr></thead>
-        <tbody id="list-tbody"><tr><td colspan="11" class="case-empty">設定條件後按查詢</td></tr></tbody>
+        <tbody id="list-tbody"><tr><td colspan="12" class="case-empty">設定條件後按查詢</td></tr></tbody>
       </table>
       <div style="text-align:center;margin-top:10px">
         <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="listLoad(LIST_PAGE-1)">上一頁</button>
@@ -123,7 +123,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="medsec-common.js"></script>
 <script>
-let PROFILE = null, HOSP = {}, PRODSET = new Set(), STRAT = [];
+let PROFILE = null, HOSP = {}, PRODS = {}, PCAT = {}, STRAT = [];
 
 (async function init(){
   const p = await guardRole('manager');           // 僅 Lynn;業祕會被導走
@@ -134,10 +134,25 @@ let PROFILE = null, HOSP = {}, PRODSET = new Set(), STRAT = [];
   const { data: hs } = await supa.from('medsec_hospitals')
     .select('id,name_short,name_full,system_prefix,region_code,customer_type');
   (hs||[]).forEach(h => { HOSP[String(h.id).trim()] = h; });
-  const { data: pr } = await supa.from('medsec_products').select('id');
-  (pr||[]).forEach(x => PRODSET.add(String(x.id).trim()));
+  // 主檔回填:品名(medsec_products)+ 品名/分類(medsec_product_inventory)
+  const { data: pr } = await supa.from('medsec_products').select('id,name');
+  (pr||[]).forEach(x => { PRODS[String(x.id).trim()] = x.name || null; });
+  const { data: inv } = await supa.from('medsec_product_inventory')
+    .select('product_code,product_name,product_category');
+  (inv||[]).forEach(x => {
+    PCAT[String(x.product_code).trim()] = {
+      name: x.product_name || null, cat: x.product_category || null };
+  });
   bindDrop('crm','crm'); bindDrop('erp','erp');
 })();
+// 回傳 [品名, 分類](Excel 值優先,缺則主檔回填)
+function enrich(code, xlsName, xlsCat){
+  const c = String(code||'').trim();
+  const name = (xlsName && xlsName.trim()) || PRODS[c] || (PCAT[c]&&PCAT[c].name) || null;
+  const cat  = (xlsCat && xlsCat.trim())  || (PCAT[c]&&PCAT[c].cat) || null;
+  const known = !!(PRODS[c] || PCAT[c]);
+  return { name, cat, known };
+}
 
 function ptTab(t){
   document.querySelectorAll('.pt-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
@@ -223,6 +238,8 @@ function crmParse(wb){
   CRM_ROWS = out.map(r=>{
     const code=String(r.customer_code||'').trim();
     const h=HOSP[code]||null;
+    const pcode=String(r.product_code).trim();
+    const e=enrich(pcode, r.product_name, null);   // CRM 無分類欄 → 全靠主檔
     return {
       crm_quote_type:r.crm_quote_type||null, crm_quote_no:r.crm_quote_no||null,
       customer_code:code||null, customer_short_name:r.customer_short_name||null,
@@ -231,7 +248,7 @@ function crmParse(wb){
       system_prefix:h?h.system_prefix:null, region_code:h?h.region_code:null,
       customer_type:h?h.customer_type:null,
       quoted_by_name:r.quoted_by_name||null,
-      product_code:String(r.product_code).trim(), product_name:r.product_name||null,
+      product_code:pcode, product_name:e.name, product_category:e.cat,
       quoted_date:parseYmd(r._quoted_date), quoted_qty:num(r.quoted_qty),
       quoted_unit_price:num(r.quoted_unit_price), quoted_total:num(r.quoted_total),
       confirmation_code:r.confirmation_code||null, confirmed_at:parseYmd(r._confirmed_at),
@@ -239,7 +256,7 @@ function crmParse(wb){
       erp_quote_type:r.erp_quote_type||null, erp_quote_no:r.erp_quote_no||null,
       promoted_at:parseYmd(r._promoted_at), promoted_by_name:r.promoted_by_name||null,
       source:'crm_import',
-      _hm:!!h, _pm:PRODSET.has(String(r.product_code).trim()),
+      _hm:!!h, _pm:e.known,
       _hasNo:!!(r.crm_quote_no&&String(r.crm_quote_no).trim())
     };
   });
@@ -349,20 +366,22 @@ async function erpApply(){
         if(data&&data[0]) matchId=data[0].id;
       }
       if(matchId){
+        const e=enrich(r.product_code, null, r.product_category);
         const { error }=await supa.from('medsec_quote_history').update({
           sales_date:r.sales_date, sales_unit_price:r.sales_unit_price,
           sales_qty:r.sales_qty, sales_total:r.sales_total,
-          product_sn:r.product_sn, product_category:r.product_category
+          product_sn:r.product_sn, product_category:e.cat
         }).eq('id',matchId);
         if(error) throw error; upd++;
       }else{
         const h=HOSP[r.customer_code]||null;
+        const e=enrich(r.product_code, null, r.product_category);
         const { error }=await supa.from('medsec_quote_history').insert({
           customer_code:r.customer_code, hospital_id:r.customer_code,
           hospital_name:r.hospital_name||(h?(h.name_short||h.name_full):null),
           system_prefix:h?h.system_prefix:null, region_code:h?h.region_code:null,
           customer_type:h?h.customer_type:null,
-          product_code:r.product_code, product_category:r.product_category,
+          product_code:r.product_code, product_name:e.name, product_category:e.cat,
           product_sn:r.product_sn, sales_date:r.sales_date,
           sales_unit_price:r.sales_unit_price, sales_qty:r.sales_qty,
           sales_total:r.sales_total, source:'erp_sales_import'
@@ -432,20 +451,21 @@ async function listStats(f){
 async function listLoad(page){
   if(page<1) page=1; LIST_PAGE=page;
   const tb=document.getElementById('list-tbody');
-  tb.innerHTML=`<tr><td colspan="11" class="case-empty">載入中…</td></tr>`;
+  tb.innerHTML=`<tr><td colspan="12" class="case-empty">載入中…</td></tr>`;
   const f=listFilters();
   listStats(f).catch(()=>{});
   const from=(page-1)*LIST_SIZE, to=from+LIST_SIZE-1;
   const { data,error,count }=await applyFilters(
     supa.from('medsec_quote_history').select('*',{count:'exact'}),f,true)
     .order('quoted_date',{ascending:false}).range(from,to);
-  if(error){ tb.innerHTML=`<tr><td colspan="11" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
+  if(error){ tb.innerHTML=`<tr><td colspan="12" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
   document.getElementById('list-count').textContent=`共 ${count||0} 筆`;
   document.getElementById('list-page').textContent=`第 ${page} 頁 / 共 ${Math.max(1,Math.ceil((count||0)/LIST_SIZE))} 頁`;
-  if(!data||!data.length){ tb.innerHTML=`<tr><td colspan="11" class="case-empty">無資料</td></tr>`; return; }
+  if(!data||!data.length){ tb.innerHTML=`<tr><td colspan="12" class="case-empty">無資料</td></tr>`; return; }
   tb.innerHTML=data.map(r=>`<tr>
     <td>${r.quoted_date||'—'}</td><td>${r.hospital_name||r.customer_code||'—'}</td>
     <td>${r.system_prefix||'—'}</td><td>${r.product_code}</td><td>${r.product_name||'—'}</td>
+    <td>${r.product_category||'—'}</td>
     <td>${r.quoted_unit_price??'—'}</td><td>${r.quoted_qty??'—'}</td>
     <td>${r.quoted_total??'—'}</td><td>${r.quoted_by_name||'—'}</td>
     <td>${r.status}</td><td>${r.sales_unit_price??'—'}</td></tr>`).join('');
