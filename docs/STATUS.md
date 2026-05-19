@@ -143,3 +143,20 @@
    (c) V2.1 接 Claude（已有 `claude-chat` edge fn 基礎）。建議 (a) 先上、平行準備 sales_history ETL。
 
 ⚠️ 本報告全程未改任何程式碼 / 未動 DB / 未碰 sql/v2 已 merged 檔。
+
+---
+
+## Section 5 · Sprint 2.5 收尾觀察(hint,Sprint 2.5 ship 後再評估,本批不動 code)
+
+### 觀察 1:Lynn manager.html 缺「代理視角」入口(UX,非功能缺陷)
+
+- 現況:Lynn 因全域職代,**可直接打網址**進 `cindie.html` / `secretary.html`
+  操作,功能無阻;但 `manager.html` nav **沒有明確入口**,不直觀。
+- 既有 nav:`⚙️ 系統設定`(季節月曆設定 ✅、業祕分區 ✅、季節月曆 ✅)。
+- 建議(擇一,Sprint 2.5 ship 後再做,非現在):
+  - 方案 A:`系統設定` 下加 `🔄 代理工具` →
+    代 Cindie 維護(`cindie.html`)/ 代業祕報價(`secretary.html`)/
+    代 Andrew 同意 quote(報價頁本就有)。
+  - 方案 B(更輕):右上角個人 dropdown 加「切換視角」selector。
+- 風險/影響:純導覽捷徑,不改權限邏輯(Lynn 本就可進);低風險、低工時。
+- 狀態:**待辦觀察,未實作**;Lynn 確認 Sprint 2.5 ship 後再排。
