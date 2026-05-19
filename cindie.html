@@ -24,6 +24,12 @@
       <div class="nav-item active" data-module="overview" onclick="switchModule('overview')">
         <span class="icon">📊</span><span>我的儀表板</span>
       </div>
+      <div class="nav-item" data-module="quote-advisory" onclick="switchModule('quote-advisory')">
+        <span class="icon">⚠️</span><span>待審報價警示</span><span class="dot dot-pending" id="qa-dot" hidden></span>
+      </div>
+      <div class="nav-item" onclick="location.href='cindie-inventory.html'">
+        <span class="icon">📦</span><span>產品採購庫存</span>
+      </div>
       <div class="nav-item" data-module="expiry" onclick="switchModule('expiry')">
         <span class="icon">📅</span><span>衛署 / QSD 效期</span>
       </div>
@@ -77,6 +83,29 @@
           <div class="label">低庫存品項</div>
           <div class="value">—</div>
           <div class="delta">低於安全庫存</div>
+        </div>
+      </div>
+
+      <div class="stat-grid" style="margin-top:4px">
+        <div class="stat-card" style="cursor:pointer" onclick="location.href='cindie-inventory.html?f=short'">
+          <div class="label">🔴 嚴重缺貨</div>
+          <div class="value" id="st-crit">—</div>
+          <div class="delta">現有 &lt; 訂購點 ×0.3</div>
+        </div>
+        <div class="stat-card" style="cursor:pointer" onclick="location.href='cindie-inventory.html?f=short'">
+          <div class="label">🟠 即將缺貨</div>
+          <div class="value" id="st-low">—</div>
+          <div class="delta">需盡快補貨</div>
+        </div>
+        <div class="stat-card" style="cursor:pointer" onclick="location.href='cindie-inventory.html?f=dead'">
+          <div class="label">☠️ 真滯銷</div>
+          <div class="value" id="st-dead">—</div>
+          <div class="delta">連 6 月無銷,佔錢</div>
+        </div>
+        <div class="stat-card" style="cursor:pointer" onclick="location.href='cindie-inventory.html?f=dead'">
+          <div class="label">💸 過度備貨</div>
+          <div class="value" id="st-over">—</div>
+          <div class="delta">供需比 &gt; 12 月</div>
         </div>
       </div>
 
@@ -137,19 +166,136 @@
         <div class="stage">V2 · 第二階段開發</div>
       </div>
     </div>
+    <div id="mod-quote-advisory" style="display:none">
+      <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 待審報價警示</div><h1>待審報價警示</h1></div></div>
+      <div class="rule-review-list" id="qa-list"><div class="case-empty">載入中…</div></div>
+    </div>
   </main>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="medsec-common.js"></script>
 <script>
+let cindieProfile = null;
 (async function init() {
   const profile = await guardRole('purchasing');
   if (!profile) return;
+  cindieProfile = profile;
   renderUserInfo(profile);
   mountAskFab();
   hideLoading();
+  refreshQaDot();
+  loadInventoryStats();
 })();
+
+async function loadInventoryStats() {
+  const V = 'v_inventory_intelligence';
+  const cnt = q => q.then(r => r.count ?? 0).catch(() => null);
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v == null ? '—' : v; };
+  set('st-crit', await cnt(supa.from(V).select('product_code', { count:'exact', head:true })
+    .eq('stock_alert_level', '🔴 嚴重缺貨')));
+  set('st-low', await cnt(supa.from(V).select('product_code', { count:'exact', head:true })
+    .eq('stock_alert_level', '🟠 即將缺貨')));
+  set('st-dead', await cnt(supa.from(V).select('product_code', { count:'exact', head:true })
+    .eq('stockless_alert_level', '☠️ 真滯銷')));
+  set('st-over', await cnt(supa.from(V).select('product_code', { count:'exact', head:true })
+    .in('stockless_alert_level', ['💸 嚴重過度備貨', '⚠️ 過度備貨'])));
+}
+
+const _cSwitch = window.switchModule;
+window.switchModule = function(m) {
+  _cSwitch(m);
+  if (m === 'quote-advisory') loadQuoteAdvisory();
+};
+
+const QA_TYPES = [
+  { v:'delivery_risk', t:'交期過長 / 風險' },
+  { v:'product_discontinued', t:'原廠停產' },
+  { v:'low_stock', t:'庫存偏低' },
+  { v:'other', t:'其他' },
+];
+
+async function refreshQaDot() {
+  const { count } = await supa.from('medsec_quotes')
+    .select('id', { count:'exact', head:true }).eq('status','pending_review');
+  const d = document.getElementById('qa-dot');
+  if (d) { if (count) { d.hidden=false; d.textContent=count; } else d.hidden=true; }
+}
+
+async function loadQuoteAdvisory() {
+  const box = document.getElementById('qa-list');
+  box.innerHTML = '<div class="case-empty">載入中…</div>';
+  // Cindie 看品項/標價,但不 select manager_final_total(看不到最終價/成本)
+  const { data: quotes, error } = await supa.from('medsec_quotes')
+    .select('id, hospital_id, quote_type, status, submitted_at, ai_suggested_total')
+    .eq('status', 'pending_review').order('submitted_at', { ascending:false }).limit(100);
+  if (error) { box.innerHTML = `<div class="case-empty">載入失敗:${error.message}</div>`; return; }
+  if (!quotes || quotes.length === 0) { box.innerHTML = '<div class="case-empty">目前沒有待審報價</div>'; return; }
+  const ids = quotes.map(q => q.id);
+  const [{ data: items }, { data: myAdv }] = await Promise.all([
+    supa.from('medsec_quote_items').select('quote_id, product_code, product_name, quantity, list_price').in('quote_id', ids),
+    supa.from('medsec_quote_advisories').select('quote_id').in('quote_id', ids),
+  ]);
+  const byQ = {}; (items||[]).forEach(it => (byQ[it.quote_id]=byQ[it.quote_id]||[]).push(it));
+  const advSet = new Set((myAdv||[]).map(a => a.quote_id));
+  box.innerHTML = quotes.map(q => `
+    <div class="rule-sugg-card" data-q="${q.id}">
+      <div class="rule-sugg-header">
+        <div><span class="rule-sugg-hospital">${escapeHtml(q.hospital_id||'—')}</span>
+          <span class="rule-sugg-field">${({shipment:'出貨用',registration:'建碼',new_product:'新品',replacement:'汰舊換新',repair:'維修',consumable:'耗材',budget:'設備預算'})[q.quote_type]||q.quote_type}</span>
+          ${advSet.has(q.id)?'<span class="rule-sugg-count">已送過警示</span>':''}</div>
+        <div class="rule-sugg-meta">${(q.submitted_at||'').slice(0,16).replace('T',' ')}</div>
+      </div>
+      <table class="case-list" style="margin:8px 0"><thead><tr>
+        <th>品號</th><th>品名</th><th style="width:50px">量</th><th style="width:90px">標價</th></tr></thead>
+        <tbody>${(byQ[q.id]||[]).map(it=>`<tr>
+          <td><code>${escapeHtml(it.product_code||'—')}</code></td>
+          <td>${escapeHtml(it.product_name||'—')}</td>
+          <td>${it.quantity}</td>
+          <td>${it.list_price!=null?Number(it.list_price).toLocaleString():'—'}</td></tr>`).join('')}</tbody>
+      </table>
+      <div class="qa-form">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px">我的建議:</div>
+        ${QA_TYPES.map(tp=>`<label style="display:block;font-size:13px;margin:3px 0">
+          <input type="checkbox" class="qa-type" value="${tp.v}"> ${tp.t}</label>`).join('')}
+        <div style="display:flex;gap:8px;margin:6px 0">
+          <input class="rc-text-input qa-replace" style="padding:5px" placeholder="替代品號(選填)">
+          <input class="rc-text-input qa-stock" type="number" style="padding:5px;width:120px" placeholder="剩餘庫存(選填)">
+        </div>
+        <textarea class="rc-text-input qa-msg" rows="2" placeholder="詳細說明(例:27703 已停產,建議轉 27704)"></textarea>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+          <label style="font-size:13px">嚴重度:
+            <select class="rc-text-input qa-sev" style="width:auto;padding:4px">
+              <option value="info">提示</option><option value="warning" selected>警示</option><option value="critical">嚴重</option>
+            </select></label>
+          <span class="filter-spacer"></span>
+          <button class="btn-primary" style="width:auto;padding:6px 16px" onclick="submitAdvisory('${q.id}', this)">送 Lynn 參考</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+async function submitAdvisory(quoteId, btn) {
+  const card = btn.closest('.rule-sugg-card');
+  const types = [...card.querySelectorAll('.qa-type:checked')].map(c => c.value);
+  if (types.length === 0) { alert('至少勾一個建議類型'); return; }
+  const msg = card.querySelector('.qa-msg').value.trim();
+  const sev = card.querySelector('.qa-sev').value;
+  const replace = card.querySelector('.qa-replace').value.trim() || null;
+  const stock = card.querySelector('.qa-stock').value ? Number(card.querySelector('.qa-stock').value) : null;
+  if (!msg) { alert('填一下詳細說明'); return; }
+  btn.disabled = true; btn.textContent = '送出中…';
+  const rows = types.map(t => ({
+    quote_id: quoteId, advisor_id: cindieProfile.id, advisory_type: t,
+    severity: sev, message: msg,
+    data: { replacement_code: replace, remaining_stock: stock },
+  }));
+  const { error } = await supa.from('medsec_quote_advisories').insert(rows);
+  btn.disabled = false; btn.textContent = '送 Lynn 參考';
+  if (error) { alert('送出失敗:' + error.message); return; }
+  alert('已送 Lynn 參考');
+  loadQuoteAdvisory();
+}
 </script>
 
 </body>

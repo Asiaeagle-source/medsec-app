@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 產品庫存 / 停產</title>
+<link rel="stylesheet" href="medsec-common.css">
+<style>
+  .cm-toolbar { display:flex; gap:10px; align-items:center; margin:14px 0; flex-wrap:wrap; }
+  .cm-toolbar .spacer { flex:1; }
+  #cm-dropzone { border:2px dashed #cbd5e1; border-radius:8px; padding:18px;
+    text-align:center; color:#64748b; font-size:13px; cursor:pointer; }
+  #cm-dropzone.dz-over { border-color:#6366f1; background:#eef2ff; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <main class="main" style="margin-left:0">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+      <div><div class="breadcrumb" id="cm-bc">—</div><h1 id="cm-h1">—</h1></div>
+      <div style="font-size:13px"><span id="cm-user">—</span> · <a href="cindie.html">回採購</a></div>
+    </div>
+
+    <div id="cm-season-banner" style="margin:10px 0;padding:12px 16px;border-radius:8px;
+      background:#eef2ff;border:1px solid #c7d2fe;font-size:14px">載入季節資訊…</div>
+
+    <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
+      ℹ️ 這是 <b>Cindie 維護的副本</b>,真實庫存在鼎新,用於業祕報價警示 + 訂貨建議,Sprint 3 接鼎新每日 ETL。<br>
+      📊 月銷歷史視窗:<b>rolling 18 個月</b>,系統自動淘汰更舊的資料。<br>
+      🆕 第一次使用請上傳過去 16 個月明細的 Excel(月份表頭範例:<code>202501, 202502, …, 202604</code>);之後每月只需上傳當月 1 列即可(系統自動合併)。<br>
+      📦 <b>有效供應 = 現有庫存</b>;逾期/待進貨/採購未確認僅做風險參考,<b>不計入</b>有效(缺貨判斷保守)。點任一列可展開外掛資訊細節。<br>
+      ⭐ <b>高頻穩定</b> = 過去 18 個月中 75% 以上月份都有銷量且銷量穩定(波動係數小);這類「便宜常用品」最常被忽略而缺貨,訂購點自動 ×1.3,「優先處理」排序會把它的缺貨排到前面。
+    </div>
+
+    <div class="cm-toolbar">
+      <button class="btn-primary" style="width:auto;padding:8px 16px" onclick="cmOpenUpload()">📥 上傳 Excel</button>
+      <button class="btn-secondary" style="width:auto;padding:8px 16px" onclick="cmNew()">+ 新增單筆</button>
+      <button class="btn-secondary" style="width:auto;padding:8px 16px" onclick="cmExportCsv()" title="匯出目前篩選/排序後的清單">⬇ 匯出 CSV</button>
+      <span class="spacer"></span>
+      <input id="cm-search" class="rc-text-input" style="width:200px;padding:7px" placeholder="🔍 搜尋品號…" oninput="loadRows()">
+      <span id="cm-count" style="font-size:13px;color:var(--text-muted)">—</span>
+    </div>
+    <div id="cm-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+
+    <table class="case-list">
+      <thead id="cm-thead"></thead>
+      <tbody id="cm-tbody"></tbody>
+    </table>
+  </main>
+</div>
+
+<!-- 上傳 modal -->
+<div id="cm-upload-modal" class="modal-overlay" hidden>
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header"><div class="modal-title">上傳產品庫存 / 停產</div>
+      <button class="modal-close" onclick="document.getElementById('cm-upload-modal').hidden=true">×</button></div>
+    <div class="modal-body">
+      <div id="cm-dropzone" onclick="document.getElementById('cm-file').click()">
+        把 .xlsx / .csv 拖到這裡,或點此選檔
+        <input type="file" id="cm-file" accept=".xlsx,.xls,.csv" hidden
+          onchange="cmHandleFile(this.files[0])">
+      </div>
+      <div style="text-align:center;font-size:12px;color:#94a3b8;margin:8px 0">或直接貼上 Excel 內容(含表頭)</div>
+      <textarea id="cm-up-paste" class="rc-text-input" rows="5" placeholder="從 Excel 複製整塊貼這裡"></textarea>
+      <div style="text-align:right;margin-top:8px">
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="cmParsePasted()">解析預覽</button>
+      </div>
+      <div id="cm-up-preview" style="margin-top:12px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="document.getElementById('cm-upload-modal').hidden=true">取消</button>
+      <button class="btn-primary" id="cm-up-apply" style="width:auto;padding:6px 16px" disabled onclick="cmApply()">套用</button>
+    </div>
+  </div>
+</div>
+
+<!-- 單筆編輯 modal -->
+<div id="cm-edit-modal" class="modal-overlay" hidden>
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header"><div class="modal-title" id="cm-edit-title">編輯</div>
+      <button class="modal-close" onclick="document.getElementById('cm-edit-modal').hidden=true">×</button></div>
+    <div class="modal-body" id="cm-edit-body"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="document.getElementById('cm-edit-modal').hidden=true">取消</button>
+      <button class="btn-primary" style="width:auto;padding:6px 16px" onclick="cmSaveEdit()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="medsec-common.js"></script>
+<script src="cindie-maintain.js"></script>
+<script>
+function cmNum(v) { return v == null || v === '' ? 0 : Number(v) || 0; }
+// view 的 stock_alert_level 是 "🔴 嚴重缺貨" 這種帶 emoji 字串
+const CM_LVL_COLOR = { '🔴':'#dc2626', '🟠':'#ea580c', '🟡':'#ca8a04', '🟢':'#16a34a', '⚫':'#475569' };
+// emoji 多為 surrogate pair,charAt(0) 只取半個字 → 必須用 Array.from
+function cmLvlEmoji(r) { return Array.from((r.stock_alert_level || '🟢').trim())[0]; }
+function cmIsStable(r) {
+  return Number(r.stability_multiplier) >= 1.3 || String(r.stability_tier || '').startsWith('⭐');
+}
+function cmInTransit(r) {
+  if (r.in_transit_qty != null) return cmNum(r.in_transit_qty);
+  return cmNum(r.overdue_qty ?? r.overdue_inbound_qty)
+       + cmNum(r.pending_inbound_qty);
+}
+function cmIsStockless(r) {
+  const s = r.stockless_alert_level;
+  return s && s !== 'normal' && !String(s).startsWith('⚫');
+}
+// 優先處理排序:🔴缺貨 → ⭐高頻穩定且warning → 其他warning → 正常 → 停產
+function cmPriRank(r) {
+  const e = cmLvlEmoji(r);
+  if (e === '🔴') return 0;
+  const warn = e === '🟠' || e === '🟡';
+  if (warn && cmIsStable(r)) return 1;
+  if (warn) return 2;
+  if (e === '🟢') return 3;
+  return 4;                         // ⚫ 停產
+}
+const CM_STAB = {
+  '⭐ 高頻穩定': { c:'#b45309', bg:'#fef3c7' },
+  '✓ 中頻':     { c:'#15803d', bg:'#dcfce7' },
+  '波動偶用':   { c:'#64748b', bg:'#f1f5f9' },
+  '一般':       { c:'#64748b', bg:'transparent' },
+};
+const SEASON_TXT = { peak:'旺季', normal:'一般', low:'淡季' };
+let SEASON_MAP = {};
+// 顯示用四捨五入:≥1 取 1 位小數;0<x<1 取 2 位(更細);0 顯示 0;空值 —
+function cmRound(v) {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  if (!isFinite(n)) return '—';
+  if (n === 0) return '0';
+  if (Math.abs(n) < 1) return String(Math.round(n * 100) / 100);
+  return String(Math.round(n * 10) / 10);
+}
+
+const CINDIE_CFG = {
+  table: 'medsec_product_inventory',
+  title: '產品採購庫存',
+  breadcrumb: 'MedSec Hub / 採購 / 產品採購庫存',
+  uploadStamp: 'last_excel_update',
+  // 全欄(解析 + 單筆編輯用;label 短、aliases 對 Cindie 真實 Excel 中文表頭)
+  columns: [
+    { key:'product_category', label:'分類', aliases:['產品分類'] },
+    { key:'product_code', label:'品號', required:true, aliases:['品號'] },
+    { key:'overdue_inbound_qty', label:'逾期未進貨', type:'int', aliases:['逾期未進貨','逾期'] },
+    { key:'pending_inbound_qty', label:'待進貨數量', type:'int', aliases:['待進貨數量','待進貨'] },
+    { key:'pending_purchase_qty', label:'採購未確認', type:'int', aliases:['採購未確認'] },
+    { key:'current_stock_qty', label:'現有數', type:'num', aliases:['現有數','現有','目前庫存'] },
+    { key:'monthly_avg_sales', label:'月均銷', type:'num', aliases:['月均銷'] },
+    { key:'available_months', label:'可用月數', type:'num', aliases:['可用月數'] },
+    { key:'product_name', label:'品名', aliases:['品名'] },
+    { key:'safety_stock_months', label:'安全庫存(月)', type:'num' },
+    { key:'safety_stock_level', label:'安全庫存(量)', type:'num' },
+    { key:'stock_status', label:'手動狀態(override)', type:'enum',
+      options:['','normal','low','out','discontinued'] },
+    { key:'is_discontinued', label:'已停產', type:'bool', aliases:['停產'] },
+    { key:'discontinue_date', label:'停產日', type:'date' },
+    { key:'replacement_product_code', label:'替代品號' },
+    { key:'notes', label:'備註' },
+  ],
+  // 顯示讀智慧 view(同期/季節調整),寫仍 medsec_product_inventory
+  readView: 'v_inventory_intelligence',
+  orderBy: 'product_code', orderAsc: true,
+  captureMonthly: true, monthlyField: 'monthly_sales_history',
+  forwardFill: ['product_category'],   // 合併儲存格分類往下填
+  categoryFilter: 'product_category',  // 分類下拉篩選(採購依分類看)
+  // YoY 下拉:讓採購把成長/下滑太多的挑出來改採購計畫
+  trendFilter: [
+    { key:'up',   label:'↗ 同期成長',  match:r=>String(r.yoy_trend||'').startsWith('↗') },
+    { key:'down', label:'↘ 同期下滑',  match:r=>String(r.yoy_trend||'').startsWith('↘') },
+    { key:'flat', label:'→ 同期平穩',  match:r=>String(r.yoy_trend||'').startsWith('→') },
+    { key:'none', label:'— 無同期',    match:r=>String(r.yoy_trend||'').startsWith('—') },
+  ],
+  // 列表:品號|分類|現有(=有效)|在途|近3月|YoY|穩定度|警示|訂貨建議
+  listColumns: [
+    { key:'product_code', label:'品號' },
+    { key:'product_name', label:'品名' },
+    { key:'product_category', label:'分類' },
+    { derived:'eff', label:'現有(=有效)' },
+    { derived:'intransit', label:'在途(逾期+待進)' },
+    { key:'recent_3m_avg', label:'近3月銷', fmt:cmRound },
+    { key:'yoy_trend', label:'YoY 比較' },
+    { derived:'stability', label:'穩定度' },
+    { derived:'alert', label:'警示' },
+    { derived:'reorder', label:'訂貨建議' },
+  ],
+  filterEmptyHint: {
+    star: '目前沒有「⭐ 高頻穩定品」。需先上傳含 18 個月 YYYYMM 月銷的 Excel,系統才能算使用頻率/穩定度;只上傳當下快照不會有此分級。',
+    dead: '目前沒有「滯銷/過貨」品。滯銷需 ≥6 個月歷史才判定;過度備貨看供需比(現有+在途)/月均銷。確認已執行 sql/v2/20→21→22 且月明細已上傳。',
+  },
+  exportColumns: [
+    { key:'product_code', label:'品號' },
+    { key:'product_name', label:'品名' },
+    { key:'product_category', label:'分類' },
+    { key:'current_stock_qty', label:'現有' },
+    { key:'effective_supply', label:'有效供應' },
+    { key:'in_transit_qty', label:'在途' },
+    { key:'overdue_qty', label:'逾期' },
+    { key:'pending_inbound_qty', label:'待進貨' },
+    { key:'pending_purchase_qty', label:'採購未確認' },
+    { key:'monthly_avg_sales', label:'月均銷' },
+    { key:'recent_3m_avg', label:'近3月銷' },
+    { key:'yoy_3m_avg', label:'同期(去年)' },
+    { key:'yoy_trend', label:'YoY 比較' },
+    { key:'usage_frequency', label:'使用頻率' },
+    { key:'coefficient_of_variation', label:'波動係數' },
+    { key:'stability_tier', label:'穩定度' },
+    { key:'stock_alert_level', label:'缺貨警示' },
+    { key:'stockless_alert_level', label:'滯銷警示' },
+    { key:'supply_to_demand_ratio', label:'供需比(月)' },
+    { key:'months_without_sales', label:'連續無銷月' },
+    { key:'yoy_decline_rate', label:'YoY衰退率' },
+    { key:'adjusted_reorder_point', label:'季節訂購點' },
+    { key:'final_reorder_point', label:'最終訂購點' },
+    { key:'suggested_order_qty', label:'訂貨建議' },
+    { key:'suggestion_action', label:'建議動作' },
+    { key:'next_month_forecast', label:'預測下月' },
+    { key:'season_label', label:'當月季節' },
+    { key:'reorder_multiplier', label:'季節係數' },
+  ],
+  sortModes: [
+    { key:'priority', label:'優先處理', cmp:(a,b)=>cmPriRank(a)-cmPriRank(b)
+        || String(a.product_code).localeCompare(String(b.product_code)) },
+    { key:'code', label:'品號', cmp:(a,b)=>String(a.product_code).localeCompare(String(b.product_code)) },
+  ],
+  filters: [
+    { key:'all',  label:'全部' },
+    { key:'short',label:'🔴 缺貨',       match:r=>'🔴🟠🟡'.includes(cmLvlEmoji(r)) },
+    { key:'dead', label:'⚠️ 滯銷/過貨',  match:r=>cmIsStockless(r) },
+    { key:'star', label:'⭐ 高頻穩定品',  match:r=>cmIsStable(r) },
+    { key:'⚫',   label:'⚫ 停產',        match:r=>cmLvlEmoji(r)==='⚫' },
+  ],
+  derived: {
+    eff(r) {
+      const eff = cmNum(r.effective_supply);   // = 現有,逾期不計
+      const m = cmNum(r.recent_3m_avg);
+      const sub = m > 0 ? `約 ${(eff / m).toFixed(1)} 月` : '無近期銷';
+      return `<b>${eff}</b><br><small style="color:#94a3b8">(只現有, ${sub})</small>`;
+    },
+    stability(r) {
+      const t = r.stability_tier || '一般';
+      const s = CM_STAB[t] || CM_STAB['一般'];
+      const uf = r.usage_frequency == null ? '—' : Math.round(Number(r.usage_frequency) * 100) + '%';
+      return `<span style="color:${s.c};background:${s.bg};font-weight:600;padding:2px 6px;border-radius:4px">${cmEsc(t)}</span>`
+        + `<br><small style="color:#94a3b8">用量月占比 ${uf}</small>`;
+    },
+    intransit(r) {
+      const it = cmInTransit(r);
+      const od = cmNum(r.overdue_qty ?? r.overdue_inbound_qty);
+      const pd = cmNum(r.pending_inbound_qty);
+      if (it === 0) return '—';
+      return `<b>${it}</b><br><small style="color:#94a3b8">逾期 ${od} + 待進 ${pd}</small>`;
+    },
+    alert(r) {
+      const lv = r.stock_alert_level || '🟢 正常';
+      const c = CM_LVL_COLOR[Array.from(lv.trim())[0]] || '#16a34a';
+      // 缺貨類:正常不顯示;滯銷類:非 normal/停產才顯示(可雙警示)
+      const stockTag = (Array.from(lv.trim())[0] === '🟢')
+        ? '' : `<span style="color:${c};font-weight:600">${cmEsc(lv)}</span>`;
+      const sl = r.stockless_alert_level;
+      const deadTag = cmIsStockless(r)
+        ? `<span style="color:#b45309;font-weight:600">${cmEsc(sl)}</span>` : '';
+      const ov = r.stock_status ? `<small style="color:#94a3b8">手動:${r.stock_status}</small>` : '';
+      const parts = [stockTag, deadTag, ov].filter(Boolean);
+      return parts.length ? parts.join('<br>') : '<span style="color:#16a34a">🟢 正常</span>';
+    },
+    reorder(r) {
+      const soq = r.suggested_order_qty;
+      const act = r.suggestion_action;
+      const ratio = r.supply_to_demand_ratio;
+      const it = cmInTransit(r);
+      const mas = cmNum(r.monthly_avg_sales);
+      let why;
+      if (act) {
+        const cover = mas > 0 ? `,在途 ${it} 個約夠 ${(it / mas).toFixed(0)} 個月` : '';
+        why = `供需比 ${ratio == null ? '—' : ratio} 月`
+          + (Number(ratio) > 12 ? `(>12 月警戒線)` : '')
+          + `${cover}。建議:${act}`;
+      } else {
+        const inroute = it;
+        why = inroute > 0 ? `若廠商交完 ${inroute} 個可減量`
+          : `預測下月 ${r.next_month_forecast == null ? '—' : r.next_month_forecast}`;
+      }
+      const hint = act
+        ? `<span style="color:#b45309">${cmEsc(act)}</span>`
+        : `<small style="color:#94a3b8">${cmEsc(why)}</small>`;
+      const info = `<span title="${cmEsc(why)}" style="cursor:help;color:#94a3b8">ⓘ</span>`;
+      return `<b>${soq == null ? '—' : soq}</b> ${info}<br>${hint}`;
+    },
+  },
+  expandRow(r) {
+    const risk = r.supply_risk_level && r.supply_risk_level !== 'normal'
+      ? `<div style="font-size:13px;font-weight:600;color:#b45309;margin-bottom:6px">${cmEsc(r.supply_risk_level)}</div>`
+      : '';
+    const supply = `<div style="font-size:12px;color:#475569;margin-bottom:8px;line-height:1.7">
+      <b>外掛資訊(僅風險參考,不計入有效供應)</b><br>
+      廠商欠交(逾期):<b>${cmNum(r.overdue_qty)}</b> 個　|
+      已下單在途(待進貨):<b>${cmNum(r.pending_inbound_qty)}</b> 個　|
+      業祕反映需求(採購未確認):<b>${cmNum(r.pending_purchase_qty)}</b> 個<br>
+      連續無銷:<b>${r.months_without_sales == null ? '—' : r.months_without_sales}</b> 月　|
+      供需比:<b>${r.supply_to_demand_ratio == null ? '—' : r.supply_to_demand_ratio}</b> 月　|
+      YoY 衰退率:<b>${r.yoy_decline_rate == null ? '—' : Math.round(Number(r.yoy_decline_rate) * 100) + '%'}</b>
+      ${r.suggestion_action ? `　| 建議:<b style="color:#b45309">${cmEsc(r.suggestion_action)}</b>` : ''}</div>`;
+    const h = r.monthly_sales_history || {};
+    const keys = Object.keys(h).sort();
+    if (keys.length === 0) return `<div style="padding:8px">${risk}${supply}<div style="color:#94a3b8">無月銷歷史(請上傳含 YYYYMM 月欄的 Excel)</div></div>`;
+    const vals = keys.map(k => Number(h[k]) || 0);
+    const max = Math.max(1, ...vals);
+    const bars = keys.map((k, i) => {
+      const mn = +k.slice(5, 7);
+      const sea = (SEASON_MAP[mn] || {}).season || 'normal';
+      const bg = sea === 'peak' ? '#fee2e2' : sea === 'low' ? '#dbeafe' : 'transparent';
+      const hpx = Math.round((vals[i] / max) * 60) + 2;
+      return `<div title="${k}: ${vals[i]}（${SEASON_TXT[sea]}）"
+        style="display:inline-flex;flex-direction:column;align-items:center;width:34px;background:${bg};padding:2px 0">
+        <div style="flex:1;display:flex;align-items:flex-end;height:64px">
+          <div style="width:16px;background:#6366f1;height:${hpx}px;border-radius:2px"></div></div>
+        <small style="font-size:9px;color:#64748b">${k.slice(2)}</small></div>`;
+    }).join('');
+    return `<div style="padding:8px 4px">${risk}${supply}
+      <div style="font-size:12px;color:#64748b;margin-bottom:4px">
+      月銷 ${keys.length} 個月(<span style="background:#fee2e2;padding:0 4px">旺</span>
+      <span style="background:#dbeafe;padding:0 4px">淡</span>)</div>
+      <div style="display:flex;gap:2px;overflow-x:auto">${bars}</div></div>`;
+  },
+};
+
+async function loadSeasonBanner() {
+  const { data } = await supa.from('medsec_seasonal_calendar')
+    .select('month_num, season, season_label, reorder_multiplier');
+  (data || []).forEach(s => { SEASON_MAP[s.month_num] = s; });
+  const mn = new Date().getMonth() + 1;
+  const s = SEASON_MAP[mn];
+  const el = document.getElementById('cm-season-banner');
+  if (!el) return;
+  if (!s) { el.textContent = `${mn} 月 · 尚未設定季節月曆`; return; }
+  const emoji = s.season === 'peak' ? '🔥' : s.season === 'low' ? '❄️' : '🌿';
+  el.innerHTML = `${emoji} <b>${mn} 月 · ${s.season_label || SEASON_TXT[s.season]}</b>`
+    + `(${SEASON_TXT[s.season]}採購節奏,係數 ${s.reorder_multiplier}×)`
+    + ` <small style="color:#64748b">　系統依月份自動調整訂貨建議量</small>`;
+}
+
+initCindieMaintain(CINDIE_CFG).then(() => {
+  cmBindDrop(); loadSeasonBanner();
+  const f = new URLSearchParams(location.search).get('f');
+  const ok = (CINDIE_CFG.filters || []).some(x => x.key === f);
+  if (ok) { CM_FILTER = f; renderFilters(); renderRows(); }
+});
+</script>
+</body>
+</html>

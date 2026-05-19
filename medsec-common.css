@@ -1371,9 +1371,53 @@ body.hospital-page {
   padding: 6px 10px;
   margin-bottom: 10px;
 }
+.rule-sugg-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
+.rule-sugg-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.rule-sugg-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.rule-sugg-row .rsg-chk { margin-top: 4px; flex-shrink: 0; width: 16px; height: 16px; }
+.rule-sugg-rowbody { flex: 1; min-width: 0; }
+.rule-sugg-rowbody .rule-sugg-field { display: inline-block; margin: 0 0 8px 0; }
+.rule-sugg-rowbody .rule-sugg-diff,
+.rule-sugg-rowbody .rule-sugg-reason { margin-bottom: 0; }
+.rule-sugg-rowbody .rule-sugg-reason { margin-top: 8px; }
+.rule-sugg-result {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+.rsg-all {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
 .rule-sugg-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
   justify-content: flex-end;
 }
 .btn-approve, .btn-reject {
@@ -1714,4 +1758,50 @@ body.hospital-page {
   .assignments-grid { grid-template-columns: 1fr; }
   .rc-chat-bubble { max-width: 90%; }
   .fab-ask { right: 16px; bottom: 16px; padding: 10px 14px; font-size: 13px; }
+  .qm-preview-row { flex-wrap: wrap; }
 }
+
+/* ===== 報價:解析預覽 / 主檔對照 / AI 建議 / 狀態 ===== */
+.qm-preview {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px 14px;
+}
+.qm-preview-head { font-size: 13px; margin-bottom: 8px; }
+.qm-preview-summary { color: var(--text-muted); font-size: 12px; margin-left: 6px; }
+.qm-preview-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+.qm-preview-row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; padding: 6px 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+}
+.qm-preview-row code { background: #eef2f7; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+.qm-pv-idx { color: var(--text-light); font-size: 11px; width: 18px; }
+.qm-pv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qm-pv-qty { color: var(--text-muted); }
+.qm-pv-price { color: var(--text); min-width: 56px; text-align: right; }
+.qi-m-ok    { color: #065f46; font-size: 12px; font-weight: 600; }
+.qi-m-miss  { color: #b91c1c; font-size: 12px; font-weight: 600; }
+.qi-m-unknown { color: var(--text-light); font-size: 12px; }
+.qi-ai-none { color: var(--text-light); }
+.qi-ai-cut  { color: #065f46; font-size: 11px; margin-left: 6px; white-space: nowrap; }
+.qi-ai-flat { color: var(--text-muted); font-size: 11px; margin-left: 6px; white-space: nowrap; }
+.qm-ai-stats { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 8px; }
+.qm-ai-kv { font-size: 13px; }
+.qm-ai-kv label {
+  display: block; font-size: 10px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px;
+}
+.qm-ai-reason { font-size: 13px; color: var(--text); }
+.qm-ai-note { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+.qm-flow-hint { font-size: 12px; color: var(--text-muted); }
+.qm-status-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.qm-pill {
+  padding: 5px 12px; border: 1px solid var(--border); background: var(--surface);
+  border-radius: 14px; font-size: 12px; cursor: pointer; font-family: inherit;
+  color: var(--text-muted);
+}
+.qm-pill:hover { border-color: var(--accent); }
+.qm-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }

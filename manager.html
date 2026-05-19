@@ -49,6 +49,9 @@
       <div class="nav-item" data-module="settings" onclick="switchModule('settings')">
         <span class="icon">⚙️</span><span>系統設定</span>
       </div>
+      <div class="nav-item" onclick="location.href='admin-seasonal-calendar.html'">
+        <span class="icon">📅</span><span>季節月曆設定</span>
+      </div>
     </nav>
 
     <div class="sidebar-footer">
@@ -142,8 +145,9 @@
     <div id="mod-quote-decision" style="display:none">
       <div class="page-header"><div><div class="breadcrumb">MedSec Hub / 報價決策</div><h1>報價決策</h1></div></div>
       <div class="tabs" id="qd-tabs">
-        <div class="tab active" data-qd="pending_decision">等我決策<span class="dot dot-pending" id="qd-dot" hidden></span></div>
-        <div class="tab" data-qd="decided">已拍板</div>
+        <div class="tab active" data-qd="pending_review">待我審<span class="dot dot-pending" id="qd-dot" hidden></span></div>
+        <div class="tab" data-qd="pending_andrew">待 Andrew 確認<span class="dot dot-pending" id="qd-dot-a" hidden></span></div>
+        <div class="tab" data-qd="history">歷史紀錄</div>
       </div>
       <div class="rule-review-list" id="qd-list"><div class="case-empty">載入中…</div></div>
     </div>
@@ -161,6 +165,7 @@
             <div class="sop-card-title">AI 建議</div>
             <div id="qd-m-ai">—</div>
           </div>
+          <div id="qd-m-advisories"></div>
           <table class="case-list">
             <thead><tr><th>品號</th><th>品名</th><th style="width:50px">量</th>
               <th style="width:90px">標價</th><th style="width:90px">AI建議</th>
@@ -168,15 +173,46 @@
             <tbody id="qd-m-items"></tbody>
           </table>
           <div style="margin-top:12px;text-align:right;font-size:14px">
-            建議總額 <strong id="qd-m-sugg">—</strong> ·
-            拍板總額 <strong id="qd-m-final" style="color:var(--primary)">—</strong>
+            業祕提報/AI 建議 <strong id="qd-m-sugg">—</strong> ·
+            最終價 <strong id="qd-m-final" style="color:var(--primary)">—</strong>
+          </div>
+          <div style="margin-top:10px">
+            <label style="font-size:12px;color:var(--text-muted)">備註(會記進 timeline)</label>
+            <input type="text" id="qd-m-notes" class="rc-text-input" style="padding:6px" placeholder="決策備註(選填)">
           </div>
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer" id="qd-m-footer">
           <button class="btn-secondary" onclick="document.getElementById('qd-modal').hidden=true">關閉</button>
-          <button class="btn-reject" onclick="qdDecision('reject')">退回業祕</button>
-          <button class="btn-approve" onclick="qdDecision('adopt')">採納 AI 建議</button>
-          <button class="btn-primary" style="width:auto;padding:6px 14px" onclick="qdDecision('adjust')">用我改的價拍板</button>
+          <button class="btn-reject" onclick="qdDecision('reject')">❌ 退回業祕</button>
+          <button class="btn-secondary" style="width:auto;padding:6px 12px" onclick="qdDecision('request_andrew')">📞 請 Andrew 看</button>
+          <button class="btn-secondary" style="width:auto;padding:6px 12px" onclick="openOnBehalf()">📝 代記 Andrew 已同意</button>
+          <button class="btn-approve" onclick="qdDecision('approve')">✅ 我同意 Approve</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 代記 Andrew 同意 popup -->
+    <div id="ob-modal" class="modal-overlay" hidden>
+      <div class="modal" style="max-width:480px">
+        <div class="modal-header">
+          <div class="modal-title">確認 Andrew 同意這份報價?</div>
+          <button class="modal-close" onclick="document.getElementById('ob-modal').hidden=true">×</button>
+        </div>
+        <div class="modal-body">
+          <label style="font-size:13px">Andrew 透過什麼方式同意:</label>
+          <div style="display:flex;gap:14px;margin:8px 0 14px">
+            <label><input type="radio" name="ob-ch" value="Line" checked> Line</label>
+            <label><input type="radio" name="ob-ch" value="電話"> 電話</label>
+            <label><input type="radio" name="ob-ch" value="Email"> Email</label>
+            <label><input type="radio" name="ob-ch" value="當面"> 當面</label>
+          </div>
+          <label style="font-size:13px">同意內容說明:</label>
+          <textarea id="ob-notes" class="rc-text-input" rows="3" style="margin-top:6px"
+            placeholder='例:Andrew 在 Line 回「OK 這價可以」'></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="document.getElementById('ob-modal').hidden=true">取消</button>
+          <button class="btn-primary" style="width:auto;padding:6px 14px" onclick="confirmOnBehalf()">確認代記</button>
         </div>
       </div>
     </div>
@@ -421,7 +457,7 @@ window.switchModule = function(moduleId) {
   // lazy load 對應 module
   const loaders = {
     'rule-review':    () => loadRuleReview(mgrState.ruleReviewStatus),
-    'quote-decision': () => loadQuoteDecision('pending_decision'),
+    'quote-decision': () => loadQuoteDecision('pending_review'),
     'hospitals':      () => loadHospitalsList(),
     'products':       () => null,               // 等搜尋打字才 load
     'assignments':    () => loadAssignmentsView(),
@@ -440,7 +476,7 @@ async function loadOverviewStats() {
   const monthIso = monthStart.toISOString();
 
   const queries = await Promise.all([
-    supa.from('medsec_quotes').select('id', { count: 'exact', head: true }).eq('status', 'pending_decision'),
+    supa.from('medsec_quotes').select('id', { count: 'exact', head: true }).eq('status', 'pending_review'),
     supa.from('medsec_cases').select('id', { count: 'exact', head: true }).gte('created_at', monthIso),
     supa.from('medsec_cases').select('id', { count: 'exact', head: true })
         .gte('created_at', monthIso).in('action_type', ['tender_supply', 'tender_equipment']),
@@ -528,6 +564,13 @@ async function hydrateMgrLookups(rows) {
   }
 }
 
+const SUGG_TABLE_MAP = {
+  operation_rules:    'medsec_hospital_operation_rules',
+  shipping_addresses: 'medsec_hospital_shipping_addresses',
+  credentials:        'medsec_hospital_credentials',
+  discount_rules:     'medsec_discount_rules',
+};
+
 function renderRuleReview() {
   const status = mgrState.ruleReviewStatus;
   const rows = mgrState.ruleSuggestions[status] || [];
@@ -536,99 +579,131 @@ function renderRuleReview() {
     list.innerHTML = `<div class="case-empty">沒有 ${status === 'pending' ? '待審' : status === 'approved' ? '已通過' : '已退回'} 的規則 suggestion</div>`;
     return;
   }
-  list.innerHTML = rows.map(r => {
-    const h_name = mgrState.profilesMap['__h_' + r.hospital_id] || r.hospital_id;
-    const sg = mgrState.profilesMap[r.suggested_by];
-    const sg_name = sg ? (sg.nickname || sg.name) : '—';
-    const created = (r.created_at || '').slice(0, 16).replace('T', ' ');
-    const fieldLabel = (typeof MISSING_FIELD_LABEL !== 'undefined' && MISSING_FIELD_LABEL[r.field_name]) || r.field_name;
-    const isPending = status === 'pending';
+  const isPending = status === 'pending';
+
+  // 同一間醫院的 suggestion 合併成一張卡 (一起審核)
+  const groups = new Map();
+  for (const r of rows) {
+    if (!groups.has(r.hospital_id)) groups.set(r.hospital_id, []);
+    groups.get(r.hospital_id).push(r);
+  }
+
+  list.innerHTML = [...groups.entries()].map(([hid, items]) => {
+    const h_name = mgrState.profilesMap['__h_' + hid] || hid;
+    const suggesters = [...new Set(items.map(r => {
+      const sg = mgrState.profilesMap[r.suggested_by];
+      return sg ? (sg.nickname || sg.name) : null;
+    }).filter(Boolean))].join('、') || '—';
+    const latest = items.map(r => r.created_at).filter(Boolean).sort().slice(-1)[0] || '';
+    const latestStr = latest.slice(0, 16).replace('T', ' ');
+
+    const changeRows = items.map(r => {
+      const fieldLabel = (typeof MISSING_FIELD_LABEL !== 'undefined' && MISSING_FIELD_LABEL[r.field_name]) || r.field_name;
+      return `
+        <div class="rule-sugg-row">
+          ${isPending ? `<input type="checkbox" class="rsg-chk" data-id="${r.id}" checked>` : ''}
+          <div class="rule-sugg-rowbody">
+            <div class="rule-sugg-field">${escapeHtml(r.table_name)}.${escapeHtml(fieldLabel)}</div>
+            <div class="rule-sugg-diff">
+              <div class="rule-sugg-old">
+                <div class="rule-sugg-label">目前值</div>
+                <div class="rule-sugg-val">${r.current_value ? escapeHtml(r.current_value) : '<em>(空)</em>'}</div>
+              </div>
+              <div class="rule-sugg-arrow">→</div>
+              <div class="rule-sugg-new">
+                <div class="rule-sugg-label">建議改為</div>
+                <div class="rule-sugg-val">${escapeHtml(r.suggested_value)}</div>
+              </div>
+            </div>
+            ${r.reason ? `<div class="rule-sugg-reason">理由:${escapeHtml(r.reason)}</div>` : ''}
+            ${!isPending ? `<div class="rule-sugg-result">
+              ${status === 'approved' ? '✓ 已通過' : '✗ 已退回'}
+              ${r.reviewed_at ? ` · ${(r.reviewed_at || '').slice(0,16).replace('T',' ')}` : ''}
+              ${r.reason && status === 'rejected' ? ` · ${escapeHtml(r.reason)}` : ''}
+            </div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
     return `
-      <div class="rule-sugg-card">
+      <div class="rule-sugg-card" data-hid="${escapeHtml(hid)}">
         <div class="rule-sugg-header">
           <div>
-            <span class="rule-sugg-hospital">${escapeHtml(h_name)} <code>${escapeHtml(r.hospital_id)}</code></span>
-            <span class="rule-sugg-field">${escapeHtml(r.table_name)}.${escapeHtml(fieldLabel)}</span>
+            <span class="rule-sugg-hospital">${escapeHtml(h_name)} <code>${escapeHtml(hid)}</code></span>
+            <span class="rule-sugg-count">${items.length} 項改動</span>
           </div>
-          <div class="rule-sugg-meta">
-            ${escapeHtml(sg_name)} · ${created}
-          </div>
+          <div class="rule-sugg-meta">${escapeHtml(suggesters)} · ${latestStr}</div>
         </div>
-        <div class="rule-sugg-diff">
-          <div class="rule-sugg-old">
-            <div class="rule-sugg-label">目前值</div>
-            <div class="rule-sugg-val">${r.current_value ? escapeHtml(r.current_value) : '<em>(空)</em>'}</div>
-          </div>
-          <div class="rule-sugg-arrow">→</div>
-          <div class="rule-sugg-new">
-            <div class="rule-sugg-label">建議改為</div>
-            <div class="rule-sugg-val">${escapeHtml(r.suggested_value)}</div>
-          </div>
-        </div>
-        ${r.reason ? `<div class="rule-sugg-reason">理由:${escapeHtml(r.reason)}</div>` : ''}
+        <div class="rule-sugg-rows">${changeRows}</div>
         ${isPending ? `
           <div class="rule-sugg-actions">
-            <button class="btn-approve" onclick="onApprove('${r.id}')">通過 → 寫入主檔</button>
-            <button class="btn-reject" onclick="onReject('${r.id}')">退回</button>
+            <label class="rsg-all"><input type="checkbox" class="rsg-all-chk" checked onchange="toggleHospitalChecks(this)"> 全選</label>
+            <span class="filter-spacer"></span>
+            <button class="btn-approve" onclick="onApproveHospital('${escapeHtml(hid)}', this)">通過勾選 → 寫入主檔</button>
+            <button class="btn-reject" onclick="onRejectHospital('${escapeHtml(hid)}', this)">退回勾選</button>
           </div>
-        ` : `
-          <div class="rule-sugg-result">
-            ${status === 'approved' ? '✓ 已通過' : '✗ 已退回'}
-            ${r.reviewed_at ? ` · ${(r.reviewed_at || '').slice(0,16).replace('T',' ')}` : ''}
-            ${r.reason && status === 'rejected' ? ` · ${escapeHtml(r.reason)}` : ''}
-          </div>
-        `}
+        ` : ''}
       </div>
     `;
   }).join('');
 }
 
-async function onApprove(suggestionId) {
-  if (!confirm('確認通過 → 直接寫入主檔?')) return;
-  const sugg = mgrState.ruleSuggestions.pending.find(s => s.id === suggestionId);
-  if (!sugg) return;
+function toggleHospitalChecks(allChk) {
+  const card = allChk.closest('.rule-sugg-card');
+  card.querySelectorAll('.rsg-chk').forEach(c => { c.checked = allChk.checked; });
+}
 
-  // Step 1: UPDATE 主檔對應欄位
-  // table_name 對應的真實表名 mapping
-  const tableMap = {
-    operation_rules:    'medsec_hospital_operation_rules',
-    shipping_addresses: 'medsec_hospital_shipping_addresses',
-    credentials:        'medsec_hospital_credentials',
-    discount_rules:     'medsec_discount_rules',
-  };
-  const realTable = tableMap[sugg.table_name];
-  if (!realTable) {
-    alert(`未知 table_name: ${sugg.table_name}`);
-    return;
+function checkedSuggIds(card) {
+  return [...card.querySelectorAll('.rsg-chk:checked')].map(c => c.dataset.id);
+}
+
+async function onApproveHospital(hid, btn) {
+  const card = btn.closest('.rule-sugg-card');
+  const ids = checkedSuggIds(card);
+  if (ids.length === 0) { alert('沒有勾選任何改動'); return; }
+  const suggs = (mgrState.ruleSuggestions.pending || []).filter(s => ids.includes(s.id));
+  if (suggs.length === 0) return;
+
+  // 未知 table_name 先擋掉
+  const unknown = suggs.find(s => !SUGG_TABLE_MAP[s.table_name]);
+  if (unknown) { alert(`未知 table_name: ${unknown.table_name}`); return; }
+  if (!confirm(`確認通過 ${suggs.length} 項改動 → 直接寫入主檔?`)) return;
+  btn.disabled = true; btn.textContent = '寫入中…';
+
+  // 同一張主檔表的多個欄位合併成一次 update
+  const byTable = {};
+  for (const s of suggs) {
+    const t = SUGG_TABLE_MAP[s.table_name];
+    (byTable[t] = byTable[t] || {})[s.field_name] = s.suggested_value;
   }
-  const upd = await supa.from(realTable)
-    .update({ [sugg.field_name]: sugg.suggested_value })
-    .eq('hospital_id', sugg.hospital_id);
-  if (upd.error) {
-    alert('寫主檔失敗:' + upd.error.message);
-    return;
+  for (const [realTable, patch] of Object.entries(byTable)) {
+    const upd = await supa.from(realTable).update(patch).eq('hospital_id', hid);
+    if (upd.error) {
+      btn.disabled = false; btn.textContent = '通過勾選 → 寫入主檔';
+      alert(`寫主檔失敗 (${realTable}):` + upd.error.message);
+      return;
+    }
   }
 
-  // Step 2: 標記 suggestion approved
   const mark = await supa.from('medsec_rule_suggestions')
     .update({ status: 'approved', reviewed_by: mgrState.profile.id, reviewed_at: new Date().toISOString() })
-    .eq('id', suggestionId);
-  if (mark.error) {
-    alert('標記失敗 (但主檔已寫):' + mark.error.message);
-  }
+    .in('id', ids);
+  if (mark.error) alert('標記失敗 (但主檔已寫):' + mark.error.message);
 
-  // 重 load
   mgrState.ruleSuggestions.pending = null;
   mgrState.ruleSuggestions.approved = null;
   await Promise.all([loadRuleReview('pending'), loadRuleReviewBadge(), loadOverviewStats()]);
 }
 
-async function onReject(suggestionId) {
-  const reason = prompt('退回理由 (選填):');
-  if (reason === null) return;   // user cancel
+async function onRejectHospital(hid, btn) {
+  const card = btn.closest('.rule-sugg-card');
+  const ids = checkedSuggIds(card);
+  if (ids.length === 0) { alert('沒有勾選任何改動'); return; }
+  const reason = prompt(`退回 ${ids.length} 項改動的理由 (選填):`);
+  if (reason === null) return;
   const mark = await supa.from('medsec_rule_suggestions')
     .update({ status: 'rejected', reviewed_by: mgrState.profile.id, reviewed_at: new Date().toISOString(), reason })
-    .eq('id', suggestionId);
+    .in('id', ids);
   if (mark.error) { alert('退回失敗:' + mark.error.message); return; }
   mgrState.ruleSuggestions.pending = null;
   mgrState.ruleSuggestions.rejected = null;
@@ -944,42 +1019,69 @@ async function onImportCsv() {
    ============================================================ */
 const QT_LABEL = { shipment:'出貨用', registration:'建碼', new_product:'新品',
   replacement:'汰舊換新', repair:'維修', consumable:'耗材', budget:'設備預算' };
-const qdState = { status: 'pending_decision', list: [], current: null, items: [] };
+const QD_HISTORY = ['approved','rejected','crm_keyed','delivered_quote','negotiating','won','lost','cancelled'];
+const QD_ADV_LABEL = { delivery_risk:'交期風險', product_discontinued:'原廠停產',
+  low_stock:'庫存偏低', margin_warning:'毛利警示', other:'其他' };
+const qdState = { mode: 'pending_review', list: [], current: null, items: [] };
 
-async function loadQuoteDecision(status) {
-  qdState.status = status;
+async function loadQuoteDecision(mode) {
+  qdState.mode = mode;
   document.querySelectorAll('#qd-tabs .tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.qd === status));
+    t.classList.toggle('active', t.dataset.qd === mode));
   const list = document.getElementById('qd-list');
   list.innerHTML = '<div class="case-empty">載入中…</div>';
-  const { data, error } = await supa.from('medsec_quotes')
-    .select('id, hospital_id, quote_type, status, ai_suggested_total, ai_confidence, ai_reasoning, final_total, manager_final_total, manager_decision, created_at')
-    .eq('status', status).order('created_at', { ascending: false }).limit(200);
+  let qy = supa.from('medsec_quotes')
+    .select('id, hospital_id, quote_type, status, ai_suggested_total, ai_confidence, ai_reasoning, subtotal, manager_final_total, manager_decision, submitted_at, created_at')
+    .order('submitted_at', { ascending: false, nullsFirst: false }).limit(200);
+  qy = (mode === 'history') ? qy.in('status', QD_HISTORY) : qy.eq('status', mode);
+  const { data, error } = await qy;
   if (error) { list.innerHTML = `<div class="case-empty">載入失敗:${error.message}</div>`; return; }
   qdState.list = data || [];
-  // pending badge
-  if (status === 'pending_decision') {
-    const dot = document.getElementById('qd-dot');
-    if (qdState.list.length) { dot.hidden = false; dot.textContent = qdState.list.length; }
-    else dot.hidden = true;
-  }
+  await refreshQdBadges();
   if (qdState.list.length === 0) {
-    list.innerHTML = `<div class="case-empty">沒有${status==='pending_decision'?'等決策':'已拍板'}的報價</div>`;
+    list.innerHTML = `<div class="case-empty">沒有${mode==='pending_review'?'待我審':mode==='pending_andrew'?'待 Andrew 確認':'歷史'}的報價</div>`;
     return;
   }
-  list.innerHTML = qdState.list.map(q => `
+  // 撈各 quote 的 advisory 數(Cindie 警示)
+  const ids = qdState.list.map(q => q.id);
+  const { data: advs } = await supa.from('medsec_quote_advisories')
+    .select('quote_id, severity').in('quote_id', ids);
+  const advCount = {};
+  (advs || []).forEach(a => { advCount[a.quote_id] = (advCount[a.quote_id] || 0) + 1; });
+  list.innerHTML = qdState.list.map(q => {
+    const m = QUOTE_STATUS_LABEL[q.status] || q.status;
+    const ac = advCount[q.id] || 0;
+    return `
     <div class="rule-sugg-card" onclick="openQdModal('${q.id}')" style="cursor:pointer">
       <div class="rule-sugg-header">
         <div><span class="rule-sugg-hospital">${escapeHtml(q.hospital_id||'—')}</span>
-          <span class="rule-sugg-field">${QT_LABEL[q.quote_type]||q.quote_type}</span></div>
-        <div class="rule-sugg-meta">${(q.created_at||'').slice(0,16).replace('T',' ')}</div>
+          <span class="rule-sugg-field">${QT_LABEL[q.quote_type]||q.quote_type}</span>
+          <span class="rule-sugg-count">${m}</span></div>
+        <div class="rule-sugg-meta">${((q.submitted_at||q.created_at)||'').slice(0,16).replace('T',' ')}</div>
       </div>
       <div class="completeness-text">
-        AI 建議總額 <strong>${q.ai_suggested_total!=null?Number(q.ai_suggested_total).toLocaleString():'—'}</strong>
+        AI/業祕建議 <strong>${q.ai_suggested_total!=null?Number(q.ai_suggested_total).toLocaleString():'—'}</strong>
         · 信心 ${q.ai_confidence!=null?Math.round(q.ai_confidence*100)+'%':'—'}
-        ${q.manager_final_total!=null?` · 拍板 <strong>${Number(q.manager_final_total).toLocaleString()}</strong>`:''}
+        ${q.manager_final_total!=null?` · 最終 <strong>${Number(q.manager_final_total).toLocaleString()}</strong>`:''}
+        ${ac?` · <span class="qi-m-miss">⚠ Cindie 警示 ${ac}</span>`:''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+}
+const QUOTE_STATUS_LABEL = {
+  draft:'草稿', pending_review:'待我審', pending_andrew:'待 Andrew', approved:'已拍板',
+  rejected:'已退回', crm_keyed:'已打 CRM', delivered_quote:'已交付', negotiating:'議價中',
+  won:'成交', lost:'未成', cancelled:'取消' };
+
+async function refreshQdBadges() {
+  const [r, a] = await Promise.all([
+    supa.from('medsec_quotes').select('id', { count:'exact', head:true }).eq('status','pending_review'),
+    supa.from('medsec_quotes').select('id', { count:'exact', head:true }).eq('status','pending_andrew'),
+  ]);
+  const setDot = (id, n) => { const d = document.getElementById(id); if (!d) return;
+    if (n) { d.hidden = false; d.textContent = n; } else d.hidden = true; };
+  setDot('qd-dot', r.count || 0);
+  setDot('qd-dot-a', a.count || 0);
 }
 document.addEventListener('click', e => {
   const t = e.target.closest('#qd-tabs .tab');
@@ -988,13 +1090,25 @@ document.addEventListener('click', e => {
 
 async function openQdModal(id) {
   const q = qdState.list.find(x => x.id === id);
-  const { data: items } = await supa.from('medsec_quote_items')
-    .select('*').eq('quote_id', id).order('created_at');
+  const [{ data: items }, { data: advs }] = await Promise.all([
+    supa.from('medsec_quote_items').select('*').eq('quote_id', id).order('created_at'),
+    supa.from('medsec_quote_advisories').select('*').eq('quote_id', id).order('created_at'),
+  ]);
   qdState.current = q; qdState.items = items || [];
   document.getElementById('qd-m-id').textContent = id.slice(0,8);
   document.getElementById('qd-m-title').textContent = `${q.hospital_id||''} · ${QT_LABEL[q.quote_type]||q.quote_type}`;
   document.getElementById('qd-m-ai').textContent = q.ai_reasoning || '(業祕沒跑 AI 建議)';
-  const editable = q.status === 'pending_decision';
+  document.getElementById('qd-m-notes').value = '';
+  const actionable = q.status === 'pending_review' || q.status === 'pending_andrew';
+  // Cindie 採購警示
+  const advBox = document.getElementById('qd-m-advisories');
+  advBox.innerHTML = (advs && advs.length) ? `
+    <div class="sop-card" style="margin-bottom:14px;border-left:3px solid var(--warning)">
+      <div class="sop-card-title">⚠️ Cindie 採購警示 (${advs.length})</div>
+      ${advs.map(a => `<div style="font-size:13px;margin:4px 0">
+        <span class="status-badge tone-${a.severity==='critical'?'returned':a.severity==='warning'?'pending':'claimed'}">${QD_ADV_LABEL[a.advisory_type]||a.advisory_type}</span>
+        ${escapeHtml(a.message||'')}</div>`).join('')}
+    </div>` : '';
   document.getElementById('qd-m-items').innerHTML = (items||[]).map((it,idx) => `
     <tr>
       <td><code>${escapeHtml(it.product_code||'—')}</code></td>
@@ -1002,7 +1116,7 @@ async function openQdModal(id) {
       <td>${it.quantity}</td>
       <td>${it.list_price!=null?Number(it.list_price).toLocaleString():'—'}</td>
       <td>${it.ai_suggested_price!=null?Number(it.ai_suggested_price).toLocaleString():'—'}</td>
-      <td>${editable
+      <td>${actionable
         ? `<input type="number" class="rc-text-input qd-final" data-idx="${idx}" style="padding:4px;width:80px" value="${it.ai_suggested_price!=null?it.ai_suggested_price:(it.list_price!=null?it.list_price:'')}">`
         : (it.final_price!=null?Number(it.final_price).toLocaleString():'—')}</td>
     </tr>`).join('');
@@ -1010,9 +1124,9 @@ async function openQdModal(id) {
     q.ai_suggested_total!=null?Number(q.ai_suggested_total).toLocaleString():'—';
   recalcQdFinal();
   document.querySelectorAll('.qd-final').forEach(i => i.addEventListener('input', recalcQdFinal));
-  // 拍板/退回 按鈕只在 pending 顯示
-  document.querySelectorAll('#qd-modal .modal-footer button').forEach(b => {
-    if (b.textContent !== '關閉') b.style.display = editable ? '' : 'none';
+  // 操作鈕只在 pending_review / pending_andrew 顯示
+  document.querySelectorAll('#qd-m-footer button').forEach(b => {
+    if (b.textContent !== '關閉') b.style.display = actionable ? '' : 'none';
   });
   document.getElementById('qd-modal').hidden = false;
 }
@@ -1025,39 +1139,97 @@ function recalcQdFinal() {
   });
   document.getElementById('qd-m-final').textContent = t ? t.toLocaleString() : '—';
 }
+async function writeFinalPrices() {
+  let total = 0, changed = false;
+  for (let idx = 0; idx < qdState.items.length; idx++) {
+    const it = qdState.items[idx];
+    const inp = document.querySelector(`.qd-final[data-idx="${idx}"]`);
+    const fp = inp ? parseFloat(inp.value) : (it.ai_suggested_price ?? it.list_price);
+    if (it.ai_suggested_price != null && fp !== it.ai_suggested_price) changed = true;
+    await supa.from('medsec_quote_items').update({ final_price: fp }).eq('id', it.id);
+    total += (fp || 0) * (it.quantity || 1);
+  }
+  return { total, decision: changed ? 'adjust' : 'adopt' };
+}
+async function qdTimeline(quoteId, ev, extra) {
+  await supa.from('medsec_quote_timeline').insert({
+    quote_id: quoteId, event_type: ev, actor_id: mgrState.profile.id, ...extra,
+  });
+}
 
 async function qdDecision(kind) {
   const q = qdState.current;
   if (!q) return;
+  const notes = document.getElementById('qd-m-notes').value.trim() || null;
+
   if (kind === 'reject') {
-    if (!confirm('退回業祕重整理？')) return;
+    if (!confirm('退回業祕重整理?')) return;
     await supa.from('medsec_quotes').update({
-      status: 'draft', manager_decision: 'reject',
-      manager_decided_by: mgrState.profile.id, manager_decided_at: new Date().toISOString(),
-    }).eq('id', q.id);
-  } else {
-    // adopt = AI 建議價當最終;adjust = 用 input 改的
-    let total = 0;
-    for (let idx = 0; idx < qdState.items.length; idx++) {
-      const it = qdState.items[idx];
-      let fp;
-      if (kind === 'adopt') {
-        fp = it.ai_suggested_price != null ? it.ai_suggested_price : it.list_price;
-      } else {
-        const inp = document.querySelector(`.qd-final[data-idx="${idx}"]`);
-        fp = inp ? parseFloat(inp.value) : null;
-      }
-      await supa.from('medsec_quote_items').update({ final_price: fp }).eq('id', it.id);
-      total += (fp || 0) * (it.quantity || 1);
-    }
-    await supa.from('medsec_quotes').update({
-      status: 'decided', manager_decision: kind, manager_final_total: total,
-      final_total: total, manager_decided_by: mgrState.profile.id,
+      status: 'rejected', manager_decision: 'reject',
+      reviewed_by: mgrState.profile.id, reviewed_at: new Date().toISOString(),
+      review_notes: notes, manager_decided_by: mgrState.profile.id,
       manager_decided_at: new Date().toISOString(),
     }).eq('id', q.id);
+    await qdTimeline(q.id, 'rejected', { from_status: q.status, to_status: 'rejected', notes });
+
+  } else if (kind === 'request_andrew') {
+    if (!confirm('轉給 Andrew 確認?會寄 email 給他')) return;
+    await supa.from('medsec_quotes').update({
+      status: 'pending_andrew', review_notes: notes,
+    }).eq('id', q.id);
+    await qdTimeline(q.id, 'requested_andrew', { from_status: q.status, to_status: 'pending_andrew', notes });
+    try { await callEdge('send-notification', { type: 'quote_pending_andrew', quote_id: q.id }); }
+    catch (e) { alert('狀態已轉,但寄信失敗(可能 send-notification 還沒部署):\n' + e.message); }
+
+  } else if (kind === 'approve') {
+    if (!confirm('我同意,直接拍板?')) return;
+    const { total, decision } = await writeFinalPrices();
+    await supa.from('medsec_quotes').update({
+      status: 'approved', manager_decision: decision,
+      manager_final_total: total, final_total: total,
+      reviewed_by: mgrState.profile.id, reviewed_at: new Date().toISOString(),
+      review_notes: notes, manager_decided_by: mgrState.profile.id,
+      manager_decided_at: new Date().toISOString(),
+    }).eq('id', q.id);
+    await qdTimeline(q.id, 'approved', { from_status: q.status, to_status: 'approved', notes,
+      data: { final_total: total, decision } });
+    try { await callEdge('send-notification', { type: 'quote_approved_for_secretary', quote_id: q.id }); }
+    catch (e) { console.warn('通知業祕失敗(不阻塞):', e.message); }
   }
   document.getElementById('qd-modal').hidden = true;
-  await Promise.all([loadQuoteDecision('pending_decision'), loadOverviewStats()]);
+  await Promise.all([loadQuoteDecision(qdState.mode), loadOverviewStats()]);
+}
+
+/* 代記 Andrew 已同意 */
+function openOnBehalf() {
+  document.getElementById('ob-notes').value = '';
+  document.getElementById('ob-modal').hidden = false;
+}
+async function confirmOnBehalf() {
+  const q = qdState.current;
+  if (!q) return;
+  const ch = (document.querySelector('input[name="ob-ch"]:checked') || {}).value || 'Line';
+  const txt = document.getElementById('ob-notes').value.trim();
+  if (!txt) { alert('請填 Andrew 同意的內容說明'); return; }
+  const { data: andrewId } = await supa.rpc('andrew_profile_id');
+  const { total, decision } = await writeFinalPrices();
+  const note = `Andrew 透過 ${ch} 同意 - "${txt}"`;
+  await supa.from('medsec_quotes').update({
+    status: 'approved', manager_decision: decision,
+    manager_final_total: total, final_total: total,
+    reviewed_by: mgrState.profile.id, reviewed_at: new Date().toISOString(),
+    approved_on_behalf_of: andrewId || null, review_notes: note,
+    manager_decided_by: mgrState.profile.id, manager_decided_at: new Date().toISOString(),
+  }).eq('id', q.id);
+  await qdTimeline(q.id, 'approved_on_behalf', {
+    from_status: q.status, to_status: 'approved', on_behalf_of: andrewId || null,
+    notes: note, data: { channel: ch, final_total: total },
+  });
+  try { await callEdge('send-notification', { type: 'quote_approved_for_secretary', quote_id: q.id }); }
+  catch (e) { console.warn('通知業祕失敗(不阻塞):', e.message); }
+  document.getElementById('ob-modal').hidden = true;
+  document.getElementById('qd-modal').hidden = true;
+  await Promise.all([loadQuoteDecision(qdState.mode), loadOverviewStats()]);
 }
 
 /* ============================================================
