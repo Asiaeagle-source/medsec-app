@@ -125,24 +125,42 @@
 <script>
 let PROFILE = null, HOSP = {}, PRODS = {}, PCAT = {}, STRAT = [];
 
+// PostgREST 預設單次最多 1000 筆 → 主檔必須分頁全抓,
+// 否則 HOSP/PRODS 不完整,預覽會對 >1000 筆之後的醫院/品號誤報 ⚠
+async function fetchAll(table, sel){
+  const out=[]; const SZ=1000;
+  for(let from=0;;from+=SZ){
+    const { data, error }=await supa.from(table).select(sel)
+      .order(table==='medsec_hospitals'?'id':( table==='medsec_products'?'id':'product_code'),
+             {ascending:true})
+      .range(from, from+SZ-1);
+    if(error) throw error;
+    out.push(...(data||[]));
+    if(!data || data.length<SZ) break;
+  }
+  return out;
+}
+
 (async function init(){
   const p = await guardRole('manager');           // 僅 Lynn;業祕會被導走
   if (!p) return;
   PROFILE = p; renderUserInfo(p);
   const u = document.getElementById('pt-user'); if (u) u.textContent = p.nickname || p.name || '';
   hideLoading();
-  const { data: hs } = await supa.from('medsec_hospitals')
-    .select('id,name_short,name_full,system_prefix,region_code,customer_type');
-  (hs||[]).forEach(h => { HOSP[String(h.id).trim()] = h; });
-  // 主檔回填:品名(medsec_products)+ 品名/分類(medsec_product_inventory)
-  const { data: pr } = await supa.from('medsec_products').select('id,name');
-  (pr||[]).forEach(x => { PRODS[String(x.id).trim()] = x.name || null; });
-  const { data: inv } = await supa.from('medsec_product_inventory')
-    .select('product_code,product_name,product_category');
-  (inv||[]).forEach(x => {
-    PCAT[String(x.product_code).trim()] = {
-      name: x.product_name || null, cat: x.product_category || null };
-  });
+  try{
+    const hs = await fetchAll('medsec_hospitals',
+      'id,name_short,name_full,system_prefix,region_code,customer_type');
+    hs.forEach(h => { HOSP[String(h.id).trim()] = h; });
+    // 主檔回填:品名(medsec_products)+ 品名/分類(medsec_product_inventory)
+    const pr = await fetchAll('medsec_products','id,name');
+    pr.forEach(x => { PRODS[String(x.id).trim()] = x.name || null; });
+    const inv = await fetchAll('medsec_product_inventory',
+      'product_code,product_name,product_category');
+    inv.forEach(x => {
+      PCAT[String(x.product_code).trim()] = {
+        name: x.product_name || null, cat: x.product_category || null };
+    });
+  }catch(e){ alert('主檔載入失敗(對應預覽會不準):'+(e.message||e)); }
   bindDrop('crm','crm'); bindDrop('erp','erp');
 })();
 // 回傳 [品名, 分類](Excel 值優先,缺則主檔回填)
