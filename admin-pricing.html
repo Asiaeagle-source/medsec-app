@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-4</span></div>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-5</span></div>
     </div>
 
     <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
@@ -45,7 +45,8 @@
       <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
         Sheet「報價明細表」,資料第 5 列起。系統自動:跳過隔行 header、
         同單多品項 forward fill、客戶代號 TRIM、日期 YYYYMMDD 解析、
-        對應醫院/品號。upsert 依 (報價單號,品號)。
+        對應醫院(對不到時自動去尾端「-」再比,如 MMTE-→東馬)/品號。
+        upsert 依 (報價單號,品號)。
       </div>
       <div id="crm-drop" class="pt-drop">📥 拖曳 Excel 到此,或點此選檔(.xlsx)</div>
       <input id="crm-file" type="file" accept=".xlsx,.xls" hidden>
@@ -126,6 +127,16 @@
 <script>
 let PROFILE = null, HOSP = {}, PRODS = {}, PCAT = {}, STRAT = [];
 function cmEscPt(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+// 客戶代號 → 醫院:先 exact;對不到再去尾端 '-'(CRM 子帳記號,如
+// MMTE- = 東馬 MMTE)後 exact。只去尾端 '-',不切減號前(否則 S-CJN 會壞)。
+function findHosp(raw){
+  const c=String(raw==null?'':raw).trim();
+  if(!c) return {id:null,h:null};
+  if(HOSP[c]) return {id:c,h:HOSP[c]};
+  const c2=c.replace(/-+$/,'');
+  if(c2!==c && HOSP[c2]) return {id:c2,h:HOSP[c2]};
+  return {id:c,h:null};      // 對不到:保留原碼,h=null
+}
 
 // PostgREST 預設單次最多 1000 筆 → 主檔必須分頁全抓,
 // 否則 HOSP/PRODS 不完整,預覽會對 >1000 筆之後的醫院/品號誤報 ⚠
@@ -257,13 +268,13 @@ function crmParse(wb){
   // 正規化
   CRM_ROWS = out.map(r=>{
     const code=String(r.customer_code||'').trim();
-    const h=HOSP[code]||null;
+    const fh=findHosp(code); const h=fh.h;
     const pcode=String(r.product_code).trim();
     const e=enrich(pcode, r.product_name, null);   // CRM 無分類欄 → 全靠主檔
     return {
       crm_quote_type:r.crm_quote_type||null, crm_quote_no:r.crm_quote_no||null,
       customer_code:code||null, customer_short_name:r.customer_short_name||null,
-      hospital_id:code||null,
+      hospital_id:fh.id,
       hospital_name:h?(h.name_short||h.name_full):null,
       system_prefix:h?h.system_prefix:null, region_code:h?h.region_code:null,
       customer_type:h?h.customer_type:null,
@@ -400,10 +411,10 @@ async function erpApply(){
         }).eq('id',matchId);
         if(error) throw error; upd++;
       }else{
-        const h=HOSP[r.customer_code]||null;
+        const fh=findHosp(r.customer_code); const h=fh.h;
         const e=enrich(r.product_code, null, r.product_category);
         const { error }=await supa.from('medsec_quote_history').insert({
-          customer_code:r.customer_code, hospital_id:r.customer_code,
+          customer_code:r.customer_code, hospital_id:fh.id,
           hospital_name:r.hospital_name||(h?(h.name_short||h.name_full):null),
           system_prefix:h?h.system_prefix:null, region_code:h?h.region_code:null,
           customer_type:h?h.customer_type:null,
