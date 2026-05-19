@@ -14,19 +14,32 @@
       <div style="font-size:13px"><span id="cm-user">—</span> · <a href="manager.html">回後台</a></div>
     </div>
 
-    <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
-      🗓 醫療器材有季節性。這裡由你(Lynn)用業務知識定義每月旺/淡季與
-      <b>訂貨係數</b>(旺季 &gt;1 多備、淡季 &lt;1 少訂),系統據此調整 Cindie
-      的訂購點與缺貨警示。改完按「儲存全部」。
+    <div class="rc-question-help" style="margin:10px 0;line-height:1.8">
+      ℹ️ 醫療器材有季節性,但每家公司的旺淡季模式不同。<br>
+      目前所有月份設為 <b>normal × 1.0(無季節調整)</b>。<br>
+      累積 12 個月真實銷量後,將提供「資料分析建議」功能。<br>
+      如果你有強烈業務直覺,可手動展開「進階調整」修改。
     </div>
 
-    <table class="case-list">
-      <thead><tr><th style="width:50px">月</th><th style="width:120px">季節</th>
-        <th>標籤</th><th style="width:120px">訂貨係數</th><th>備註(為何)</th></tr></thead>
-      <tbody id="sc-tbody"><tr><td colspan="5" class="case-empty">載入中…</td></tr></tbody>
-    </table>
-    <div style="text-align:right;margin-top:12px">
-      <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="saveAll()">儲存全部</button>
+    <div style="display:flex;gap:10px;align-items:center;margin:14px 0">
+      <button class="btn-secondary" style="width:auto;padding:8px 16px" onclick="toggleAdvanced()"
+        id="sc-adv-btn">▸ 進階調整(手動改月份係數)</button>
+      <button class="btn-secondary" style="width:auto;padding:8px 16px;opacity:.5;cursor:not-allowed"
+        disabled title="等累積 12 個月歷史銷量後啟用(目前資料不足)">📊 從資料自動分析</button>
+    </div>
+
+    <div id="sc-advanced" hidden>
+      <div class="rc-question-help" style="margin:6px 0;line-height:1.6;color:#b45309">
+        ⚠️ 沒有資料支持,憑直覺設可能誤導 Cindie 訂貨(係數會直接乘進訂購點)。
+      </div>
+      <table class="case-list">
+        <thead><tr><th style="width:50px">月</th><th style="width:120px">季節</th>
+          <th>標籤</th><th style="width:120px">訂貨係數</th><th>備註(為何)</th></tr></thead>
+        <tbody id="sc-tbody"><tr><td colspan="5" class="case-empty">載入中…</td></tr></tbody>
+      </table>
+      <div style="text-align:right;margin-top:12px">
+        <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="saveAll()">儲存全部</button>
+      </div>
     </div>
   </main>
 </div>
@@ -36,6 +49,14 @@
 <script>
 let SC_PROFILE = null;
 const SEASONS = ['peak', 'normal', 'low'];
+
+function toggleAdvanced() {
+  const box = document.getElementById('sc-advanced');
+  const btn = document.getElementById('sc-adv-btn');
+  const open = box.hidden;
+  box.hidden = !open;
+  btn.textContent = (open ? '▾' : '▸') + ' 進階調整(手動改月份係數)';
+}
 
 (async function init() {
   const profile = await guardRole('manager');   // 只有 Lynn(全域職代)
