@@ -24,7 +24,9 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP4</span></div>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP5</span>
+        <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8"
+          title="體系中文對照載入筆數(0=fetch 失敗或 RLS/GRANT 擋住)"></span></div>
     </div>
 
     <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
@@ -181,9 +183,21 @@ async function fetchAll(table, sel){
       PCAT[String(x.product_code).trim()] = {
         name: x.product_name || null, cat: x.product_category || null };
     });
+  }catch(e){ alert('主檔載入失敗(對應預覽會不準):'+(e.message||e)); }
+  // 體系對照獨立 try/catch,失敗只影響中文標籤、不擋其他主檔
+  try{
     const sy = await fetchAll('hospital_systems','code,name');
     sy.forEach(s => { if(s.code) SYSTEMS[String(s.code).trim()] = s.name || null; });
-  }catch(e){ alert('主檔載入失敗(對應預覽會不準):'+(e.message||e)); }
+    const n = Object.keys(SYSTEMS).length;
+    const tag=document.getElementById('pt-sysload');
+    if(tag){ tag.textContent = `體系對照 ${n} 筆`;
+      tag.style.color = n>0 ? '#16a34a' : '#dc2626'; }
+    if(n===0) console.error('SYSTEMS 載入 0 筆 — 體系欄將顯示原 code。檢查 hospital_systems 的 GRANT/RLS 是否允許 authenticated SELECT。');
+  }catch(e){
+    console.error('hospital_systems fetch 失敗:', e);
+    const tag=document.getElementById('pt-sysload');
+    if(tag){ tag.textContent = `體系對照 ✗ ${e.message||e}`; tag.style.color='#dc2626'; }
+  }
   bindDrop('crm','crm'); bindDrop('erp','erp');
 })();
 // 回傳 [品名, 分類](Excel 值優先,缺則主檔回填)
