@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP8</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP9</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -131,6 +131,32 @@
 <script src="medsec-common.js"></script>
 <script>
 let PROFILE = null, HOSP = {}, PRODS = {}, PCAT = {}, SYSTEMS = {}, STRAT = [];
+// 用 Promise memoize:任何 render 之前先 await ensureSystems(),
+// 完全消除「init 還沒跑完就 render」的 race。
+let SYSTEMS_PROMISE = null;
+async function ensureSystems(){
+  if(SYSTEMS_PROMISE) return SYSTEMS_PROMISE;
+  SYSTEMS_PROMISE = (async()=>{
+    let n=0;
+    try{
+      const sy = await fetchAll('hospital_systems','code,name');
+      sy.forEach(s=>{
+        if(!s.code) return;
+        const k=String(s.code).trim();
+        SYSTEMS[k]=s.name||null;
+        SYSTEMS[k.toUpperCase()]=s.name||null;
+      });
+      n=Object.keys(SYSTEMS).length;
+      console.log('[ensureSystems] 載入完成,keys:', Object.keys(SYSTEMS).sort(),
+        ' raw rows 樣本:', sy.slice(0,5));
+    }catch(e){ console.error('[ensureSystems] 失敗:', e); }
+    const tag=document.getElementById('pt-sysload');
+    if(tag){ tag.textContent=`體系對照 ${n} 筆`;
+      tag.style.color = n>0 ? '#16a34a' : '#dc2626'; }
+    return n;
+  })();
+  return SYSTEMS_PROMISE;
+}
 function cmEscPt(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 // 體系代碼 → 中文(對不到 fallback 顯示原 code);加 trim/upper 防 SYSTEMS
 // key 與 quote_history.system_prefix 之間有空白/大小寫差。
@@ -196,25 +222,7 @@ async function fetchAll(table, sel){
         name: x.product_name || null, cat: x.product_category || null };
     });
   }catch(e){ alert('主檔載入失敗(對應預覽會不準):'+(e.message||e)); }
-  // 體系對照獨立 try/catch,失敗只影響中文標籤、不擋其他主檔
-  try{
-    const sy = await fetchAll('hospital_systems','code,name');
-    sy.forEach(s => {
-      if(!s.code) return;
-      const k=String(s.code).trim();
-      SYSTEMS[k]=s.name||null;
-      SYSTEMS[k.toUpperCase()]=s.name||null;   // 大小寫不敏感
-    });
-    const n = Object.keys(SYSTEMS).length;
-    const tag=document.getElementById('pt-sysload');
-    if(tag){ tag.textContent = `體系對照 ${n} 筆`;
-      tag.style.color = n>0 ? '#16a34a' : '#dc2626'; }
-    if(n===0) console.error('SYSTEMS 載入 0 筆 — 體系欄將顯示原 code。檢查 hospital_systems 的 GRANT/RLS 是否允許 authenticated SELECT。');
-  }catch(e){
-    console.error('hospital_systems fetch 失敗:', e);
-    const tag=document.getElementById('pt-sysload');
-    if(tag){ tag.textContent = `體系對照 ✗ ${e.message||e}`; tag.style.color='#dc2626'; }
-  }
+  await ensureSystems();      // memoized;listLoad/stratLoad/initList 會再 await 保險
   bindDrop('crm','crm'); bindDrop('erp','erp');
 })();
 // 回傳 [品名, 分類](Excel 值優先,缺則主檔回填)
@@ -578,6 +586,7 @@ async function erpApply(){
 /* ---------- ③ 列表 ---------- */
 let LIST_INIT=false, LIST_PAGE=1; const LIST_SIZE=50;
 async function initList(){
+  await ensureSystems();        // 保險:確保下拉/列表 render 前 SYSTEMS 已就緒
   LIST_INIT=true;
   const hsel=document.getElementById('f-hospital');
   hsel.innerHTML='<option value="">全部醫院</option>'+Object.values(HOSP)
@@ -630,6 +639,7 @@ async function listStats(f){
     <div><div class="b">$${avg(sa).toLocaleString()}</div><div class="l">平均成交(近5k)</div></div>`;
 }
 async function listLoad(page){
+  await ensureSystems();        // 保險:render 體系欄前必載
   if(page<1) page=1; LIST_PAGE=page;
   const tb=document.getElementById('list-tbody');
   tb.innerHTML=`<tr><td colspan="12" class="case-empty">載入中…</td></tr>`;
@@ -678,6 +688,7 @@ async function listLoad(page){
 /* ---------- ④ 醫院慣用折數 ---------- */
 const STRATEGIES=['aggressive','standard','competitive','maintain'];
 async function stratLoad(){
+  await ensureSystems();
   const { data }=await supa.from('medsec_hospital_pricing_strategy').select('*');
   const by={}; (data||[]).forEach(r=>by[r.hospital_id]=r);
   STRAT=Object.values(HOSP).sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(h=>({
