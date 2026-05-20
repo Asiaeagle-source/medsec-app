@@ -2,9 +2,20 @@
 
 # Sprint 3:歷史報價/成交 + 健保價 + 醫院慣用折數(AI 建議價 v2)
 
-> Lynn 拍板。本批 **不在 Sprint 2.5 動**,Sprint 3 啟動時實作。
-> 不碰現有 Sprint 2.5 的 quote_advisories trigger;不動現有 medsec_quotes
-> 表(quote_history 為平行新表);不做過期歷史自動清理(Sprint 4 報表時再說)。
+> Lynn 拍板。不碰 Sprint 2.5 quote_advisories trigger;不動 medsec_quotes
+> 表(quote_history 為平行新表);不做過期歷史自動清理(Sprint 4)。
+
+## 階段拆分
+
+- **階段 3A(已實作於 branch `claude/sprint-3a`)**:4 表 schema+RLS、
+  CRM 報價明細匯入(31K,forward fill+隔行 header)、ERP 成交價匯入
+  (60 天回填)、`admin-pricing.html` 4 Tab(CRM/ERP 上傳、歷史列表、
+  醫院慣用折數)、manager nav 入口 `💰 歷史價管理`。
+  檔案:`sql/v3/01_quote_history_schema.sql`、`sql/v3/02_quote_history_rls.sql`、
+  `admin-pricing.html`、`manager.html`。
+- **階段 3B(未做)**:健保碼對應介面、健保價爬蟲+cron、
+  `calculate_ai_suggested_price_v2` SQL function、業祕報價 4 維度 UI 升級。
+  (3A 已建空表 `medsec_nhi_pricing` / `medsec_product_nhi_mapping` 供 3B 用)
 
 ## 業務背景
 

@@ -52,6 +52,9 @@
       <div class="nav-item" onclick="location.href='admin-seasonal-calendar.html'">
         <span class="icon">📅</span><span>季節月曆設定</span>
       </div>
+      <div class="nav-item" onclick="location.href='admin-pricing.html'">
+        <span class="icon">💰</span><span>歷史價管理</span>
+      </div>
     </nav>
 
     <div class="sidebar-footer">
@@ -421,6 +424,7 @@ const mgrState = {
   completenessMap: {},       // hospital_id → completeness
   assignmentsMap: {},        // hospital_id → {primary_secretary_id, co_secretary_id}
   profilesMap: {},           // uuid → profile
+  systemsMap: {},            // code → 中文名(hospital_systems;體系欄顯示中文)
   ruleSuggestions: { pending: null, approved: null, rejected: null },
   ruleReviewStatus: 'pending',
   // Search states
@@ -719,7 +723,7 @@ async function loadHospitalsList() {
   tbody.innerHTML = '<tr><td colspan="7" class="case-empty">載入中…</td></tr>';
 
   // Parallel load
-  const [hRes, cRes, aRes] = await Promise.all([
+  const [hRes, cRes, aRes, sRes] = await Promise.all([
     supa.from('medsec_hospitals')
       .select('id, name_short, name_full, invoice_company, region_name, system_prefix, primary_secretary')
       .order('id'),
@@ -727,12 +731,14 @@ async function loadHospitalsList() {
       .select('hospital_id, completeness_pct'),
     supa.from('medsec_secretary_assignments')
       .select('hospital_id, primary_secretary_id'),
+    supa.from('hospital_systems').select('code, name'),
   ]);
   if (hRes.error) { tbody.innerHTML = `<tr><td colspan="7" class="case-empty">載入失敗:${hRes.error.message}</td></tr>`; return; }
 
   mgrState.hospitals = hRes.data || [];
   (cRes.data || []).forEach(c => { mgrState.completenessMap[c.hospital_id] = c.completeness_pct; });
   (aRes.data || []).forEach(a => { mgrState.assignmentsMap[a.hospital_id] = a; });
+  (sRes.data || []).forEach(s => { if (s.code) mgrState.systemsMap[String(s.code).trim()] = s.name || null; });
 
   // 撈 secretary 姓名
   const secIds = [...new Set((aRes.data || []).map(a => a.primary_secretary_id).filter(Boolean))];
@@ -773,7 +779,7 @@ function renderHospitalsList() {
         <td><code>${escapeHtml(h.id)}</code></td>
         <td>${escapeHtml(h.name_short || h.name_full || '—')}</td>
         <td><span class="company-badge company-${company}">${company}</span></td>
-        <td>${escapeHtml(h.system_prefix || '—')}</td>
+        <td>${escapeHtml(h.system_prefix ? (mgrState.systemsMap[h.system_prefix] || h.system_prefix) : '—')}</td>
         <td>${escapeHtml(h.region_name || '—')}</td>
         <td>${escapeHtml(secName)}</td>
         <td>${pct == null ? '—' : `<span class="status-badge tone-${pctTone === 'good' ? 'decided' : pctTone === 'warn' ? 'pending' : 'returned'}">${pct}%</span>`}</td>

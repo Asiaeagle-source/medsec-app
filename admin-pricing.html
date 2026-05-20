@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 標價/歷史價管理</title>
+<link rel="stylesheet" href="medsec-common.css">
+<style>
+  .pt-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+  .pt-tab{padding:8px 16px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:14px}
+  .pt-tab.active{background:#4f46e5;color:#fff;border-color:#4f46e5}
+  .pt-drop{border:2px dashed #c7d2fe;border-radius:10px;padding:26px;text-align:center;color:#64748b;background:#f8fafc;cursor:pointer}
+  .pt-drop.over{background:#eef2ff;border-color:#6366f1}
+  .pt-stat{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0}
+  .pt-stat .b{font-size:20px;font-weight:700}
+  .pt-stat .l{font-size:12px;color:#64748b}
+  table.case-list td,table.case-list th{font-size:13px}
+  .ok{color:#16a34a}.warn{color:#d97706}
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <main class="main" style="margin-left:0">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+      <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
+      <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP11</span>
+        <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
+          title="點擊 dump SYSTEMS map 全部 key/value"
+          onclick="dumpSystems()"></span></div>
+    </div>
+
+    <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
+      💰 公司無「標價」概念,定價靠歷史。這裡匯入 <b>CRM 報價明細</b> 與
+      <b>ERP 成交價</b>,累積後供 Sprint 3B 的 AI 建議價使用。
+      <b>業祕看不到此頁</b>(議價策略資訊)。
+    </div>
+
+    <div class="pt-tabs">
+      <div class="pt-tab active" data-tab="crm"  onclick="ptTab('crm')">① 上傳 CRM 報價明細</div>
+      <div class="pt-tab"        data-tab="erp"  onclick="ptTab('erp')">② 上傳成交價</div>
+      <div class="pt-tab"        data-tab="list" onclick="ptTab('list')">③ 歷史報價列表</div>
+      <div class="pt-tab"        data-tab="strat" onclick="ptTab('strat')">④ 醫院慣用折數</div>
+    </div>
+
+    <!-- ① CRM -->
+    <section id="tab-crm">
+      <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
+        Sheet「報價明細表」,資料第 5 列起。系統自動:跳過隔行 header、
+        同單多品項 forward fill、客戶代號 TRIM、日期 YYYYMMDD 解析、
+        對應醫院(對不到時自動去尾端「-」再比,如 MMTE-→東馬)/品號。
+        upsert 依 (報價單號,品號)。
+      </div>
+      <div id="crm-drop" class="pt-drop">📥 拖曳 Excel 到此,或點此選檔(.xlsx)</div>
+      <input id="crm-file" type="file" accept=".xlsx,.xls" hidden>
+      <div id="crm-preview" style="margin-top:12px"></div>
+      <div style="text-align:right;margin-top:10px">
+        <button id="crm-apply" class="btn-primary" style="width:auto;padding:8px 20px" disabled
+          onclick="crmApply()">套用匯入</button>
+      </div>
+    </section>
+
+    <!-- ② ERP -->
+    <section id="tab-erp" hidden>
+      <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
+        Sheet「報表 2」,資料第 3 列起。支援 <b>20 萬筆</b>:一次性把 CRM
+        報價載入記憶體做比對(免 20 萬次查詢),批次(500/批)寫入,
+        進度顯示 Batch X/Y。每筆找對應 CRM(客戶代號+品號,報價日在銷貨日
+        前 60 天內取最近一筆)→ 有則就地回填 sales_*,無則新建。
+        <b>可重複上傳不重複</b>(依 客戶+品號+銷貨日+序號),中斷後重傳接續。
+      </div>
+      <div id="erp-drop" class="pt-drop">📥 拖曳 ERP 成交 Excel 到此,或點此選檔</div>
+      <input id="erp-file" type="file" accept=".xlsx,.xls" hidden>
+      <div id="erp-preview" style="margin-top:12px"></div>
+      <div style="text-align:right;margin-top:10px">
+        <button id="erp-apply" class="btn-primary" style="width:auto;padding:8px 20px" disabled
+          onclick="erpApply()">套用回填</button>
+      </div>
+    </section>
+
+    <!-- ③ 列表 -->
+    <section id="tab-list" hidden>
+      <div class="pt-stat" id="list-stat"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0">
+        <select id="f-hospital" class="rc-text-input" style="width:auto;padding:6px"></select>
+        <select id="f-system" class="rc-text-input" style="width:auto;padding:6px"></select>
+        <input id="f-product" class="rc-text-input" style="width:130px;padding:6px" placeholder="品號">
+        <select id="f-status" class="rc-text-input" style="width:auto;padding:6px">
+          <option value="">全部狀態</option><option>quoted</option><option>confirmed</option>
+          <option>promoted</option><option>won</option>
+        </select>
+        <select id="f-period" class="rc-text-input" style="width:auto;padding:6px">
+          <option value="12">近 12 月</option><option value="0">全部</option>
+        </select>
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="listLoad(1)">查詢</button>
+        <span id="list-count" style="font-size:13px;color:#64748b"></span>
+      </div>
+      <table class="case-list">
+        <thead><tr><th>報價日期</th><th>醫院</th><th>體系</th><th>品號</th><th>品名</th><th>分類</th>
+          <th>報價單價</th><th>數量</th><th>總額</th><th>業務員</th><th>狀態</th><th>成交價</th></tr></thead>
+        <tbody id="list-tbody"><tr><td colspan="12" class="case-empty">設定條件後按查詢</td></tr></tbody>
+      </table>
+      <div style="text-align:center;margin-top:10px">
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="listLoad(LIST_PAGE-1)">上一頁</button>
+        <span id="list-page" style="margin:0 10px;font-size:13px"></span>
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="listLoad(LIST_PAGE+1)">下一頁</button>
+      </div>
+    </section>
+
+    <!-- ④ 醫院慣用折數 -->
+    <section id="tab-strat" hidden>
+      <div class="rc-question-help" style="margin:8px 0;font-size:13px">
+        每家醫院 1 行,點輸入框直接改。未設定 = 預設 multiplier 1.0 / standard。改完按「儲存全部」。
+      </div>
+      <input id="strat-search" class="rc-text-input" style="width:220px;padding:6px;margin-bottom:8px"
+        placeholder="🔍 醫院代號/名稱" oninput="stratRender()">
+      <table class="case-list">
+        <thead><tr><th>醫院代號</th><th>醫院名稱</th><th>體系</th>
+          <th style="width:120px">multiplier</th><th style="width:130px">策略</th><th>備註</th></tr></thead>
+        <tbody id="strat-tbody"><tr><td colspan="6" class="case-empty">載入中…</td></tr></tbody>
+      </table>
+      <div style="text-align:right;margin-top:10px">
+        <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="stratSave()">儲存全部</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+let PROFILE = null, HOSP = {}, PRODS = {}, PCAT = {}, SYSTEMS = {}, STRAT = [];
+// 用 Promise memoize:任何 render 之前先 await ensureSystems(),
+// 完全消除「init 還沒跑完就 render」的 race。
+let SYSTEMS_PROMISE = null;
+async function ensureSystems(){
+  if(SYSTEMS_PROMISE) return SYSTEMS_PROMISE;
+  SYSTEMS_PROMISE = (async()=>{
+    let n=0;
+    try{
+      const sy = await fetchAll('hospital_systems','code,name');
+      sy.forEach(s=>{
+        if(!s.code) return;
+        const k=String(s.code).trim();
+        SYSTEMS[k]=s.name||null;
+        SYSTEMS[k.toUpperCase()]=s.name||null;
+      });
+      n=Object.keys(SYSTEMS).length;
+      console.log('[ensureSystems] 載入完成,keys:', Object.keys(SYSTEMS).sort(),
+        ' raw rows 樣本:', sy.slice(0,5));
+    }catch(e){ console.error('[ensureSystems] 失敗:', e); }
+    const tag=document.getElementById('pt-sysload');
+    if(tag){
+      tag.textContent = `體系對照 ${n} 筆`;
+      tag.style.color = n>0 ? '#16a34a' : '#dc2626';
+    }
+    return n;
+  })();
+  return SYSTEMS_PROMISE;
+}
+function cmEscPt(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+// 體系代碼 → 中文(對不到 fallback 顯示原 code);加 trim/upper 防 SYSTEMS
+// key 與 quote_history.system_prefix 之間有空白/大小寫差。
+function sysLabel(code){
+  if(!code) return '—';
+  const k=String(code).trim();
+  return SYSTEMS[k] || SYSTEMS[k.toUpperCase()] || k;
+}
+// 一鍵把 SYSTEMS map 全 dump 出來,徹底排除「徽章說 33 但 map 其實沒料」
+function dumpSystems(){
+  const keys=Object.keys(SYSTEMS).sort();
+  const lines=keys.map(k=>`  ${JSON.stringify(k)} (len ${k.length}) → ${JSON.stringify(SYSTEMS[k])}`).join('\n');
+  console.log(`SYSTEMS dump (共 ${keys.length} keys):\n${lines}`);
+  alert(`SYSTEMS map(${keys.length} keys,前 30 列):\n\n`+
+    keys.slice(0,30).map(k=>`${k} → ${SYSTEMS[k]}`).join('\n')+
+    (keys.length>30?`\n…還有 ${keys.length-30} 筆,完整見 Console`:''));
+}
+// 客戶代號 → 醫院:先 exact;對不到再去尾端 '-'(CRM 子帳記號,如
+// MMTE- = 東馬 MMTE)後 exact。只去尾端 '-',不切減號前(否則 S-CJN 會壞)。
+function findHosp(raw){
+  const c=String(raw==null?'':raw).trim();
+  if(!c) return {id:null,h:null};
+  if(HOSP[c]) return {id:c,h:HOSP[c]};
+  const c2=c.replace(/-+$/,'');
+  if(c2!==c && HOSP[c2]) return {id:c2,h:HOSP[c2]};
+  return {id:c,h:null};      // 對不到:保留原碼,h=null
+}
+
+// PostgREST 預設單次最多 1000 筆 → 主檔必須分頁全抓,
+// 否則 HOSP/PRODS 不完整,預覽會對 >1000 筆之後的醫院/品號誤報 ⚠
+async function fetchAll(table, sel){
+  const out=[]; const SZ=1000;
+  for(let from=0;;from+=SZ){
+    const ORDER_COL={medsec_hospitals:'id',medsec_products:'id',
+      medsec_product_inventory:'product_code',hospital_systems:'code'};
+    const { data, error }=await supa.from(table).select(sel)
+      .order(ORDER_COL[table]||'id',{ascending:true})
+      .range(from, from+SZ-1);
+    if(error) throw error;
+    out.push(...(data||[]));
+    if(!data || data.length<SZ) break;
+  }
+  return out;
+}
+
+(async function init(){
+  const p = await guardRole('manager');           // 僅 Lynn;業祕會被導走
+  if (!p) return;
+  PROFILE = p; renderUserInfo(p);
+  const u = document.getElementById('pt-user'); if (u) u.textContent = p.nickname || p.name || '';
+  hideLoading();
+  try{
+    const hs = await fetchAll('medsec_hospitals',
+      'id,name_short,name_full,system_prefix,region_code,customer_type');
+    hs.forEach(h => { HOSP[String(h.id).trim()] = h; });
+    // 主檔回填:品名(medsec_products)+ 品名/分類(medsec_product_inventory)
+    const pr = await fetchAll('medsec_products','id,name');
+    pr.forEach(x => { PRODS[String(x.id).trim()] = x.name || null; });
+    const inv = await fetchAll('medsec_product_inventory',
+      'product_code,product_name,product_category');
+    inv.forEach(x => {
+      PCAT[String(x.product_code).trim()] = {
+        name: x.product_name || null, cat: x.product_category || null };
+    });
+  }catch(e){ alert('主檔載入失敗(對應預覽會不準):'+(e.message||e)); }
+  await ensureSystems();      // memoized;listLoad/stratLoad/initList 會再 await 保險
+  bindDrop('crm','crm'); bindDrop('erp','erp');
+})();
+// 回傳 [品名, 分類](Excel 值優先,缺則主檔回填)
+function enrich(code, xlsName, xlsCat){
+  const c = String(code||'').trim();
+  const name = (xlsName && xlsName.trim()) || PRODS[c] || (PCAT[c]&&PCAT[c].name) || null;
+  const cat  = (xlsCat && xlsCat.trim())  || (PCAT[c]&&PCAT[c].cat) || null;
+  const known = !!(PRODS[c] || PCAT[c]);
+  return { name, cat, known };
+}
+
+function ptTab(t){
+  document.querySelectorAll('.pt-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
+  ['crm','erp','list','strat'].forEach(x=>{
+    document.getElementById('tab-'+x).hidden = (x!==t);
+  });
+  if (t==='list' && !LIST_INIT) initList();
+  if (t==='strat' && !STRAT.length) stratLoad();
+}
+
+/* ---------- 共用 ---------- */
+function parseYmd(v){
+  if (v==null || v==='') return null;
+  if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  const d = String(v).replace(/[^0-9]/g,'');
+  if (/^\d{8}$/.test(d)) return `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+  const t = Date.parse(String(v)); return isNaN(t) ? null : new Date(t).toISOString().slice(0,10);
+}
+function num(v){ if(v==null||v==='') return null; const n=Number(String(v).replace(/,/g,'')); return isFinite(n)?n:null; }
+function pickSheet(wb, name){
+  const exact = wb.SheetNames.find(s=>s.trim()===name);
+  return wb.Sheets[exact || wb.SheetNames[0]];
+}
+function bindDrop(pfx){
+  const drop=document.getElementById(pfx+'-drop'), inp=document.getElementById(pfx+'-file');
+  drop.onclick=()=>inp.click();
+  inp.onchange=e=>{ if(e.target.files[0]) readFile(e.target.files[0], pfx); };
+  drop.ondragover=e=>{e.preventDefault();drop.classList.add('over');};
+  drop.ondragleave=()=>drop.classList.remove('over');
+  drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');
+    if(e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0], pfx);};
+}
+function readFile(file, pfx){
+  const fr=new FileReader();
+  fr.onload=ev=>{
+    const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+    if(pfx==='crm') crmParse(wb); else erpParse(wb);
+  };
+  fr.readAsArrayBuffer(file);
+}
+
+/* ---------- ① CRM 解析 ---------- */
+let CRM_ROWS=[];
+// Excel 標籤(col2 起)→ DB 欄
+const CRM_MAP={
+  '報價單別':'crm_quote_type','報價單號':'crm_quote_no','報價日期':'_quoted_date',
+  '報價人':'quoted_by_name','客戶代號':'customer_code','客戶簡稱':'customer_short_name',
+  '本幣總金額':'quoted_total','品號':'product_code','單身數量':'quoted_qty',
+  '單價':'quoted_unit_price','確認碼':'confirmation_code','確認日期':'_confirmed_at',
+  '確認者':'confirmed_by_name','品名':'product_name','拋轉日期':'_promoted_at',
+  '拋轉人員':'promoted_by_name','ERP報價單別':'erp_quote_type','ERP報價單號':'erp_quote_no'
+};
+const CRM_FILL=['crm_quote_type','crm_quote_no','_quoted_date','quoted_by_name',
+  'customer_code','customer_short_name','confirmation_code','_confirmed_at',
+  'confirmed_by_name','_promoted_at','promoted_by_name','erp_quote_type','erp_quote_no'];
+
+function crmParse(wb){
+  const ws=pickSheet(wb,'報價明細表');
+  const m=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+  // 找 header 列(某列含 '報價單別')並建 label→colIdx
+  let hi=-1, col={};
+  for(let i=0;i<Math.min(m.length,12);i++){
+    const j=m[i].findIndex(c=>String(c).trim()==='報價單別');
+    if(j>=0){ hi=i; m[i].forEach((c,idx)=>{const k=String(c).trim(); if(CRM_MAP[k]) col[CRM_MAP[k]]=idx;}); break; }
+  }
+  if(hi<0){ document.getElementById('crm-preview').innerHTML='<div class="case-empty">找不到表頭(需含「報價單別」)</div>'; return; }
+  const HB=col['crm_quote_type'];                 // '報價單別' 欄索引
+  const out=[]; let last=null, nHead=0, nMain=0, nCont=0;
+  for(let i=hi+1;i<m.length;i++){
+    const row=m[i]; if(!row || row.every(c=>String(c).trim()==='')) continue;
+    const hbv=String(row[HB]==null?'':row[HB]).trim();
+    if(hbv==='報價單別'){ nHead++; continue; }      // 隔行 header
+    const rec={};
+    Object.entries(col).forEach(([f,idx])=>{ rec[f]=row[idx]==null?'':String(row[idx]).trim(); });
+    const isCont = hbv==='' && Object.values(rec).some(v=>v!=='');
+    if(isCont && last){ CRM_FILL.forEach(f=>{ if(!rec[f]) rec[f]=last[f]; }); nCont++; }
+    else { nMain++; }
+    if(!isCont) last={...rec};
+    if(!String(rec.product_code||'').trim()) continue;   // 無品號略過
+    out.push(rec);
+  }
+  // 正規化
+  CRM_ROWS = out.map(r=>{
+    const code=String(r.customer_code||'').trim();
+    const fh=findHosp(code); const h=fh.h;
+    const pcode=String(r.product_code).trim();
+    const e=enrich(pcode, r.product_name, null);   // CRM 無分類欄 → 全靠主檔
+    return {
+      crm_quote_type:r.crm_quote_type||null, crm_quote_no:r.crm_quote_no||null,
+      customer_code:code||null, customer_short_name:r.customer_short_name||null,
+      hospital_id:fh.id,
+      hospital_name:h?(h.name_short||h.name_full):null,
+      system_prefix:h?h.system_prefix:null, region_code:h?h.region_code:null,
+      customer_type:h?h.customer_type:null,
+      quoted_by_name:r.quoted_by_name||null,
+      product_code:pcode, product_name:e.name, product_category:e.cat,
+      quoted_date:parseYmd(r._quoted_date), quoted_qty:num(r.quoted_qty),
+      quoted_unit_price:num(r.quoted_unit_price), quoted_total:num(r.quoted_total),
+      confirmation_code:r.confirmation_code||null, confirmed_at:parseYmd(r._confirmed_at),
+      confirmed_by_name:r.confirmed_by_name||null,
+      erp_quote_type:r.erp_quote_type||null, erp_quote_no:r.erp_quote_no||null,
+      promoted_at:parseYmd(r._promoted_at), promoted_by_name:r.promoted_by_name||null,
+      source:'crm_import',
+      _hm:!!h, _pm:e.known,
+      _hasNo:!!(r.crm_quote_no&&String(r.crm_quote_no).trim())
+    };
+  });
+  // 同 batch 內同 (報價單號,品號) 重複 → PostgreSQL upsert 會報
+  // 「ON CONFLICT DO UPDATE command cannot affect row a second time」。
+  // 先 client-side 去重(保留第一筆);無報價單號者 DB 視 NULL 相異,不去重。
+  let dupCount=0;
+  {
+    const seen=new Set(), dd=[];
+    for(const r of CRM_ROWS){
+      const no=(r.crm_quote_no||'').trim();
+      if(no){
+        const k=no+'|'+r.product_code;
+        if(seen.has(k)){ dupCount++; continue; }
+        seen.add(k);
+      }
+      dd.push(r);
+    }
+    if(dupCount) console.warn(`CRM dedup: 跳過 ${dupCount} 筆同單同品重複`);
+    CRM_ROWS=dd;
+  }
+  const hm=CRM_ROWS.filter(r=>r._hm).length, pm=CRM_ROWS.filter(r=>r._pm).length;
+  const noNo=CRM_ROWS.filter(r=>!r._hasNo).length;
+  // 對不到的醫院代號(distinct,供眼判:真經銷商/舊碼 vs 解析問題)
+  const badCodes=[...new Set(CRM_ROWS.filter(r=>!r._hm)
+    .map(r=>r.customer_code||'(空白)'))];
+  document.getElementById('crm-preview').innerHTML=`
+    <div class="pt-stat">
+      <div><div class="b">${CRM_ROWS.length}</div><div class="l">可匯入品項列</div></div>
+      <div><div class="b">${nMain}</div><div class="l">主要資料行</div></div>
+      <div><div class="b">${nCont}</div><div class="l">延續品項(forward fill)</div></div>
+      <div><div class="b">${nHead}</div><div class="l">跳過 header 行</div></div>
+      ${dupCount?`<div><div class="b warn">${dupCount}</div><div class="l">同單同品重複(已自動去重)</div></div>`:''}
+    </div>
+    <div style="font-size:13px;line-height:1.8">
+      ${dupCount?`<span class="warn">⚠ 發現 ${dupCount} 筆重複(同報價單號+品號),已自動去重,只匯入第一筆</span><br>`:''}
+      醫院對應:<span class="ok">✓ ${hm}</span> / <span class="warn">⚠ 找不到 ${CRM_ROWS.length-hm}</span>
+      <span style="color:#94a3b8">(主檔載入 ${Object.keys(HOSP).length} 家;不重複對不到代號 ${badCodes.length} 個)</span><br>
+      ${badCodes.length?`<span class="warn">缺代號:</span><span style="color:#64748b">${
+        badCodes.slice(0,40).map(c=>cmEscPt(c)).join('、')}${badCodes.length>40?` …等 ${badCodes.length} 個`:''}</span><br>`:''}
+      品號對應:<span class="ok">✓ ${pm}</span> / <span class="warn">⚠ 找不到 ${CRM_ROWS.length-pm}(仍可匯入)</span>
+      ${noNo?`<br><span class="warn">⚠ ${noNo} 列無報價單號(將以新增寫入,不做覆蓋)</span>`:''}
+    </div>
+    <table class="case-list" style="margin-top:8px"><thead><tr>
+      <th>單號</th><th>日期</th><th>醫院</th><th>體系</th><th>品號</th><th>單價</th><th>數量</th></tr></thead>
+      <tbody>${CRM_ROWS.slice(0,15).map(r=>`<tr>
+        <td>${r.crm_quote_no||'—'}</td><td>${r.quoted_date||'—'}</td>
+        <td>${r._hm?'':'⚠'}${r.hospital_name||r.customer_code||'—'}</td>
+        <td>${sysLabel(r.system_prefix)}</td>
+        <td>${r._pm?'':'⚠'}${r.product_code}</td>
+        <td>${r.quoted_unit_price??'—'}</td><td>${r.quoted_qty??'—'}</td></tr>`).join('')}</tbody>
+    </table>${CRM_ROWS.length>15?`<div style="font-size:12px;color:#94a3b8">(僅顯示前 15 列)</div>`:''}`;
+  document.getElementById('crm-apply').disabled = CRM_ROWS.length===0;
+}
+
+async function crmApply(){
+  if(!CRM_ROWS.length) return;
+  const dup=CRM_ROWS.filter(r=>r._hasNo).length;
+  if(!confirm(`將寫入 ${CRM_ROWS.length} 筆;其中 ${dup} 筆有單號(同單號+品號會覆蓋)。確認?`)) return;
+  const btn=document.getElementById('crm-apply'); btn.disabled=true;
+  const rows=CRM_ROWS.map(({_hm,_pm,_hasNo,...r})=>r);
+  let done=0;
+  try{
+    for(let i=0;i<rows.length;i+=500){
+      const chunk=rows.slice(i,i+500);
+      const { error }=await supa.from('medsec_quote_history')
+        .upsert(chunk,{onConflict:'crm_quote_no,product_code',ignoreDuplicates:false});
+      if(error) throw error;
+      done+=chunk.length; btn.textContent=`匯入中… ${done}/${rows.length}`;
+    }
+    alert(`完成,寫入 ${done} 筆`);
+  }catch(e){ alert('匯入失敗:'+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent='套用匯入'; }
+}
+
+/* ---------- ② ERP 成交 ---------- */
+let ERP_ROWS=[];
+const ERP_MAP={'分類三':'product_category','銷貨日期':'_sales_date','客戶編號':'customer_code',
+  '客戶全稱':'hospital_name','產品編號':'product_code','單價全':'sales_unit_price',
+  '數量全':'sales_qty','總價ALL':'sales_total','產品序號':'product_sn'};
+
+function erpParse(wb){
+  const ws=pickSheet(wb,'報表 2');
+  const m=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+  let hi=-1,col={};
+  for(let i=0;i<Math.min(m.length,8);i++){
+    const has=m[i].some(c=>ERP_MAP[String(c).trim()]);
+    if(has){ hi=i; m[i].forEach((c,idx)=>{const k=String(c).trim(); if(ERP_MAP[k]) col[ERP_MAP[k]]=idx;}); break; }
+  }
+  if(hi<0){ document.getElementById('erp-preview').innerHTML='<div class="case-empty">找不到表頭(需含「銷貨日期/產品編號」等)</div>'; return; }
+  const out=[];
+  for(let i=hi+1;i<m.length;i++){
+    const row=m[i]; if(!row||row.every(c=>String(c).trim()==='')) continue;
+    const g=f=>col[f]!=null?String(row[col[f]]==null?'':row[col[f]]).trim():'';
+    const pc=g('product_code'); if(!pc) continue;
+    out.push({
+      product_category:g('product_category')||null,
+      sales_date:parseYmd(g('_sales_date')),
+      customer_code:g('customer_code').trim()||null,
+      hospital_name:g('hospital_name')||null,
+      product_code:pc,
+      sales_unit_price:num(g('sales_unit_price')), sales_qty:num(g('sales_qty')),
+      sales_total:num(g('sales_total')), product_sn:g('product_sn')||null
+    });
+  }
+  ERP_ROWS=out;
+  document.getElementById('erp-preview').innerHTML=`
+    <div class="pt-stat"><div><div class="b">${out.length}</div>
+      <div class="l">成交列(套用時逐筆找 CRM 對應 / 無則新建)</div></div></div>
+    <table class="case-list" style="margin-top:8px"><thead><tr>
+      <th>銷貨日</th><th>客戶</th><th>品號</th><th>單價</th><th>數量</th><th>序號</th></tr></thead>
+      <tbody>${out.slice(0,20).map(r=>`<tr><td>${r.sales_date||'—'}</td>
+        <td>${r.customer_code||'—'}</td><td>${r.product_code}</td>
+        <td>${r.sales_unit_price??'—'}</td><td>${r.sales_qty??'—'}</td>
+        <td>${r.product_sn||'—'}</td></tr>`).join('')}</tbody></table>`;
+  document.getElementById('erp-apply').disabled=out.length===0;
+}
+
+// 一次性把所有 CRM 報價列載入記憶體做 hash(避免 200K×query)。
+// key = customer_code|product_code → 依 quoted_date 降冪的完整列陣列。
+async function loadCrmHash(prog){
+  const map=new Map(); let from=0; const SZ=1000, COLS=
+    'id,crm_quote_type,crm_quote_no,customer_code,customer_short_name,hospital_id,'+
+    'hospital_name,parent_code,system_prefix,region_code,customer_type,quoted_by_name,'+
+    'quoted_by_id,product_code,product_name,product_category,quoted_date,quoted_qty,'+
+    'quoted_unit_price,quoted_total,confirmation_code,confirmed_at,confirmed_by_name,'+
+    'erp_quote_type,erp_quote_no,promoted_at,promoted_by_name,source';
+  for(;;){
+    const { data,error }=await supa.from('medsec_quote_history').select(COLS)
+      .not('quoted_date','is',null)
+      .order('id',{ascending:true}).range(from,from+SZ-1);
+    if(error) throw error;
+    (data||[]).forEach(r=>{
+      const k=`${(r.customer_code||'').trim()}|${(r.product_code||'').trim()}`;
+      (map.get(k)||map.set(k,[]).get(k)).push(r);
+    });
+    if(prog) prog(`載入 CRM 報價做比對… ${from+ (data?data.length:0)} 筆`);
+    if(!data||data.length<SZ) break;
+    from+=SZ;
+  }
+  for(const arr of map.values())
+    arr.sort((a,b)=>String(b.quoted_date).localeCompare(String(a.quoted_date)));
+  return map;
+}
+
+async function erpApply(){
+  if(!ERP_ROWS.length) return;
+  if(!confirm(`將處理 ${ERP_ROWS.length} 筆成交資料(對到 CRM→就地回填,對不到→新建)。\n可重複上傳不會重複(依 客戶+品號+銷貨日+序號)。確認?`)) return;
+  const btn=document.getElementById('erp-apply'); btn.disabled=true;
+  const pv=document.getElementById('erp-preview');
+  const show=(main,sub)=>{ pv.innerHTML=
+    `<div class="pt-stat"><div><div class="b">${main}</div>`+
+    `<div class="l">${sub||''}</div></div></div>`; };
+  let matched=0, unmatched=0, written=0;
+  try{
+    show('載入中…','一次性載入 CRM 報價(避免 20 萬次查詢)');
+    const crm=await loadCrmHash(s=>show('載入中…',s));
+    const SIXTY=60*864e5;
+    const upd=[], ins=[];
+    const usedIds=new Set();   // 同一張 CRM 報價只能就地回填 1 次
+    const insSeen=new Set();   // unmatched 內同 4 欄 key 去重
+    let matchedDemoted=0, insDup=0;
+    for(const r of ERP_ROWS){
+      const cc=(r.customer_code||'').trim();
+      const e=enrich(r.product_code, null, r.product_category);
+      let hit=null;
+      if(cc && r.sales_date){
+        const arr=crm.get(`${cc}|${(r.product_code||'').trim()}`);
+        if(arr){
+          const hi=new Date(r.sales_date).getTime();
+          const lo=hi-SIXTY;
+          // arr 依 quoted_date 降冪 → 第一個落在 [lo,hi] 的即「最近一筆」
+          for(const q of arr){
+            const t=Date.parse(q.quoted_date);
+            if(!isNaN(t) && t<=hi && t>=lo){ hit=q; break; }
+          }
+        }
+      }
+      // 同一張 CRM 報價已被回填 → 此筆降級為新列(帶 CRM 連結欄供分析)
+      if(hit && usedIds.has(hit.id)){ matchedDemoted++; }
+      if(hit && !usedIds.has(hit.id)){
+        usedIds.add(hit.id);
+        const o={...hit}; delete o.status;          // status 為 GENERATED,不能寫
+        o.sales_date=r.sales_date; o.sales_unit_price=r.sales_unit_price;
+        o.sales_qty=r.sales_qty; o.sales_total=r.sales_total;
+        o.product_sn=r.product_sn||o.product_sn;
+        o.product_category=e.cat||o.product_category;
+        upd.push(o); matched++;
+      }else{
+        const fh=findHosp(cc); const h=fh.h;
+        // unmatched 內 4 欄 key 去重(sn 為 NULL 時 DB 視相異,不去重)
+        if(r.product_sn){
+          const k=`${cc}|${r.product_code}|${r.sales_date}|${r.product_sn}`;
+          if(insSeen.has(k)){ insDup++; continue; }
+          insSeen.add(k);
+        }
+        ins.push({
+          customer_code:cc||null, hospital_id:hit?hit.hospital_id:fh.id,
+          hospital_name:hit?hit.hospital_name:(r.hospital_name||(h?(h.name_short||h.name_full):null)),
+          system_prefix:hit?hit.system_prefix:(h?h.system_prefix:null),
+          region_code:hit?hit.region_code:(h?h.region_code:null),
+          customer_type:hit?hit.customer_type:(h?h.customer_type:null),
+          product_code:r.product_code,
+          product_name:(hit&&hit.product_name)||e.name,
+          product_category:(hit&&hit.product_category)||e.cat,
+          product_sn:r.product_sn||null, sales_date:r.sales_date,
+          sales_unit_price:r.sales_unit_price, sales_qty:r.sales_qty,
+          sales_total:r.sales_total,
+          // 多筆對到同張 CRM 時帶 CRM 連結回(供分析:WHERE sales_date IS NOT NULL AND crm_quote_no IS NOT NULL)
+          crm_quote_type:hit?hit.crm_quote_type:null,
+          crm_quote_no:hit?hit.crm_quote_no:null,
+          source:'erp_sales_import'
+        });
+        unmatched++;
+      }
+    }
+    if(matchedDemoted) console.warn(`ERP: ${matchedDemoted} 筆多對同張 CRM,降級為新列(帶 CRM 連結)`);
+    if(insDup) console.warn(`ERP: ${insDup} 筆 4 欄重複,去重保留第一筆`);
+    const B=500;
+    const batches=Math.ceil(upd.length/B)+Math.ceil(ins.length/B);
+    let bi=0;
+    const run=async(rows,conflict)=>{
+      for(let i=0;i<rows.length;i+=B){
+        const chunk=rows.slice(i,i+B);
+        const { error }=await supa.from('medsec_quote_history')
+          .upsert(chunk,{onConflict:conflict,ignoreDuplicates:false});
+        if(error) throw error;
+        written+=chunk.length; bi++;
+        show(`Batch ${bi}/${batches}`,
+          `已寫入 ${written} 筆 · CRM 對應 ${matched} · 新建 ${unmatched}`);
+      }
+    };
+    await run(upd,'id');                                      // 就地回填
+    await run(ins,'customer_code,product_code,sales_date,product_sn'); // 可恢復
+    show(`完成 ${written} 筆`,
+      `CRM 對應回填 ${matched} · 新建 ${unmatched}`
+      + (matchedDemoted?` · 同單多筆降級 ${matchedDemoted}`:'')
+      + (insDup?` · 4 欄重複去重 ${insDup}`:'')
+      + `(可重複上傳不重複)`);
+    alert(`完成:寫入 ${written} 筆(CRM 回填 ${matched} / 新建 ${unmatched}`
+      + (matchedDemoted?` / 同單多筆降級 ${matchedDemoted}`:'')
+      + (insDup?` / 重複去重 ${insDup}`:'') + `)`);
+  }catch(e){ alert('處理失敗:'+(e.message||e)); show('失敗','見上方錯誤,可重新上傳接續'); }
+  finally{ btn.disabled=false; btn.textContent='套用回填'; }
+}
+
+/* ---------- ③ 列表 ---------- */
+let LIST_INIT=false, LIST_PAGE=1; const LIST_SIZE=50;
+async function initList(){
+  await ensureSystems();        // 保險:確保下拉/列表 render 前 SYSTEMS 已就緒
+  LIST_INIT=true;
+  const hsel=document.getElementById('f-hospital');
+  hsel.innerHTML='<option value="">全部醫院</option>'+Object.values(HOSP)
+    .sort((a,b)=>String(a.id).localeCompare(String(b.id)))
+    .map(h=>`<option value="${h.id}">${h.id} ${h.name_short||h.name_full||''}</option>`).join('');
+  const sys=[...new Set(Object.values(HOSP).map(h=>h.system_prefix).filter(Boolean))]
+    .sort((a,b)=>String(sysLabel(a)).localeCompare(String(sysLabel(b)),'zh-Hant'));
+  document.getElementById('f-system').innerHTML='<option value="">全部體系</option>'
+    +sys.map(s=>`<option value="${cmEscPt(s)}">${cmEscPt(sysLabel(s))}</option>`).join('');
+  listLoad(1);
+}
+// 取目前篩選條件;forStatus=false 時不套狀態(統計用)
+function listFilters(){
+  return {
+    h:document.getElementById('f-hospital').value,
+    s:document.getElementById('f-system').value,
+    p:document.getElementById('f-product').value.trim(),
+    st:document.getElementById('f-status').value,
+    per:document.getElementById('f-period').value,
+  };
+}
+function applyFilters(q, f, withStatus){
+  if(f.h)  q=q.eq('hospital_id',f.h);
+  if(f.s)  q=q.eq('system_prefix',f.s);
+  if(f.p)  q=q.ilike('product_code',`%${f.p}%`);
+  if(withStatus && f.st) q=q.eq('status',f.st);
+  if(f.per!=='0'){
+    const lo=new Date(Date.now()-(+f.per)*30*864e5).toISOString().slice(0,10);
+    q=q.gte('quoted_date',lo);
+  }
+  return q;
+}
+async function listStats(f){
+  const T='medsec_quote_history';
+  const tot=await applyFilters(supa.from(T).select('id',{count:'exact',head:true}),f,false);
+  const won=await applyFilters(supa.from(T).select('id',{count:'exact',head:true}),f,false)
+    .eq('status','won');
+  const total=tot.count||0, w=won.count||0;
+  const { data }=await applyFilters(
+    supa.from(T).select('quoted_unit_price,sales_unit_price'),f,false)
+    .order('quoted_date',{ascending:false}).limit(5000);
+  const qa=(data||[]).map(x=>Number(x.quoted_unit_price)).filter(n=>isFinite(n)&&n>0);
+  const sa=(data||[]).map(x=>Number(x.sales_unit_price)).filter(n=>isFinite(n)&&n>0);
+  const avg=a=>a.length?Math.round(a.reduce((s,n)=>s+n,0)/a.length):0;
+  document.getElementById('list-stat').innerHTML=`
+    <div><div class="b">${total}</div><div class="l">總筆數(不含狀態篩選)</div></div>
+    <div><div class="b">${w}</div><div class="l">成交數(won)</div></div>
+    <div><div class="b">${total?Math.round(w/total*100):0}%</div><div class="l">成交率</div></div>
+    <div><div class="b">$${avg(qa).toLocaleString()}</div><div class="l">平均報價(近5k)</div></div>
+    <div><div class="b">$${avg(sa).toLocaleString()}</div><div class="l">平均成交(近5k)</div></div>`;
+}
+async function listLoad(page){
+  await ensureSystems();        // 保險:render 體系欄前必載
+  if(page<1) page=1; LIST_PAGE=page;
+  const tb=document.getElementById('list-tbody');
+  tb.innerHTML=`<tr><td colspan="12" class="case-empty">載入中…</td></tr>`;
+  const f=listFilters();
+  listStats(f).catch(()=>{});
+  const from=(page-1)*LIST_SIZE, to=from+LIST_SIZE-1;
+  const { data,error,count }=await applyFilters(
+    supa.from('medsec_quote_history').select('*',{count:'exact'}),f,true)
+    .order('quoted_date',{ascending:false}).range(from,to);
+  if(error){ tb.innerHTML=`<tr><td colspan="12" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
+  document.getElementById('list-count').textContent=`共 ${count||0} 筆`;
+  document.getElementById('list-page').textContent=`第 ${page} 頁 / 共 ${Math.max(1,Math.ceil((count||0)/LIST_SIZE))} 頁`;
+  if(!data||!data.length){ tb.innerHTML=`<tr><td colspan="12" class="case-empty">無資料</td></tr>`; return; }
+  tb.innerHTML=data.map(r=>`<tr>
+    <td>${r.quoted_date||'—'}</td><td>${r.hospital_name||r.customer_code||'—'}</td>
+    <td>${sysLabel(r.system_prefix)}</td><td>${r.product_code}</td><td>${r.product_name||'—'}</td>
+    <td>${r.product_category||'—'}</td>
+    <td>${r.quoted_unit_price??'—'}</td><td>${r.quoted_qty??'—'}</td>
+    <td>${r.quoted_total??'—'}</td><td>${r.quoted_by_name||'—'}</td>
+    <td>${r.status}</td><td>${r.sales_unit_price??'—'}</td></tr>`).join('');
+}
+
+/* ---------- ④ 醫院慣用折數 ---------- */
+const STRATEGIES=['aggressive','standard','competitive','maintain'];
+async function stratLoad(){
+  await ensureSystems();
+  const { data }=await supa.from('medsec_hospital_pricing_strategy').select('*');
+  const by={}; (data||[]).forEach(r=>by[r.hospital_id]=r);
+  STRAT=Object.values(HOSP).sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(h=>({
+    hospital_id:h.id, hospital_name:h.name_short||h.name_full||'', system_prefix:h.system_prefix||'',
+    default_pricing_multiplier:by[h.id]?.default_pricing_multiplier ?? 1.0,
+    pricing_strategy:by[h.id]?.pricing_strategy || 'standard',
+    notes:by[h.id]?.notes || ''
+  }));
+  stratRender();
+}
+function stratRender(){
+  const kw=(document.getElementById('strat-search').value||'').trim().toLowerCase();
+  const rows=STRAT.filter(r=>!kw||r.hospital_id.toLowerCase().includes(kw)||(r.hospital_name||'').toLowerCase().includes(kw));
+  const tb=document.getElementById('strat-tbody');
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="6" class="case-empty">無</td></tr>'; return; }
+  tb.innerHTML=rows.map(r=>`<tr data-id="${r.hospital_id}">
+    <td><b>${r.hospital_id}</b></td><td>${r.hospital_name}</td><td>${sysLabel(r.system_prefix)}</td>
+    <td><input type="number" step="0.05" class="rc-text-input s-mult" style="padding:4px;width:90px" value="${r.default_pricing_multiplier}"></td>
+    <td><select class="rc-text-input s-strat" style="padding:4px">${STRATEGIES.map(s=>`<option ${r.pricing_strategy===s?'selected':''}>${s}</option>`).join('')}</select></td>
+    <td><input class="rc-text-input s-notes" style="padding:4px" value="${(r.notes||'').replace(/"/g,'&quot;')}"></td>
+  </tr>`).join('');
+}
+async function stratSave(){
+  const rows=[...document.querySelectorAll('#strat-tbody tr[data-id]')].map(tr=>({
+    hospital_id:tr.dataset.id,
+    default_pricing_multiplier:Number(tr.querySelector('.s-mult').value)||1.0,
+    pricing_strategy:tr.querySelector('.s-strat').value,
+    notes:tr.querySelector('.s-notes').value.trim()||null,
+    updated_by:PROFILE.id, updated_at:new Date().toISOString()
+  }));
+  if(!rows.length) return;
+  const { error }=await supa.from('medsec_hospital_pricing_strategy')
+    .upsert(rows,{onConflict:'hospital_id'});
+  if(error){ alert('儲存失敗:'+error.message); return; }
+  alert(`已儲存 ${rows.length} 家`); stratLoad();
+}
+</script>
+</body>
+</html>
