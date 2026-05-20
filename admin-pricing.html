@@ -24,9 +24,10 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP7</span>
-        <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8"
-          title="體系中文對照載入筆數(0=fetch 失敗或 RLS/GRANT 擋住)"></span></div>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP8</span>
+        <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
+          title="點擊 dump SYSTEMS map 全部 key/value"
+          onclick="dumpSystems()"></span></div>
     </div>
 
     <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
@@ -137,6 +138,15 @@ function sysLabel(code){
   if(!code) return '—';
   const k=String(code).trim();
   return SYSTEMS[k] || SYSTEMS[k.toUpperCase()] || k;
+}
+// 一鍵把 SYSTEMS map 全 dump 出來,徹底排除「徽章說 33 但 map 其實沒料」
+function dumpSystems(){
+  const keys=Object.keys(SYSTEMS).sort();
+  const lines=keys.map(k=>`  ${JSON.stringify(k)} (len ${k.length}) → ${JSON.stringify(SYSTEMS[k])}`).join('\n');
+  console.log(`SYSTEMS dump (共 ${keys.length} keys):\n${lines}`);
+  alert(`SYSTEMS map(${keys.length} keys,前 30 列):\n\n`+
+    keys.slice(0,30).map(k=>`${k} → ${SYSTEMS[k]}`).join('\n')+
+    (keys.length>30?`\n…還有 ${keys.length-30} 筆,完整見 Console`:''));
 }
 // 客戶代號 → 醫院:先 exact;對不到再去尾端 '-'(CRM 子帳記號,如
 // MMTE- = 東馬 MMTE)後 exact。只去尾端 '-',不切減號前(否則 S-CJN 會壞)。
@@ -633,11 +643,19 @@ async function listLoad(page){
   document.getElementById('list-count').textContent=`共 ${count||0} 筆`;
   document.getElementById('list-page').textContent=`第 ${page} 頁 / 共 ${Math.max(1,Math.ceil((count||0)/LIST_SIZE))} 頁`;
   if(!data||!data.length){ tb.innerHTML=`<tr><td colspan="12" class="case-empty">無資料</td></tr>`; return; }
-  // 診斷:分「key 缺失」與「key 在但 name 空/null」兩種,訊息更精準
+  // 終極診斷:把 SYSTEMS 當下實況、每個 missing code 的字碼都印出來
+  console.log(`[Tab3] listLoad 時 SYSTEMS 有 ${Object.keys(SYSTEMS).length} keys`,
+    'sample:', { NT:SYSTEMS['NT'], CH:SYSTEMS['CH'], MH:SYSTEMS['MH'],
+                 CL:SYSTEMS['CL'], SC:SYSTEMS['SC'], 'S-':SYSTEMS['S-'] });
   const noKey=[], noName=[];
   for(const c of new Set(data.map(r=>r.system_prefix).filter(Boolean))){
     const k=String(c).trim(), v=SYSTEMS[k]??SYSTEMS[k.toUpperCase()];
-    if(v===undefined) noKey.push(c);
+    if(v===undefined) {
+      noKey.push(c);
+      // 印該 code 每個字元的 char code(肉眼相同但字碼可能不同)
+      const codes=[...k].map(ch=>ch.charCodeAt(0).toString(16)).join(' ');
+      console.log(`  ✗ "${c}" trim→"${k}" (len ${k.length}, charCodes ${codes}) 不在 SYSTEMS`);
+    }
     else if(v==null || String(v).trim()==='') noName.push(c);
   }
   if(noKey.length || noName.length){
