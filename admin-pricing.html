@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP9</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP10</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -151,8 +151,12 @@ async function ensureSystems(){
         ' raw rows 樣本:', sy.slice(0,5));
     }catch(e){ console.error('[ensureSystems] 失敗:', e); }
     const tag=document.getElementById('pt-sysload');
-    if(tag){ tag.textContent=`體系對照 ${n} 筆`;
-      tag.style.color = n>0 ? '#16a34a' : '#dc2626'; }
+    if(tag){
+      // 徽章直接帶出頭 3 個 key,不用開 console 就知 key 是 BS 碼 / name / 其他
+      const sample = Object.keys(SYSTEMS).sort().slice(0,3).join(',');
+      tag.textContent = `體系對照 ${n} 筆 [key 樣本: ${sample}]`;
+      tag.style.color = n>0 ? '#16a34a' : '#dc2626';
+    }
     return n;
   })();
   return SYSTEMS_PROMISE;
@@ -640,6 +644,10 @@ async function listStats(f){
 }
 async function listLoad(page){
   await ensureSystems();        // 保險:render 體系欄前必載
+  // 物件身分驗證:Tab3 用的 SYSTEMS 是哪個 ref、有哪些 keys
+  console.log('[listLoad] SYSTEMS ref:', SYSTEMS,
+    ' keys:', Object.keys(SYSTEMS).sort(),
+    ' sample lookups:', { NT:SYSTEMS['NT'], CL:SYSTEMS['CL'], VG:SYSTEMS['VG'], 'S-':SYSTEMS['S-'] });
   if(page<1) page=1; LIST_PAGE=page;
   const tb=document.getElementById('list-tbody');
   tb.innerHTML=`<tr><td colspan="12" class="case-empty">載入中…</td></tr>`;
