@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP12</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP13</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -49,7 +49,7 @@
         Sheet「報價明細表」,資料第 5 列起。系統自動:跳過隔行 header、
         同單多品項 forward fill、客戶代號 TRIM、日期 YYYYMMDD 解析、
         對應醫院(對不到時自動去尾端「-」再比,如 MMTE-→東馬)/品號。
-        upsert 依 (報價單號,品號)。
+        upsert 依 (報價單別,報價單號,品號)。
       </div>
       <div id="crm-drop" class="pt-drop">📥 拖曳 Excel 到此,或點此選檔(.xlsx)</div>
       <input id="crm-file" type="file" accept=".xlsx,.xls" hidden>
@@ -358,14 +358,17 @@ function crmParse(wb){
     const seen=new Set(), dd=[];
     for(const r of CRM_ROWS){
       const no=(r.crm_quote_no||'').trim();
+      const tp=(r.crm_quote_type||'').trim();
       if(no){
-        const k=no+'|'+r.product_code;
+        // 3 欄鍵 (單別|單號|品號) 對齊 DB unique index;同 quote_no 不同
+        // quote_type(AECC/LDCC/CCCC...)是不同單,不可合併
+        const k=tp+'|'+no+'|'+r.product_code;
         if(seen.has(k)){ dupCount++; continue; }
         seen.add(k);
       }
       dd.push(r);
     }
-    if(dupCount) console.warn(`CRM dedup: 跳過 ${dupCount} 筆同單同品重複`);
+    if(dupCount) console.warn(`CRM dedup: 跳過 ${dupCount} 筆同單別同單號同品重複`);
     CRM_ROWS=dd;
   }
   const hm=CRM_ROWS.filter(r=>r._hm).length, pm=CRM_ROWS.filter(r=>r._pm).length;
@@ -413,7 +416,7 @@ async function crmApply(){
     for(let i=0;i<rows.length;i+=500){
       const chunk=rows.slice(i,i+500);
       const { error }=await supa.from('medsec_quote_history')
-        .upsert(chunk,{onConflict:'crm_quote_no,product_code',ignoreDuplicates:false});
+        .upsert(chunk,{onConflict:'crm_quote_type,crm_quote_no,product_code',ignoreDuplicates:false});
       if(error) throw error;
       done+=chunk.length; btn.textContent=`匯入中… ${done}/${rows.length}`;
     }
