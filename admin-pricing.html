@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP2</span></div>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP3</span></div>
     </div>
 
     <div class="rc-question-help" style="margin:10px 0;line-height:1.7">
@@ -449,6 +449,9 @@ async function erpApply(){
     const crm=await loadCrmHash(s=>show('載入中…',s));
     const SIXTY=60*864e5;
     const upd=[], ins=[];
+    const usedIds=new Set();   // 同一張 CRM 報價只能就地回填 1 次
+    const insSeen=new Set();   // unmatched 內同 4 欄 key 去重
+    let matchedDemoted=0, insDup=0;
     for(const r of ERP_ROWS){
       const cc=(r.customer_code||'').trim();
       const e=enrich(r.product_code, null, r.product_category);
@@ -465,7 +468,10 @@ async function erpApply(){
           }
         }
       }
-      if(hit){
+      // 同一張 CRM 報價已被回填 → 此筆降級為新列(帶 CRM 連結欄供分析)
+      if(hit && usedIds.has(hit.id)){ matchedDemoted++; }
+      if(hit && !usedIds.has(hit.id)){
+        usedIds.add(hit.id);
         const o={...hit}; delete o.status;          // status 為 GENERATED,不能寫
         o.sales_date=r.sales_date; o.sales_unit_price=r.sales_unit_price;
         o.sales_qty=r.sales_qty; o.sales_total=r.sales_total;
@@ -474,19 +480,34 @@ async function erpApply(){
         upd.push(o); matched++;
       }else{
         const fh=findHosp(cc); const h=fh.h;
+        // unmatched 內 4 欄 key 去重(sn 為 NULL 時 DB 視相異,不去重)
+        if(r.product_sn){
+          const k=`${cc}|${r.product_code}|${r.sales_date}|${r.product_sn}`;
+          if(insSeen.has(k)){ insDup++; continue; }
+          insSeen.add(k);
+        }
         ins.push({
-          customer_code:cc||null, hospital_id:fh.id,
-          hospital_name:r.hospital_name||(h?(h.name_short||h.name_full):null),
-          system_prefix:h?h.system_prefix:null, region_code:h?h.region_code:null,
-          customer_type:h?h.customer_type:null,
-          product_code:r.product_code, product_name:e.name, product_category:e.cat,
+          customer_code:cc||null, hospital_id:hit?hit.hospital_id:fh.id,
+          hospital_name:hit?hit.hospital_name:(r.hospital_name||(h?(h.name_short||h.name_full):null)),
+          system_prefix:hit?hit.system_prefix:(h?h.system_prefix:null),
+          region_code:hit?hit.region_code:(h?h.region_code:null),
+          customer_type:hit?hit.customer_type:(h?h.customer_type:null),
+          product_code:r.product_code,
+          product_name:(hit&&hit.product_name)||e.name,
+          product_category:(hit&&hit.product_category)||e.cat,
           product_sn:r.product_sn||null, sales_date:r.sales_date,
           sales_unit_price:r.sales_unit_price, sales_qty:r.sales_qty,
-          sales_total:r.sales_total, source:'erp_sales_import'
+          sales_total:r.sales_total,
+          // 多筆對到同張 CRM 時帶 CRM 連結回(供分析:WHERE sales_date IS NOT NULL AND crm_quote_no IS NOT NULL)
+          crm_quote_type:hit?hit.crm_quote_type:null,
+          crm_quote_no:hit?hit.crm_quote_no:null,
+          source:'erp_sales_import'
         });
         unmatched++;
       }
     }
+    if(matchedDemoted) console.warn(`ERP: ${matchedDemoted} 筆多對同張 CRM,降級為新列(帶 CRM 連結)`);
+    if(insDup) console.warn(`ERP: ${insDup} 筆 4 欄重複,去重保留第一筆`);
     const B=500;
     const batches=Math.ceil(upd.length/B)+Math.ceil(ins.length/B);
     let bi=0;
@@ -504,8 +525,13 @@ async function erpApply(){
     await run(upd,'id');                                      // 就地回填
     await run(ins,'customer_code,product_code,sales_date,product_sn'); // 可恢復
     show(`完成 ${written} 筆`,
-      `CRM 對應回填 ${matched} · 新建 ${unmatched}(可重複上傳不重複)`);
-    alert(`完成:寫入 ${written} 筆(CRM 對應 ${matched} / 新建 ${unmatched})`);
+      `CRM 對應回填 ${matched} · 新建 ${unmatched}`
+      + (matchedDemoted?` · 同單多筆降級 ${matchedDemoted}`:'')
+      + (insDup?` · 4 欄重複去重 ${insDup}`:'')
+      + `(可重複上傳不重複)`);
+    alert(`完成:寫入 ${written} 筆(CRM 回填 ${matched} / 新建 ${unmatched}`
+      + (matchedDemoted?` / 同單多筆降級 ${matchedDemoted}`:'')
+      + (insDup?` / 重複去重 ${insDup}`:'') + `)`);
   }catch(e){ alert('處理失敗:'+(e.message||e)); show('失敗','見上方錯誤,可重新上傳接續'); }
   finally{ btn.disabled=false; btn.textContent='套用回填'; }
 }
