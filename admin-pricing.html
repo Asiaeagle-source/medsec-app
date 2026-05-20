@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP11</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP12</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -278,18 +278,23 @@ function readFile(file, pfx){
 
 /* ---------- ① CRM 解析 ---------- */
 let CRM_ROWS=[];
-// Excel 標籤(col2 起)→ DB 欄
+// Excel 標籤(col2 起)→ DB 欄(對應 docs/crm_column_mapping.md)
 const CRM_MAP={
   '報價單別':'crm_quote_type','報價單號':'crm_quote_no','報價日期':'_quoted_date',
   '報價人':'quoted_by_name','客戶代號':'customer_code','客戶簡稱':'customer_short_name',
   '本幣總金額':'quoted_total','品號':'product_code','單身數量':'quoted_qty',
   '單價':'quoted_unit_price','確認碼':'confirmation_code','確認日期':'_confirmed_at',
   '確認者':'confirmed_by_name','品名':'product_name','拋轉日期':'_promoted_at',
-  '拋轉人員':'promoted_by_name','ERP報價單別':'erp_quote_type','ERP報價單號':'erp_quote_no'
+  '拋轉人員':'promoted_by_name','ERP報價單別':'erp_quote_type','ERP報價單號':'erp_quote_no',
+  // 議價金礦 + 銷售機會貫穿鍵(Sprint 3B AI 用)
+  '備註一':'notes','優惠價':'discount_note',
+  '銷售機會單別':'opportunity_type','銷售機會單號':'opportunity_no'
 };
+// 報價單 header 級欄位 → 延續品項行 forward fill;品項級(品號/數量/單價/品名)不 fill
 const CRM_FILL=['crm_quote_type','crm_quote_no','_quoted_date','quoted_by_name',
   'customer_code','customer_short_name','confirmation_code','_confirmed_at',
-  'confirmed_by_name','_promoted_at','promoted_by_name','erp_quote_type','erp_quote_no'];
+  'confirmed_by_name','_promoted_at','promoted_by_name','erp_quote_type','erp_quote_no',
+  'notes','discount_note','opportunity_type','opportunity_no'];
 
 function crmParse(wb){
   const ws=pickSheet(wb,'報價明細表');
@@ -337,6 +342,9 @@ function crmParse(wb){
       confirmed_by_name:r.confirmed_by_name||null,
       erp_quote_type:r.erp_quote_type||null, erp_quote_no:r.erp_quote_no||null,
       promoted_at:parseYmd(r._promoted_at), promoted_by_name:r.promoted_by_name||null,
+      // 議價金礦 + 銷售機會貫穿鍵(空字串存 NULL)
+      notes:r.notes||null, discount_note:r.discount_note||null,
+      opportunity_type:r.opportunity_type||null, opportunity_no:r.opportunity_no||null,
       source:'crm_import',
       _hm:!!h, _pm:e.known,
       _hasNo:!!(r.crm_quote_no&&String(r.crm_quote_no).trim())
