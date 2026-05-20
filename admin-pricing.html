@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP5</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP6</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8"
           title="體系中文對照載入筆數(0=fetch 失敗或 RLS/GRANT 擋住)"></span></div>
     </div>
@@ -131,10 +131,12 @@
 <script>
 let PROFILE = null, HOSP = {}, PRODS = {}, PCAT = {}, SYSTEMS = {}, STRAT = [];
 function cmEscPt(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-// 體系代碼 → 中文(對不到 fallback 顯示原 code)
+// 體系代碼 → 中文(對不到 fallback 顯示原 code);加 trim/upper 防 SYSTEMS
+// key 與 quote_history.system_prefix 之間有空白/大小寫差。
 function sysLabel(code){
   if(!code) return '—';
-  return SYSTEMS[code] || code;
+  const k=String(code).trim();
+  return SYSTEMS[k] || SYSTEMS[k.toUpperCase()] || k;
 }
 // 客戶代號 → 醫院:先 exact;對不到再去尾端 '-'(CRM 子帳記號,如
 // MMTE- = 東馬 MMTE)後 exact。只去尾端 '-',不切減號前(否則 S-CJN 會壞)。
@@ -187,7 +189,12 @@ async function fetchAll(table, sel){
   // 體系對照獨立 try/catch,失敗只影響中文標籤、不擋其他主檔
   try{
     const sy = await fetchAll('hospital_systems','code,name');
-    sy.forEach(s => { if(s.code) SYSTEMS[String(s.code).trim()] = s.name || null; });
+    sy.forEach(s => {
+      if(!s.code) return;
+      const k=String(s.code).trim();
+      SYSTEMS[k]=s.name||null;
+      SYSTEMS[k.toUpperCase()]=s.name||null;   // 大小寫不敏感
+    });
     const n = Object.keys(SYSTEMS).length;
     const tag=document.getElementById('pt-sysload');
     if(tag){ tag.textContent = `體系對照 ${n} 筆`;
@@ -626,6 +633,15 @@ async function listLoad(page){
   document.getElementById('list-count').textContent=`共 ${count||0} 筆`;
   document.getElementById('list-page').textContent=`第 ${page} 頁 / 共 ${Math.max(1,Math.ceil((count||0)/LIST_SIZE))} 頁`;
   if(!data||!data.length){ tb.innerHTML=`<tr><td colspan="12" class="case-empty">無資料</td></tr>`; return; }
+  // 診斷:本頁體系碼在 SYSTEMS 找不到的(可能 seed 漏/舊碼/大小寫)→ console + UI 提示
+  const missing=[...new Set(data.map(r=>r.system_prefix).filter(c=>c &&
+    !(SYSTEMS[String(c).trim()] || SYSTEMS[String(c).trim().toUpperCase()])))];
+  if(missing.length){
+    console.warn('[Tab3] 體系碼對不到 hospital_systems:', missing,
+      `(SYSTEMS map 共 ${Object.keys(SYSTEMS).length/2|0} 筆;檢查 hospital_systems seed 是否含這些 code)`);
+    document.getElementById('list-count').textContent +=
+      ` ⚠ ${missing.length} 體系未對應(${missing.slice(0,6).join(', ')}${missing.length>6?'…':''})`;
+  }
   tb.innerHTML=data.map(r=>`<tr>
     <td>${r.quoted_date||'—'}</td><td>${r.hospital_name||r.customer_code||'—'}</td>
     <td>${sysLabel(r.system_prefix)}</td><td>${r.product_code}</td><td>${r.product_name||'—'}</td>
