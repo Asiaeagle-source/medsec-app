@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP14</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP15</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -85,7 +85,7 @@
         <input id="f-product" class="rc-text-input" style="width:130px;padding:6px" placeholder="品號">
         <select id="f-status" class="rc-text-input" style="width:auto;padding:6px">
           <option value="">全部狀態</option><option>quoted</option><option>confirmed</option>
-          <option>promoted</option><option>won</option>
+          <option>won</option>
         </select>
         <select id="f-period" class="rc-text-input" style="width:auto;padding:6px">
           <option value="12">近 12 月</option><option value="0">全部</option>
@@ -583,23 +583,30 @@ function applyFilters(q, f, withStatus){
   return q;
 }
 async function listStats(f){
-  const T='medsec_quote_history';
-  const tot=await applyFilters(supa.from(T).select('id',{count:'exact',head:true}),f,false);
-  const won=await applyFilters(supa.from(T).select('id',{count:'exact',head:true}),f,false)
-    .eq('status','won');
-  const total=tot.count||0, w=won.count||0;
-  const { data }=await applyFilters(
-    supa.from(T).select('quoted_unit_price,sales_unit_price'),f,false)
-    .order('quoted_date',{ascending:false}).limit(5000);
-  const qa=(data||[]).map(x=>Number(x.quoted_unit_price)).filter(n=>isFinite(n)&&n>0);
-  const sa=(data||[]).map(x=>Number(x.sales_unit_price)).filter(n=>isFinite(n)&&n>0);
-  const avg=a=>a.length?Math.round(a.reduce((s,n)=>s+n,0)/a.length):0;
-  document.getElementById('list-stat').innerHTML=`
-    <div><div class="b">${total}</div><div class="l">總筆數(不含狀態篩選)</div></div>
-    <div><div class="b">${w}</div><div class="l">成交數(won)</div></div>
-    <div><div class="b">${total?Math.round(w/total*100):0}%</div><div class="l">成交率</div></div>
-    <div><div class="b">$${avg(qa).toLocaleString()}</div><div class="l">平均報價(近5k)</div></div>
-    <div><div class="b">$${avg(sa).toLocaleString()}</div><div class="l">平均成交(近5k)</div></div>`;
+  // 統計以「銷售機會」為單位(總單 / 成交單 / 成交率),不以明細列數
+  // 經由 RPC qh_opp_stats 一次回 (total, won, rate)
+  const since = (f.per && f.per!=='0')
+    ? new Date(Date.now()-(+f.per)*30*864e5).toISOString().slice(0,10) : null;
+  const args = {
+    p_hospital: f.h || null,
+    p_system:   f.s || null,
+    p_product:  f.p || null,
+    p_status:   f.st || null,
+    p_since:    since
+  };
+  document.getElementById('list-stat').innerHTML =
+    `<div><div class="b">…</div><div class="l">計算中</div></div>`;
+  const { data, error } = await supa.rpc('qh_opp_stats', args);
+  if(error){
+    document.getElementById('list-stat').innerHTML =
+      `<div><div class="b warn">統計失敗</div><div class="l">${error.message}</div></div>`;
+    return;
+  }
+  const row = (data && data[0]) || { total:0, won:0, rate:0 };
+  document.getElementById('list-stat').innerHTML = `
+    <div><div class="b">${row.total||0}</div><div class="l">總單數(銷售機會)</div></div>
+    <div><div class="b">${row.won||0}</div><div class="l">成交單數(已拋轉)</div></div>
+    <div><div class="b">${row.rate||0}%</div><div class="l">成交率</div></div>`;
 }
 async function listLoad(page){
   await ensureSystems();        // 保險:render 體系欄前必載
