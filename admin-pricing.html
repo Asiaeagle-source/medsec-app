@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-ERP15</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-NHI1</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -41,6 +41,7 @@
       <div class="pt-tab"        data-tab="erp"  onclick="ptTab('erp')">② 上傳成交價</div>
       <div class="pt-tab"        data-tab="list" onclick="ptTab('list')">③ 歷史報價列表</div>
       <div class="pt-tab"        data-tab="strat" onclick="ptTab('strat')">④ 醫院慣用折數</div>
+      <div class="pt-tab"        data-tab="nhi"  onclick="ptTab('nhi')">⑤ 上傳健保價</div>
     </div>
 
     <!-- ① CRM -->
@@ -119,6 +120,23 @@
       </table>
       <div style="text-align:right;margin-top:10px">
         <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="stratSave()">儲存全部</button>
+      </div>
+    </section>
+
+    <!-- ⑤ 健保價 -->
+    <section id="tab-nhi" hidden>
+      <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
+        兩個 sheet「<b>現行有效_已對到</b>」+「<b>差額給付_自費天花板</b>」,表頭第 1 列、資料第 2 列起。
+        系統自動:民國年轉西元(112/09/01→2023-09-01)、999/12/31→NULL(現行有效)、
+        <b>3 欄唯一鍵</b>(品號+健保碼+生效日)累加去重 DO NOTHING。可重複上傳。
+        <b>本批不做封頂提醒</b>(3B Cards B/C 才做),只把資料入 <code>medsec_nhi_prices</code>。
+      </div>
+      <div id="nhi-drop" class="pt-drop">📥 拖曳健保價 Excel 到此,或點此選檔</div>
+      <input id="nhi-file" type="file" accept=".xlsx,.xls" hidden>
+      <div id="nhi-preview" style="margin-top:12px"></div>
+      <div style="text-align:right;margin-top:10px">
+        <button id="nhi-apply" class="btn-primary" style="width:auto;padding:8px 20px" disabled
+          onclick="nhiApply()">套用匯入</button>
       </div>
     </section>
   </main>
@@ -223,7 +241,7 @@ async function fetchAll(table, sel){
     });
   }catch(e){ alert('主檔載入失敗(對應預覽會不準):'+(e.message||e)); }
   await ensureSystems();      // memoized;listLoad/stratLoad/initList 會再 await 保險
-  bindDrop('crm','crm'); bindDrop('erp','erp');
+  bindDrop('crm','crm'); bindDrop('erp','erp'); bindDrop('nhi','nhi');
 })();
 // 回傳 [品名, 分類](Excel 值優先,缺則主檔回填)
 function enrich(code, xlsName, xlsCat){
@@ -236,7 +254,7 @@ function enrich(code, xlsName, xlsCat){
 
 function ptTab(t){
   document.querySelectorAll('.pt-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
-  ['crm','erp','list','strat'].forEach(x=>{
+  ['crm','erp','list','strat','nhi'].forEach(x=>{
     document.getElementById('tab-'+x).hidden = (x!==t);
   });
   if (t==='list' && !LIST_INIT) initList();
@@ -671,6 +689,110 @@ async function stratSave(){
     .upsert(rows,{onConflict:'hospital_id'});
   if(error){ alert('儲存失敗:'+error.message); return; }
   alert(`已儲存 ${rows.length} 家`); stratLoad();
+}
+
+/* ---------- ⑤ 健保價 → medsec_nhi_prices(累加去重)---------- */
+let NHI_ROWS=[];
+const NHI_SHEETS=['現行有效_已對到','差額給付_自費天花板'];
+
+// 民國年 → 西元;999 視為「無迄日」回 NULL
+function parseRocDate(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  const s=String(v).trim();
+  const m=s.match(/^(\d{1,3})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+  if(!m) return null;
+  const y=Number(m[1]);
+  if(y===999) return null;                  // spec: 999/12/31 → 無迄日
+  return `${y+1911}-${String(Number(m[2])).padStart(2,'0')}-${String(Number(m[3])).padStart(2,'0')}`;
+}
+
+function nhiParse(wb){
+  const out=[]; const stats={};
+  for(const name of NHI_SHEETS){
+    const ws=wb.Sheets[name];
+    if(!ws){ stats[name]='(sheet 不存在)'; continue; }
+    const m=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+    let n=0;
+    // 表頭第 1 列(index 0),資料第 2 列(index 1)起
+    for(let i=1;i<m.length;i++){
+      const row=m[i]; if(!row||row.every(c=>String(c==null?'':c).trim()==='')) continue;
+      const tt=v=>{const s=String(v==null?'':v).trim();return s===''?null:s;};
+      const pc=tt(row[0]); if(!pc) continue;
+      out.push({
+        product_code: pc,
+        nhi_code:        tt(row[19]),
+        nhi_points:      num(row[20]),
+        self_pay_ceiling:num(row[21]),
+        payment_type:    tt(row[22]),
+        diff_pay_note:   tt(row[23]),
+        effective_from:  parseRocDate(row[27]),
+        effective_to:    parseRocDate(row[28]),
+        nhi_name:        tt(row[29]),
+        nhi_spec:        tt(row[30]),
+        match_status:    tt(row[35]),
+        match_note:      tt(row[37]),
+        source_sheet:    name
+      });
+      n++;
+    }
+    stats[name]=n;
+  }
+  NHI_ROWS=out;
+  const sheetLines=Object.entries(stats).map(([k,v])=>`<div>${cmEscPt(k)}: <b>${v}</b></div>`).join('');
+  const noFromCnt=out.filter(r=>!r.effective_from).length;
+  const noToCnt=out.filter(r=>!r.effective_to).length;
+  const noCodeCnt=out.filter(r=>!r.nhi_code).length;
+  document.getElementById('nhi-preview').innerHTML=`
+    <div class="pt-stat">
+      <div><div class="b">${out.length}</div><div class="l">可匯入列(兩 sheet 合計)</div></div>
+    </div>
+    <div style="font-size:13px;color:#475569;margin:6px 0;line-height:1.7">
+      ${sheetLines}
+      民國日期已轉西元;<b>${noToCnt}</b> 列無迄日(999/12/31→NULL,現行有效);
+      <b>${noFromCnt}</b> 列無生效日;<b>${noCodeCnt}</b> 列無健保碼。
+    </div>
+    <table class="case-list" style="margin-top:8px"><thead><tr>
+      <th>品號</th><th>健保碼</th><th>點數</th><th>天花板</th><th>給付類別</th>
+      <th>生效日</th><th>迄日</th><th>NHI 品名</th></tr></thead>
+      <tbody>${out.slice(0,15).map(r=>`<tr>
+        <td>${r.product_code}</td><td>${r.nhi_code||'—'}</td>
+        <td>${r.nhi_points??'—'}</td><td>${r.self_pay_ceiling??'—'}</td>
+        <td>${r.payment_type||'—'}</td>
+        <td>${r.effective_from||'—'}</td><td>${r.effective_to||'(現行)'}</td>
+        <td>${cmEscPt(r.nhi_name||'')}</td></tr>`).join('')}</tbody>
+    </table>${out.length>15?`<div style="font-size:12px;color:#94a3b8">(僅顯示前 15 列)</div>`:''}`;
+  document.getElementById('nhi-apply').disabled=out.length===0;
+}
+
+async function nhiApply(){
+  if(!NHI_ROWS.length) return;
+  if(!confirm(`將累加寫入 ${NHI_ROWS.length} 列到 medsec_nhi_prices。\n重複(品號+健保碼+生效日)會 DO NOTHING,可重複上傳。確認?`)) return;
+  const btn=document.getElementById('nhi-apply'); btn.disabled=true;
+  const pv=document.getElementById('nhi-preview');
+  const show=(main,sub)=>{ pv.innerHTML=
+    `<div class="pt-stat"><div><div class="b">${main}</div>`+
+    `<div class="l">${sub||''}</div></div></div>`; };
+  const B=500;
+  const batches=Math.ceil(NHI_ROWS.length/B);
+  let bi=0, sent=0;
+  try{
+    show('處理中…','分批寫入 medsec_nhi_prices(重複跳過)');
+    for(let i=0;i<NHI_ROWS.length;i+=B){
+      const chunk=NHI_ROWS.slice(i,i+B);
+      // onConflict 欄序必須與 idx_nhi_unique 完全一致
+      const { error }=await supa.from('medsec_nhi_prices')
+        .upsert(chunk,{onConflict:'product_code,nhi_code,effective_from',
+                       ignoreDuplicates:true});
+      if(error) throw error;
+      sent+=chunk.length; bi++;
+      show(`Batch ${bi}/${batches}`, `已送出 ${sent} 列`);
+    }
+    show(`完成,送出 ${sent} 列`,
+      `重複(品號+健保碼+生效日)由 DB 自動跳過;SELECT count(*) FROM medsec_nhi_prices 驗證實際列數`);
+    alert(`完成:送出 ${sent} 列`);
+  }catch(e){ alert('處理失敗:'+(e.message||e)); show('失敗','見上方錯誤,可重新上傳接續'); }
+  finally{ btn.disabled=false; btn.textContent='套用匯入'; }
 }
 </script>
 </body>
