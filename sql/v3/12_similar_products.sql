@@ -33,7 +33,7 @@ DECLARE
     'MM','CM','ML','PCS','PCK','BOX','EA','EACH','ASSY'
   ];
 BEGIN
-  IF NOT COALESCE(public.auth_can_edit_pricing(), FALSE) THEN RETURN; END IF;
+  IF auth.uid() IS NULL THEN RETURN; END IF;  -- 最低限度:需登入;不綁定價編輯權(Card B/C 業祕報價時需呼叫)
 
   SELECT name, substring(id, 1, 5)
     INTO v_target_name, v_target_prefix

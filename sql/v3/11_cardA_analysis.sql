@@ -31,7 +31,7 @@ WITH q AS (
   FROM public.medsec_quote_history
   WHERE quoted_unit_price > 0
     AND quoted_date IS NOT NULL
-    AND COALESCE(public.auth_can_edit_pricing(), FALSE)  -- 機密守門:不通過或無 session → 0 列
+    AND COALESCE(public.auth_can_edit_pricing(), FALSE)  -- 沿用 edit_pricing 權當檢視折數分析閘,檢視者=定價編輯者(manager/boss 0001),非筆誤
 )
 SELECT
   q.hospital_id, q.product_code,
