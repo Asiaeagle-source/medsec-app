@@ -121,8 +121,8 @@
     <!-- ④ 醫院慣用折數(Sprint 3B Card A:折數分析,read-only)-->
     <section id="tab-strat" hidden>
       <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
-        每「醫院 × 品項」一行 — 來源 view <code>v_cardA_card</code>(已含最常/最低/中位折數、占比、波動、風險標記、上次報價/成交、距上次成交月數、漲價提示)。
-        點任一列展開 → 呼叫 <code>fn_cardA_other_hospitals</code> 看他院同品項成交(含折數)。
+        每「醫院 × 品項」一行 — 來源 view <code>v_carda_card</code>(已含最常/最低/中位折數、占比、波動、風險標記、上次報價/成交、距上次成交月數、漲價提示)。
+        點任一列展開 → 呼叫 <code>fn_carda_other_hospitals</code> 看他院同品項成交(含折數)。
         預設排序:<b>破底警示 → 可考慮漲價 → 折數波動 → 穩定</b>。
         <b>業祕看不到此頁</b>(view 內含 <code>auth_can_edit_pricing()</code> 守門 + 頁面對齊同一條件)。
       </div>
@@ -724,9 +724,12 @@ async function listLoad(page){
 }
 
 /* ---------- ④ Sprint 3B Card A:折數分析(read-only) ---------- */
-// 資料源:view v_cardA_card(1 row = 1 醫院×品項;已 join 醫院名/體系/
+// 資料源:view v_carda_card(1 row = 1 醫院×品項;已 join 醫院名/體系/
 // 上次報價/上次成交/距上次成交月數/漲價提示;見 sql/v3/11_cardA_analysis.sql §3)。
-// 展開列:rpc fn_cardA_other_hospitals(品號, 本院id) → 他院近 20 筆成交。
+// 注意:PostgreSQL 未加引號識別字會 fold 成小寫,DB 實際物件名是
+// v_carda_pairs / v_carda_analysis / v_carda_card / fn_carda_other_hospitals;
+// SQL 檔內寫的 cardA 駝峰只是視覺,以 information_schema.views 為準。
+// 展開列:rpc fn_carda_other_hospitals(品號, 本院id) → 他院近 20 筆成交。
 //
 // 守門:view 內含 `AND COALESCE(auth_can_edit_pricing(), FALSE)`。
 // 前端 supabase client 一定帶 JWT(Lynn 登入後 auth.uid()=她的 user_id)
@@ -757,12 +760,12 @@ async function caInit(){
 
 async function caReload(){
   const tb=document.getElementById('ca-tbody');
-  tb.innerHTML='<tr><td colspan="17" class="case-empty">載入 v_cardA_card 中…</td></tr>';
+  tb.innerHTML='<tr><td colspan="17" class="case-empty">載入 v_carda_card 中…</td></tr>';
   try{
     CA_ROWS=[]; const SZ=1000;
     // PostgREST 單次上限 1000,view ~1,984 列,分頁全抓。
     for(let from=0;;from+=SZ){
-      const {data,error}=await supa.from('v_cardA_card').select('*')
+      const {data,error}=await supa.from('v_carda_card').select('*')
         .order('hospital_id',{ascending:true}).order('product_code',{ascending:true})
         .range(from,from+SZ-1);
       if(error) throw error;
@@ -771,7 +774,7 @@ async function caReload(){
     }
     if(CA_ROWS.length===0){
       tb.innerHTML='<tr><td colspan="17" class="case-empty">View 回 0 列。若你是 Lynn/老闆 卻 0 列,請查 console;若非,代表守門擋住(預期)。</td></tr>';
-      console.warn('[CardA] v_cardA_card 回 0 列。檢查 (1) profile.medsec_role/employee_id (2) SQL auth_can_edit_pricing() 設定');
+      console.warn('[CardA] v_carda_card 回 0 列。檢查 (1) profile.medsec_role/employee_id (2) SQL auth_can_edit_pricing() 設定');
       return;
     }
     console.log(`[CardA] 載入 ${CA_ROWS.length} 列`);
@@ -880,7 +883,7 @@ async function caToggle(tr){
   sub.innerHTML='<td colspan="17"><span style="color:#94a3b8">載入他院同品項…</span></td>';
   tbody.insertBefore(sub, tr.nextSibling);
   try{
-    const { data, error }=await supa.rpc('fn_cardA_other_hospitals',
+    const { data, error }=await supa.rpc('fn_carda_other_hospitals',
       { p_product_code: pcode, p_exclude_hospital: hid });
     if(error) throw error;
     if(!data || !data.length){
