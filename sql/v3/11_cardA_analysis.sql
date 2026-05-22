@@ -4,8 +4,13 @@
 -- 機密後台,Lynn/老闆 only。READ-ONLY:純 view + function,不寫入、
 -- 不動來源表。
 --
--- 折數邏輯已用 DB 近五年 medsec_sales 重驗(1,984 組 / 中位 90% / 與
--- Excel 一致)。本檔將其固化成 production views。
+-- 折數邏輯已用 DB 近五年 medsec_sales 重驗(本檔將其固化成 production views)。
+--
+-- 2026-05-22 更新:CTE q 排除 erp_quote_no IS NOT NULL(已拋轉 ERP 的單)。
+-- 該類單的 quoted_unit_price 實為成交價複製(業務複單改價拋轉所致),
+-- 跟 medsec_sales 配對會產生 100% 折的假象,占原資料 31%。排除後:
+--   配對 4,571 → 3,849;組數 1,985 → 1,934(掉 2.6%);
+--   median 0.90 → 0.87(真實議價水準);100% 折 31% → 20%。
 --
 -- spec 草案欄名修正(已對 live schema 確認):
 --   - hospitals 欄是 id(非 hospital_id)、name_short / name_full(非 name)
@@ -21,6 +26,17 @@
 -- ============================================================
 
 -- ---------- 1. 折數配對層 ----------
+-- 報價來源 CTE q:排除已拋轉 ERP 的單(erp_quote_no IS NOT NULL)。
+-- 理由:那類單的 quoted_unit_price 實為成交價的複製(業務在 CRM 複製
+-- 原報價單、改價、再拋去 ERP),拿去當「報價基準」會跟 medsec_sales
+-- 撈到的同一筆成交配對,產生 100% 折的假象,污染折數中位。
+-- 驗證(2026-05-22,bypass auth 診斷查詢):
+--   未排除:4,571 配對 / 1,985 組 / median 0.90 / 31% 為 100% 折
+--   排除後:3,849 配對 / 1,934 組 / median 0.87 / 20% 為 100% 折
+--   組數僅掉 51(2.6%),無大量蒸發;假 100% 折顯著下降。
+-- TODO:殘留約 20% 真/假 100% 折待 notes(備註一/優惠價)解析補,
+--      在 medsec_quote_history.notes 內常見「原價/實際成交」備註可再
+--      過濾;留給 3B 後續 task 處理。
 CREATE OR REPLACE VIEW public.v_cardA_pairs AS
 WITH q AS (
   SELECT
@@ -31,6 +47,7 @@ WITH q AS (
   FROM public.medsec_quote_history
   WHERE quoted_unit_price > 0
     AND quoted_date IS NOT NULL
+    AND erp_quote_no IS NULL                             -- 排除已拋轉單(quoted_unit_price 實為成交價,非真實報價)
     AND COALESCE(public.auth_can_edit_pricing(), FALSE)  -- 沿用 edit_pricing 權當檢視折數分析閘,檢視者=定價編輯者(manager/boss 0001),非筆誤
 )
 SELECT
@@ -187,9 +204,12 @@ NOTIFY pgrst, 'reload schema';
 -- ============================================================
 -- 驗收 / smoke test(Lynn 已用 Excel 對過)
 -- ============================================================
--- 1) SELECT count(*) FROM v_cardA_analysis;          -- 期望 ≈ 1984
+-- 1) SELECT count(*) FROM v_cardA_analysis;          -- 期望 ≈ 1934(原 1985,扣已拋轉污染組 51)
 -- 2) SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY median_discount)
---    FROM v_cardA_analysis;                          -- 期望 ≈ 0.90
+--    FROM v_cardA_analysis;                          -- 期望 ≈ 0.87(原 0.90,扣假 100% 折後降)
+-- 2b) SELECT count(*) FROM v_cardA_pairs;            -- 期望 ≈ 3849(原 4571)
+-- 2c) SELECT round(count(*) FILTER (WHERE discount>=0.999)::numeric
+--             / count(*) * 100, 2) FROM v_cardA_pairs;  -- 期望 ≈ 20%(原 31%)
 -- 3) 抽點:
 --    SELECT * FROM v_cardA_card
 --    WHERE hospital_id='CKUS' AND product_code='10BA40';     -- ≈ 90% 穩定
