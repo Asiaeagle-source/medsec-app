@@ -31,7 +31,7 @@ WITH q AS (
   FROM public.medsec_quote_history
   WHERE quoted_unit_price > 0
     AND quoted_date IS NOT NULL
-    AND public.auth_can_edit_pricing()    -- 機密守門:不通過 → 0 列
+    AND COALESCE(public.auth_can_edit_pricing(), FALSE)  -- 機密守門:不通過或無 session → 0 列
 )
 SELECT
   q.hospital_id, q.product_code,
@@ -151,7 +151,7 @@ RETURNS TABLE(
 )
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NOT public.auth_can_edit_pricing() THEN RETURN; END IF;
+  IF NOT COALESCE(public.auth_can_edit_pricing(), FALSE) THEN RETURN; END IF;
   RETURN QUERY
     SELECT btrim(s.customer_code)::text                AS hospital_id,
            COALESCE(h.name_short, h.name_full)::text   AS hospital_name,
