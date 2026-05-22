@@ -24,7 +24,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-NHI1</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-NHI2</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -284,10 +284,13 @@ function bindDrop(pfx){
     if(e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0], pfx);};
 }
 function readFile(file, pfx){
+  const PARSERS = { crm: crmParse, erp: erpParse, nhi: nhiParse };
   const fr=new FileReader();
   fr.onload=ev=>{
     const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
-    if(pfx==='crm') crmParse(wb); else erpParse(wb);
+    const fn = PARSERS[pfx];
+    if (fn) fn(wb);
+    else console.error('readFile: 無對應 parser for pfx=', pfx);
   };
   fr.readAsArrayBuffer(file);
 }
