@@ -497,9 +497,13 @@ function crmParse(wb){
 async function crmApply(){
   if(!CRM_ROWS.length) return;
   const dup=CRM_ROWS.filter(r=>r._hasNo).length;
-  if(!confirm(`將寫入 ${CRM_ROWS.length} 筆;其中 ${dup} 筆有單號(同單號+品號會覆蓋)。確認?`)) return;
+  if(!confirm(`將寫入 ${CRM_ROWS.length} 筆;其中 ${dup} 筆有單號(同單號+品號會全欄覆蓋)。確認?`)) return;
   const btn=document.getElementById('crm-apply'); btn.disabled=true;
-  const rows=CRM_ROWS.map(({_hm,_pm,_hasNo,...r})=>r);
+  // 主檔欄(hospital_name/system_prefix/region_code/customer_type)不放進 payload:
+  // ON CONFLICT DO UPDATE 不會蓋到 COPI01 同步過來的值。
+  // 新增列(INSERT 路徑)這些欄暫為 null,批次結束後由 fn_qh_fill_hospital_master() 補齊。
+  const rows=CRM_ROWS.map(({_hm,_pm,_hasNo,
+    hospital_name,system_prefix,region_code,customer_type,...r})=>r);
   let done=0;
   try{
     for(let i=0;i<rows.length;i+=500){
@@ -509,7 +513,12 @@ async function crmApply(){
       if(error) throw error;
       done+=chunk.length; btn.textContent=`匯入中… ${done}/${rows.length}`;
     }
-    alert(`完成,寫入 ${done} 筆`);
+    // 補齊新增列的主檔欄(system_prefix 等);已有值的列不動
+    btn.textContent='補主檔欄…';
+    const { data:fillData, error:fillErr } = await supa.rpc('fn_qh_fill_hospital_master');
+    const filled = fillData ?? 0;
+    if(fillErr) console.warn('[crmApply] fn_qh_fill_hospital_master 失敗:', fillErr.message);
+    alert(`完成。寫入 ${done} 筆;補主檔欄 ${filled} 列(新增列)\nstatus(won/confirmed)已由 DB 自動重算。`);
   }catch(e){ alert('匯入失敗:'+(e.message||e)); }
   finally{ btn.disabled=false; btn.textContent='套用匯入'; }
 }
