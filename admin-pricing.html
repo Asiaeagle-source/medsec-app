@@ -16,6 +16,18 @@
   .pt-stat .l{font-size:12px;color:#64748b}
   table.case-list td,table.case-list th{font-size:13px}
   .ok{color:#16a34a}.warn{color:#d97706}
+  /* Card A 折數分析 */
+  .ca-tbl td,.ca-tbl th{font-size:12px;padding:6px}
+  .ca-row{cursor:pointer}
+  .ca-row:hover{background:#f8fafc}
+  .ca-toggle{display:inline-block;width:14px;text-align:center;color:#64748b}
+  .ca-risk{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px}
+  .ca-risk-red{background:#fee2e2;color:#b91c1c}
+  .ca-risk-yel{background:#fef3c7;color:#a16207}
+  .ca-risk-grn{background:#dcfce7;color:#166534}
+  .ca-low{display:inline-block;padding:1px 6px;border-radius:4px;background:#e5e7eb;color:#475569;font-size:10px;margin-left:4px}
+  .ca-raise{display:inline-block;padding:1px 6px;border-radius:4px;background:#dbeafe;color:#1d4ed8;font-size:11px}
+  .ca-sub td{background:#fafafa;padding:8px 12px}
 </style>
 </head>
 <body>
@@ -24,7 +36,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3A-NHI2</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3B-CardA</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -106,20 +118,51 @@
       </div>
     </section>
 
-    <!-- ④ 醫院慣用折數 -->
+    <!-- ④ 醫院慣用折數(Sprint 3B Card A:折數分析,read-only)-->
     <section id="tab-strat" hidden>
-      <div class="rc-question-help" style="margin:8px 0;font-size:13px">
-        每家醫院 1 行,點輸入框直接改。未設定 = 預設 multiplier 1.0 / standard。改完按「儲存全部」。
+      <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
+        每「醫院 × 品項」一行 — 來源 view <code>v_carda_card</code>(已含最常/最低/中位折數、占比、波動、風險標記、最近報價/成交、距最近成交月數、漲價提示)。「最近報價」與「最近成交」各自獨立,不暗示成對。
+        點任一列展開 → 呼叫 <code>fn_carda_other_hospitals</code> 看他院同品項成交(含折數)。
+        預設排序:<b>破底警示 → 可考慮漲價 → 折數波動 → 穩定</b>。
+        <b>業祕看不到此頁</b>(view 內含 <code>auth_can_edit_pricing()</code> 守門 + 頁面對齊同一條件)。
       </div>
-      <input id="strat-search" class="rc-text-input" style="width:220px;padding:6px;margin-bottom:8px"
-        placeholder="🔍 醫院代號/名稱" oninput="stratRender()">
-      <table class="case-list">
-        <thead><tr><th>醫院代號</th><th>醫院名稱</th><th>體系</th>
-          <th style="width:120px">multiplier</th><th style="width:130px">策略</th><th>備註</th></tr></thead>
-        <tbody id="strat-tbody"><tr><td colspan="6" class="case-empty">載入中…</td></tr></tbody>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0">
+        <select id="ca-hospital" class="rc-text-input" style="width:auto;padding:6px"></select>
+        <select id="ca-system" class="rc-text-input" style="width:auto;padding:6px"></select>
+        <input id="ca-product" class="rc-text-input" style="width:130px;padding:6px" placeholder="品號"
+          onkeydown="if(event.key==='Enter')caRender(1)">
+        <select id="ca-risk" class="rc-text-input" style="width:auto;padding:6px">
+          <option value="">全部風險</option>
+          <option>破底警示</option><option>折數波動</option><option>穩定</option>
+        </select>
+        <label style="font-size:13px;display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="ca-raise"> 只看可考慮漲價</label>
+        <label style="font-size:13px;display:inline-flex;align-items:center;gap:4px">
+          <input type="checkbox" id="ca-hideLow"> 隱藏低樣本(&lt;3)</label>
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="caRender(1)">套用篩選</button>
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="caReload()">重抓</button>
+        <span id="ca-count" style="font-size:13px;color:#64748b"></span>
+      </div>
+      <table class="case-list ca-tbl">
+        <thead><tr>
+          <th style="width:22px"></th>
+          <th>醫院</th><th>體系</th><th>品號</th><th>品名</th>
+          <th>樣本</th>
+          <th>最常折</th><th>占比</th>
+          <th>最低折</th><th>占比</th>
+          <th>中位</th>
+          <th>波動</th>
+          <th>風險</th>
+          <th>最近報價</th><th>最近成交</th>
+          <th>月</th>
+          <th>提示</th>
+        </tr></thead>
+        <tbody id="ca-tbody"><tr><td colspan="17" class="case-empty">點上方 ④ 自動載入</td></tr></tbody>
       </table>
-      <div style="text-align:right;margin-top:10px">
-        <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="stratSave()">儲存全部</button>
+      <div style="text-align:center;margin-top:10px">
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="caRender(CA_PAGE-1)">上一頁</button>
+        <span id="ca-page" style="margin:0 10px;font-size:13px"></span>
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="caRender(CA_PAGE+1)">下一頁</button>
       </div>
     </section>
 
@@ -146,7 +189,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="medsec-common.js"></script>
 <script>
-let PROFILE = null, HOSP = {}, PRODS = {}, PCAT = {}, SYSTEMS = {}, STRAT = [];
+let PROFILE = null, HOSP = {}, PRODS = {}, PCAT = {}, SYSTEMS = {};
 // 用 Promise memoize:任何 render 之前先 await ensureSystems(),
 // 完全消除「init 還沒跑完就 render」的 race。
 let SYSTEMS_PROMISE = null;
@@ -220,8 +263,35 @@ async function fetchAll(table, sel){
   return out;
 }
 
+// 對齊 SQL auth_can_edit_pricing():manager OR boss(employee_id='0001')。
+// 原本只允 manager,boss 進不來;為了讓 Tab④(Card A view)的頁面守門
+// 跟 view 內 WHERE auth_can_edit_pricing() 同一條件,放寬到含 boss。
+// 業祕(secretary)兩道都過不了。
+async function guardPricingPage(){
+  const { data:{ session } } = await supa.auth.getSession();
+  if(!session){ window.location.href='login.html'; return null; }
+  const { data:profile, error } = await supa.from('profiles')
+    .select('id, employee_id, name, nickname, medsec_role, has_medsec_access')
+    .eq('id', session.user.id).single();
+  if(error || !profile){
+    alert('找不到帳號資料,請聯繫管理員');
+    await supa.auth.signOut(); window.location.href='login.html'; return null;
+  }
+  if(!profile.has_medsec_access){
+    alert('您沒有 MedSec Hub 的存取權限');
+    await supa.auth.signOut(); window.location.href='login.html'; return null;
+  }
+  const ok = profile.medsec_role==='manager' || profile.employee_id==='0001';
+  if(!ok){
+    alert('此頁僅 Lynn / 老闆可進(與 auth_can_edit_pricing 一致)');
+    const tgt = (typeof ROLE_PAGE_MAP!=='undefined' && ROLE_PAGE_MAP[profile.medsec_role]) || 'login.html';
+    window.location.href = tgt; return null;
+  }
+  return profile;
+}
+
 (async function init(){
-  const p = await guardRole('manager');           // 僅 Lynn;業祕會被導走
+  const p = await guardPricingPage();             // Lynn(manager)+ 老闆(0001);業祕擋掉
   if (!p) return;
   PROFILE = p; renderUserInfo(p);
   const u = document.getElementById('pt-user'); if (u) u.textContent = p.nickname || p.name || '';
@@ -240,7 +310,7 @@ async function fetchAll(table, sel){
         name: x.product_name || null, cat: x.product_category || null };
     });
   }catch(e){ alert('主檔載入失敗(對應預覽會不準):'+(e.message||e)); }
-  await ensureSystems();      // memoized;listLoad/stratLoad/initList 會再 await 保險
+  await ensureSystems();      // memoized;listLoad/caInit/initList 會再 await 保險
   bindDrop('crm','crm'); bindDrop('erp','erp'); bindDrop('nhi','nhi');
 })();
 // 回傳 [品名, 分類](Excel 值優先,缺則主檔回填)
@@ -258,7 +328,7 @@ function ptTab(t){
     document.getElementById('tab-'+x).hidden = (x!==t);
   });
   if (t==='list' && !LIST_INIT) initList();
-  if (t==='strat' && !STRAT.length) stratLoad();
+  if (t==='strat' && !CA_INIT) caInit();
 }
 
 /* ---------- 共用 ---------- */
@@ -427,9 +497,13 @@ function crmParse(wb){
 async function crmApply(){
   if(!CRM_ROWS.length) return;
   const dup=CRM_ROWS.filter(r=>r._hasNo).length;
-  if(!confirm(`將寫入 ${CRM_ROWS.length} 筆;其中 ${dup} 筆有單號(同單號+品號會覆蓋)。確認?`)) return;
+  if(!confirm(`將寫入 ${CRM_ROWS.length} 筆;其中 ${dup} 筆有單號(同單號+品號會全欄覆蓋)。確認?`)) return;
   const btn=document.getElementById('crm-apply'); btn.disabled=true;
-  const rows=CRM_ROWS.map(({_hm,_pm,_hasNo,...r})=>r);
+  // 主檔欄(hospital_name/system_prefix/region_code/customer_type)不放進 payload:
+  // ON CONFLICT DO UPDATE 不會蓋到 COPI01 同步過來的值。
+  // 新增列(INSERT 路徑)這些欄暫為 null,批次結束後由 fn_qh_fill_hospital_master() 補齊。
+  const rows=CRM_ROWS.map(({_hm,_pm,_hasNo,
+    hospital_name,system_prefix,region_code,customer_type,...r})=>r);
   let done=0;
   try{
     for(let i=0;i<rows.length;i+=500){
@@ -439,7 +513,12 @@ async function crmApply(){
       if(error) throw error;
       done+=chunk.length; btn.textContent=`匯入中… ${done}/${rows.length}`;
     }
-    alert(`完成,寫入 ${done} 筆`);
+    // 補齊新增列的主檔欄(system_prefix 等);已有值的列不動
+    btn.textContent='補主檔欄…';
+    const { data:fillData, error:fillErr } = await supa.rpc('fn_qh_fill_hospital_master');
+    const filled = fillData ?? 0;
+    if(fillErr) console.warn('[crmApply] fn_qh_fill_hospital_master 失敗:', fillErr.message);
+    alert(`完成。寫入 ${done} 筆;補主檔欄 ${filled} 列(新增列)\nstatus(won/confirmed)已由 DB 自動重算。`);
   }catch(e){ alert('匯入失敗:'+(e.message||e)); }
   finally{ btn.disabled=false; btn.textContent='套用匯入'; }
 }
@@ -653,45 +732,190 @@ async function listLoad(page){
     <td>${r.status}</td><td>${r.sales_unit_price??'—'}</td></tr>`).join('');
 }
 
-/* ---------- ④ 醫院慣用折數 ---------- */
-const STRATEGIES=['aggressive','standard','competitive','maintain'];
-async function stratLoad(){
+/* ---------- ④ Sprint 3B Card A:折數分析(read-only) ---------- */
+// 資料源:view v_carda_card(1 row = 1 醫院×品項;已 join 醫院名/體系/
+// 最近報價/最近成交/距最近成交月數/漲價提示;見 sql/v3/11_cardA_analysis.sql §3。
+// 「最近報價」與「最近成交」各自獨立查最新事實,不暗示成對;
+// 最近成交多了價位護欄(落在最近報價×[0.3,1.2]),避免整套類成交誤配 個別維修報價。
+// 注意:PostgreSQL 未加引號識別字會 fold 成小寫,DB 實際物件名是
+// v_carda_pairs / v_carda_analysis / v_carda_card / fn_carda_other_hospitals;
+// SQL 檔內寫的 cardA 駝峰只是視覺,以 information_schema.views 為準。
+// 展開列:rpc fn_carda_other_hospitals(品號, 本院id) → 他院近 20 筆成交。
+//
+// 守門:view 內含 `AND COALESCE(auth_can_edit_pricing(), FALSE)`。
+// 前端 supabase client 一定帶 JWT(Lynn 登入後 auth.uid()=她的 user_id)
+// → auth_can_edit_pricing() 回 TRUE → 放行;這跟 SQL Editor 用 postgres
+// role(無 session,函式回 NULL)行為不同。所以前端看到資料是正常的,
+// 不是「view 壞了」。業祕的 JWT 過不了 auth_can_edit_pricing(),view 回 0 列。
+let CA_ROWS=[], CA_FILTERED=[], CA_PAGE=1, CA_INIT=false;
+const CA_SIZE=50;
+
+async function caInit(){
+  if (CA_INIT) return;
+  CA_INIT = true;
   await ensureSystems();
-  const { data }=await supa.from('medsec_hospital_pricing_strategy').select('*');
-  const by={}; (data||[]).forEach(r=>by[r.hospital_id]=r);
-  STRAT=Object.values(HOSP).sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(h=>({
-    hospital_id:h.id, hospital_name:h.name_short||h.name_full||'', system_prefix:h.system_prefix||'',
-    default_pricing_multiplier:by[h.id]?.default_pricing_multiplier ?? 1.0,
-    pricing_strategy:by[h.id]?.pricing_strategy || 'standard',
-    notes:by[h.id]?.notes || ''
-  }));
-  stratRender();
+  const hsel=document.getElementById('ca-hospital');
+  hsel.innerHTML='<option value="">全部醫院</option>'+Object.values(HOSP)
+    .sort((a,b)=>String(a.id).localeCompare(String(b.id)))
+    .map(h=>`<option value="${cmEscPt(h.id)}">${cmEscPt(h.id)} ${cmEscPt(h.name_short||h.name_full||'')}</option>`).join('');
+  const sys=[...new Set(Object.values(HOSP).map(h=>h.system_prefix).filter(Boolean))]
+    .sort((a,b)=>String(sysLabel(a)).localeCompare(String(sysLabel(b)),'zh-Hant'));
+  document.getElementById('ca-system').innerHTML='<option value="">全部體系</option>'
+    +sys.map(s=>`<option value="${cmEscPt(s)}">${cmEscPt(sysLabel(s))}</option>`).join('');
+  ['ca-hospital','ca-system','ca-risk'].forEach(id=>
+    document.getElementById(id).onchange=()=>caRender(1));
+  ['ca-raise','ca-hideLow'].forEach(id=>
+    document.getElementById(id).onchange=()=>caRender(1));
+  await caReload();
 }
-function stratRender(){
-  const kw=(document.getElementById('strat-search').value||'').trim().toLowerCase();
-  const rows=STRAT.filter(r=>!kw||r.hospital_id.toLowerCase().includes(kw)||(r.hospital_name||'').toLowerCase().includes(kw));
-  const tb=document.getElementById('strat-tbody');
-  if(!rows.length){ tb.innerHTML='<tr><td colspan="6" class="case-empty">無</td></tr>'; return; }
-  tb.innerHTML=rows.map(r=>`<tr data-id="${r.hospital_id}">
-    <td><b>${r.hospital_id}</b></td><td>${r.hospital_name}</td><td>${sysLabel(r.system_prefix)}</td>
-    <td><input type="number" step="0.05" class="rc-text-input s-mult" style="padding:4px;width:90px" value="${r.default_pricing_multiplier}"></td>
-    <td><select class="rc-text-input s-strat" style="padding:4px">${STRATEGIES.map(s=>`<option ${r.pricing_strategy===s?'selected':''}>${s}</option>`).join('')}</select></td>
-    <td><input class="rc-text-input s-notes" style="padding:4px" value="${(r.notes||'').replace(/"/g,'&quot;')}"></td>
-  </tr>`).join('');
+
+async function caReload(){
+  const tb=document.getElementById('ca-tbody');
+  tb.innerHTML='<tr><td colspan="17" class="case-empty">載入 v_carda_card 中…</td></tr>';
+  try{
+    CA_ROWS=[]; const SZ=1000;
+    // PostgREST 單次上限 1000,view ~1,984 列,分頁全抓。
+    for(let from=0;;from+=SZ){
+      const {data,error}=await supa.from('v_carda_card').select('*')
+        .order('hospital_id',{ascending:true}).order('product_code',{ascending:true})
+        .range(from,from+SZ-1);
+      if(error) throw error;
+      CA_ROWS.push(...(data||[]));
+      if(!data || data.length<SZ) break;
+    }
+    if(CA_ROWS.length===0){
+      tb.innerHTML='<tr><td colspan="17" class="case-empty">View 回 0 列。若你是 Lynn/老闆 卻 0 列,請查 console;若非,代表守門擋住(預期)。</td></tr>';
+      console.warn('[CardA] v_carda_card 回 0 列。檢查 (1) profile.medsec_role/employee_id (2) SQL auth_can_edit_pricing() 設定');
+      return;
+    }
+    console.log(`[CardA] 載入 ${CA_ROWS.length} 列`);
+    caRender(1);
+  }catch(e){
+    tb.innerHTML=`<tr><td colspan="17" class="case-empty warn">載入失敗:${cmEscPt(e.message||e)}</td></tr>`;
+  }
 }
-async function stratSave(){
-  const rows=[...document.querySelectorAll('#strat-tbody tr[data-id]')].map(tr=>({
-    hospital_id:tr.dataset.id,
-    default_pricing_multiplier:Number(tr.querySelector('.s-mult').value)||1.0,
-    pricing_strategy:tr.querySelector('.s-strat').value,
-    notes:tr.querySelector('.s-notes').value.trim()||null,
-    updated_by:PROFILE.id, updated_at:new Date().toISOString()
-  }));
-  if(!rows.length) return;
-  const { error }=await supa.from('medsec_hospital_pricing_strategy')
-    .upsert(rows,{onConflict:'hospital_id'});
-  if(error){ alert('儲存失敗:'+error.message); return; }
-  alert(`已儲存 ${rows.length} 家`); stratLoad();
+
+function caRiskClass(rf){
+  return rf==='破底警示' ? 'ca-risk ca-risk-red'
+       : rf==='折數波動' ? 'ca-risk ca-risk-yel'
+       : 'ca-risk ca-risk-grn';
+}
+// 預設排序:破底警示 0 → 漲價提示 1 → 折數波動 2 → 穩定 3
+function caSortKey(r){
+  if(r.risk_flag==='破底警示') return 0;
+  if(r.raise_price_hint)       return 1;
+  if(r.risk_flag==='折數波動') return 2;
+  return 3;
+}
+function caPct(x){ return x==null ? '—' : (Number(x)*100).toFixed(0)+'%'; }
+
+function caRender(page){
+  if(!CA_INIT) return;
+  if(!CA_ROWS.length){
+    document.getElementById('ca-count').textContent='共 0 列';
+    document.getElementById('ca-page').textContent='—';
+    return;
+  }
+  const f={
+    h: document.getElementById('ca-hospital').value,
+    s: document.getElementById('ca-system').value,
+    p: (document.getElementById('ca-product').value||'').trim().toLowerCase(),
+    r: document.getElementById('ca-risk').value,
+    raise:   document.getElementById('ca-raise').checked,
+    hideLow: document.getElementById('ca-hideLow').checked,
+  };
+  CA_FILTERED = CA_ROWS.filter(x=>
+       (!f.h || x.hospital_id===f.h)
+    && (!f.s || x.system_prefix===f.s)
+    && (!f.p || (x.product_code||'').toLowerCase().includes(f.p))
+    && (!f.r || x.risk_flag===f.r)
+    && (!f.raise   || x.raise_price_hint)
+    && (!f.hideLow || !x.low_sample)
+  ).sort((a,b)=>{
+    const ka=caSortKey(a), kb=caSortKey(b);
+    if(ka!==kb) return ka-kb;
+    return (a.hospital_id||'').localeCompare(b.hospital_id||'')
+        || (a.product_code||'').localeCompare(b.product_code||'');
+  });
+  const total=CA_FILTERED.length;
+  const pages=Math.max(1, Math.ceil(total/CA_SIZE));
+  if(page<1) page=1; if(page>pages) page=pages;
+  CA_PAGE=page;
+  document.getElementById('ca-count').textContent=`共 ${total} 列 / 全 ${CA_ROWS.length}`;
+  document.getElementById('ca-page').textContent=`第 ${page} 頁 / 共 ${pages} 頁`;
+  const slice=CA_FILTERED.slice((page-1)*CA_SIZE, page*CA_SIZE);
+  const tb=document.getElementById('ca-tbody');
+  if(!slice.length){
+    tb.innerHTML='<tr><td colspan="17" class="case-empty">無符合條件</td></tr>';
+    return;
+  }
+  tb.innerHTML=slice.map(r=>{
+    const pname=PRODS[r.product_code]||(PCAT[r.product_code]&&PCAT[r.product_code].name)||'—';
+    const lq=r.last_quote_price!=null
+      ? `${r.last_quote_price} <span style="color:#94a3b8">${r.last_quote_date||''}</span>` : '—';
+    const ls=r.last_sale_price!=null
+      ? `${r.last_sale_price} <span style="color:#94a3b8">${r.last_sale_date||''}</span>` : '—';
+    const lowBadge=r.low_sample?'<span class="ca-low">參考用</span>':'';
+    const raiseBadge=r.raise_price_hint?'<span class="ca-raise">可考慮漲價</span>':'';
+    return `<tr class="ca-row" data-key="${cmEscPt(r.hospital_id)}|${cmEscPt(r.product_code)}" onclick="caToggle(this)">
+      <td class="ca-toggle">▸</td>
+      <td>${cmEscPt(r.hospital_name||r.hospital_id||'—')}<br><span style="color:#94a3b8;font-size:11px">${cmEscPt(r.hospital_id||'')}</span></td>
+      <td>${cmEscPt(sysLabel(r.system_prefix))}</td>
+      <td>${cmEscPt(r.product_code)}</td>
+      <td>${cmEscPt(pname)}</td>
+      <td>${r.sample_n??'—'}${lowBadge}</td>
+      <td>${caPct(r.common_discount)}</td>
+      <td>${caPct(r.common_share)}</td>
+      <td>${caPct(r.min_discount)}</td>
+      <td>${caPct(r.min_share)}</td>
+      <td>${caPct(r.median_discount)}</td>
+      <td>${caPct(r.spread)}</td>
+      <td><span class="${caRiskClass(r.risk_flag)}">${cmEscPt(r.risk_flag||'')}</span></td>
+      <td>${lq}</td>
+      <td>${ls}</td>
+      <td>${r.months_since_sale!=null?(r.months_since_sale+'M'):'—'}</td>
+      <td>${raiseBadge}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function caToggle(tr){
+  const tbody=tr.parentElement;
+  const next=tr.nextElementSibling;
+  if(next && next.classList.contains('ca-sub')){
+    next.remove();
+    tr.querySelector('.ca-toggle').textContent='▸';
+    return;
+  }
+  tr.querySelector('.ca-toggle').textContent='▾';
+  const [hid, pcode]=tr.dataset.key.split('|');
+  const sub=document.createElement('tr');
+  sub.className='ca-sub';
+  sub.innerHTML='<td colspan="17"><span style="color:#94a3b8">載入他院同品項…</span></td>';
+  tbody.insertBefore(sub, tr.nextSibling);
+  try{
+    const { data, error }=await supa.rpc('fn_carda_other_hospitals',
+      { p_product_code: pcode, p_exclude_hospital: hid });
+    if(error) throw error;
+    if(!data || !data.length){
+      sub.innerHTML='<td colspan="17"><span style="color:#94a3b8">他院無同品項成交紀錄(或被守門擋住)</span></td>';
+      return;
+    }
+    sub.innerHTML=`<td colspan="17">
+      <div style="font-weight:600;margin-bottom:6px">他院同品項成交(<code>${cmEscPt(pcode)}</code>,最近 20 筆,排除本院)</div>
+      <table class="case-list" style="font-size:12px"><thead><tr>
+        <th>醫院</th><th>體系</th><th>成交日</th><th>單價</th><th>折數</th></tr></thead>
+        <tbody>${data.map(d=>`<tr>
+          <td>${cmEscPt(d.hospital_name||d.hospital_id||'—')}<br><span style="color:#94a3b8;font-size:11px">${cmEscPt(d.hospital_id||'')}</span></td>
+          <td>${cmEscPt(sysLabel(d.system_prefix))}</td>
+          <td>${d.sale_date||'—'}</td>
+          <td>${d.sale_price??'—'}</td>
+          <td>${d.discount!=null?caPct(d.discount):'<span style="color:#94a3b8">無配對</span>'}</td>
+        </tr>`).join('')}</tbody></table>
+    </td>`;
+  }catch(e){
+    sub.innerHTML=`<td colspan="17"><span class="warn">他院查詢失敗:${cmEscPt(e.message||e)}</span></td>`;
+  }
 }
 
 /* ---------- ⑤ 健保價 → medsec_nhi_prices(累加去重)---------- */
