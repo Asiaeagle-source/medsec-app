@@ -121,7 +121,7 @@
     <!-- ④ 醫院慣用折數(Sprint 3B Card A:折數分析,read-only)-->
     <section id="tab-strat" hidden>
       <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
-        每「醫院 × 品項」一行 — 來源 view <code>v_carda_card</code>(已含最常/最低/中位折數、占比、波動、風險標記、上次報價/成交、距上次成交月數、漲價提示)。
+        每「醫院 × 品項」一行 — 來源 view <code>v_carda_card</code>(已含最常/最低/中位折數、占比、波動、風險標記、最近報價/成交、距最近成交月數、漲價提示)。「最近報價」與「最近成交」各自獨立,不暗示成對。
         點任一列展開 → 呼叫 <code>fn_carda_other_hospitals</code> 看他院同品項成交(含折數)。
         預設排序:<b>破底警示 → 可考慮漲價 → 折數波動 → 穩定</b>。
         <b>業祕看不到此頁</b>(view 內含 <code>auth_can_edit_pricing()</code> 守門 + 頁面對齊同一條件)。
@@ -153,7 +153,7 @@
           <th>中位</th>
           <th>波動</th>
           <th>風險</th>
-          <th>上次報價</th><th>上次成交</th>
+          <th>最近報價</th><th>最近成交</th>
           <th>月</th>
           <th>提示</th>
         </tr></thead>
@@ -734,7 +734,9 @@ async function listLoad(page){
 
 /* ---------- ④ Sprint 3B Card A:折數分析(read-only) ---------- */
 // 資料源:view v_carda_card(1 row = 1 醫院×品項;已 join 醫院名/體系/
-// 上次報價/上次成交/距上次成交月數/漲價提示;見 sql/v3/11_cardA_analysis.sql §3)。
+// 最近報價/最近成交/距最近成交月數/漲價提示;見 sql/v3/11_cardA_analysis.sql §3。
+// 「最近報價」與「最近成交」各自獨立查最新事實,不暗示成對;
+// 最近成交多了價位護欄(落在最近報價×[0.3,1.2]),避免整套類成交誤配 個別維修報價。
 // 注意:PostgreSQL 未加引號識別字會 fold 成小寫,DB 實際物件名是
 // v_carda_pairs / v_carda_analysis / v_carda_card / fn_carda_other_hospitals;
 // SQL 檔內寫的 cardA 駝峰只是視覺,以 information_schema.views 為準。

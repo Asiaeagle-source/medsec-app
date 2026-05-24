@@ -116,7 +116,14 @@ JOIN bucket_counts c
  AND c.product_code = a.product_code
  AND c.rk_common = 1;
 
--- ---------- 3. 卡片顯示層(補上次報價/成交、距上次成交月數、醫院名)----------
+-- ---------- 3. 卡片顯示層(補最近報價/最近成交、距最近成交月數、醫院名)----------
+-- 重要:「最近報價」與「最近成交」是各自獨立的最新事實,不暗示成對/有因果關係。
+--
+-- 護欄(2026-05-23):
+--   lq(最近報價):沿用 erp_quote_no IS NULL 排除複製改價單,與 v_carda_pairs 一致
+--   ls(最近成交):限定單價落在 lq.quoted_unit_price × [0.3, 1.2],跟 pairs 折數區間
+--                 一致,避免抓到整套等不可比的成交(如 PM200 維修 13.8 萬被配
+--                 到整套 28.8 萬)。配不到時 ls 整段為 NULL,相關欄顯示 —。
 CREATE OR REPLACE VIEW public.v_cardA_card AS
 SELECT
   an.*,
@@ -138,8 +145,9 @@ LEFT JOIN LATERAL (
   SELECT quoted_unit_price, quoted_date
   FROM public.medsec_quote_history
   WHERE btrim(hospital_id) = an.hospital_id
-    AND product_code = an.product_code
-    AND quoted_unit_price > 0
+    AND product_code       = an.product_code
+    AND quoted_unit_price  > 0
+    AND erp_quote_no IS NULL              -- 與 v_carda_pairs CTE q 一致:排除已拋轉複製改價單
   ORDER BY quoted_date DESC
   LIMIT 1
 ) lq ON true
@@ -147,8 +155,13 @@ LEFT JOIN LATERAL (
   SELECT unit_price, sales_date
   FROM public.medsec_sales
   WHERE btrim(customer_code) = an.hospital_id
-    AND product_code = an.product_code
-    AND unit_price > 0
+    AND product_code         = an.product_code
+    AND unit_price           > 0
+    -- 護欄:單價落在最近報價 × [0.3, 1.2],跟 v_carda_pairs 折數區間一致;
+    -- 配不到價位相近的成交時,「最近成交」相關欄回 NULL
+    AND lq.quoted_unit_price IS NOT NULL
+    AND unit_price BETWEEN lq.quoted_unit_price * 0.3
+                       AND lq.quoted_unit_price * 1.2
   ORDER BY sales_date DESC
   LIMIT 1
 ) ls ON true;
