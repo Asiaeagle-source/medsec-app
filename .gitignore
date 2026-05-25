@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS / Editor noise
+.DS_Store
+*.swp
+
+# Local env / secrets (絕不入庫)
+.env
+.env.*
