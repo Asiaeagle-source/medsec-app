@@ -8,12 +8,17 @@
 -- 公式(per §6.1 答案 A):
 --   suggested = 本院上次報價 × min(該性質折數中位, 1.0)
 --
--- 折數來源優先序:
+-- 折數來源優先序(2026-05-25 補丙退路):
 --   有 notes 標籤(RM/NE/EQ/IN):
---     1) 本院 notes 同性質中位 → 2) 他院 notes 同性質中位 → 3) 同體系 fuzzy 中位
---   無 notes 標籤(CO/CC/BU):
---     1) 本院 fuzzy 中位 → 2) 他院 fuzzy 中位 → 3) 同體系 fuzzy 中位
---   (per E1 答案:CO/CC/BU 退 fuzzy,不退「所有 notes 中位混算」以免混性質)
+--     1) notes_self        本院 notes 同性質中位(乾淨)
+--     2) notes_other       他院 notes 同性質中位(乾淨)
+--     3) fuzzy_self_mixed  本院 fuzzy 中位(混性質,fallback)
+--     4) fuzzy_other_mixed 他院 fuzzy 中位(混性質,fallback)
+--     5) system_median_mixed 同體系 fuzzy 中位(混性質,最後退路)
+--   無 notes 標籤(CO/CC/BU):略過 notes 路,直接從 3) 開始
+--   (per E1 + 2026-05-25 補:CO/CC/BU 退 fuzzy 不退「所有 notes 混算」;
+--    notes 失敗時也不直接跳 system,先試本院/他院 fuzzy,業祕永遠有建議價。
+--    _mixed 後綴標示混性質、可信度低,讓 Lynn 看 source 即知。)
 --
 -- tx_kind → notes tx_type label(per E1):
 --   RM→维修  NE→汰旧  EQ→新购  IN→新购  CO/CC/BU→null(走 fuzzy)
@@ -35,7 +40,7 @@ CREATE OR REPLACE FUNCTION public.fn_cardB_suggest(
 RETURNS TABLE(
   suggested_price   numeric,
   discount_used     numeric,
-  discount_source   text,     -- notes_self/notes_other/system_median/fuzzy_self/fuzzy_other
+  discount_source   text,     -- notes_self|notes_other(乾淨) | fuzzy_self_mixed|fuzzy_other_mixed|system_median_mixed(混性質)
   last_quote_price  numeric,
   last_quote_date   date,
   last_sale_price   numeric,
@@ -87,7 +92,8 @@ BEGIN
     LIMIT 1;
   END IF;
 
-  -- ===== 折數中位:依 tx_kind 走 notes 或 fuzzy 路線 =====
+  -- ===== 折數中位:notes 路(乾淨)→ fuzzy 路(混性質,fallback)=====
+  -- (1)~(2) notes 路:僅當 tx_kind 有對應標籤(RM/NE/EQ/IN)時嘗試
   IF v_notes_label IS NOT NULL THEN
     -- (1) 本院 notes 同性質中位
     SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY nd.discount)
@@ -107,13 +113,15 @@ BEGIN
         AND nd.tx_type LIKE '%' || v_notes_label || '%';
       IF v_disc IS NOT NULL THEN v_src := 'notes_other'; END IF;
     END IF;
-  ELSE
-    -- CO/CC/BU 路線:本院 fuzzy(inline,避開 view 守門)
+  END IF;
+
+  -- (3) 本院 fuzzy 中位(混性質,_mixed 標)
+  IF v_disc IS NULL THEN
     WITH pairs AS (
       SELECT (s.unit_price / q.quoted_unit_price)::numeric AS discount
       FROM public.medsec_quote_history q
       CROSS JOIN LATERAL (
-        SELECT unit_price, sales_date FROM public.medsec_sales
+        SELECT unit_price FROM public.medsec_sales
         WHERE btrim(customer_code) = btrim(q.hospital_id)
           AND product_code         = q.product_code
           AND unit_price > 0
@@ -128,33 +136,34 @@ BEGIN
         AND (s.unit_price / q.quoted_unit_price) BETWEEN 0.3 AND 1.2
     )
     SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY discount) INTO v_disc FROM pairs;
-    IF v_disc IS NOT NULL THEN v_src := 'fuzzy_self'; END IF;
-
-    IF v_disc IS NULL THEN
-      -- 他院 fuzzy(任意醫院 × 同品號)
-      WITH pairs AS (
-        SELECT (s.unit_price / q.quoted_unit_price)::numeric AS discount
-        FROM public.medsec_quote_history q
-        CROSS JOIN LATERAL (
-          SELECT unit_price, sales_date FROM public.medsec_sales
-          WHERE btrim(customer_code) = btrim(q.hospital_id)
-            AND product_code         = q.product_code
-            AND unit_price > 0
-            AND sales_date >= q.quoted_date
-          ORDER BY sales_date ASC, unit_price ASC
-          LIMIT 1
-        ) s
-        WHERE q.product_code      = p_product_code
-          AND q.quoted_unit_price > 0
-          AND q.erp_quote_no IS NULL
-          AND (s.unit_price / q.quoted_unit_price) BETWEEN 0.3 AND 1.2
-      )
-      SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY discount) INTO v_disc FROM pairs;
-      IF v_disc IS NOT NULL THEN v_src := 'fuzzy_other'; END IF;
-    END IF;
+    IF v_disc IS NOT NULL THEN v_src := 'fuzzy_self_mixed'; END IF;
   END IF;
 
-  -- (3) 最終退路:同體系 fuzzy 中位
+  -- (4) 他院 fuzzy 中位(混性質,_mixed 標)
+  IF v_disc IS NULL THEN
+    WITH pairs AS (
+      SELECT (s.unit_price / q.quoted_unit_price)::numeric AS discount
+      FROM public.medsec_quote_history q
+      CROSS JOIN LATERAL (
+        SELECT unit_price FROM public.medsec_sales
+        WHERE btrim(customer_code) = btrim(q.hospital_id)
+          AND product_code         = q.product_code
+          AND unit_price > 0
+          AND sales_date >= q.quoted_date
+        ORDER BY sales_date ASC, unit_price ASC
+        LIMIT 1
+      ) s
+      WHERE q.product_code        = p_product_code
+        AND btrim(q.hospital_id) <> p_hospital_id
+        AND q.quoted_unit_price   > 0
+        AND q.erp_quote_no IS NULL
+        AND (s.unit_price / q.quoted_unit_price) BETWEEN 0.3 AND 1.2
+    )
+    SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY discount) INTO v_disc FROM pairs;
+    IF v_disc IS NOT NULL THEN v_src := 'fuzzy_other_mixed'; END IF;
+  END IF;
+
+  -- (5) 最終退路:同體系 fuzzy 中位(混性質,_mixed 標)
   IF v_disc IS NULL THEN
     SELECT h.system_prefix INTO v_target_sys
     FROM public.medsec_hospitals h WHERE h.id = p_hospital_id;
@@ -167,7 +176,7 @@ BEGIN
         FROM public.medsec_quote_history q
         JOIN sys_hosp sh ON sh.id = btrim(q.hospital_id)
         CROSS JOIN LATERAL (
-          SELECT unit_price, sales_date FROM public.medsec_sales
+          SELECT unit_price FROM public.medsec_sales
           WHERE btrim(customer_code) = btrim(q.hospital_id)
             AND product_code         = q.product_code
             AND unit_price > 0
@@ -181,7 +190,7 @@ BEGIN
           AND (s.unit_price / q.quoted_unit_price) BETWEEN 0.3 AND 1.2
       )
       SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY discount) INTO v_disc FROM pairs;
-      IF v_disc IS NOT NULL THEN v_src := 'system_median'; END IF;
+      IF v_disc IS NOT NULL THEN v_src := 'system_median_mixed'; END IF;
     END IF;
   END IF;
 
@@ -290,10 +299,16 @@ NOTIFY pgrst, 'reload schema';
 -- ============================================================
 -- 驗證
 -- ============================================================
--- 業祕視角(login):
+-- 業祕視角(login,fuzzy fallback 對業祕也通,業祕永遠拿得到建議價):
 --   SELECT * FROM fn_cardB_suggest('CKUS', '10BA40', 'RM');
---     -- 應有 suggested_price + discount_source(預期 notes_self/notes_other)
+--     -- 預期 discount_source=notes_self 或 notes_other(乾淨)
+--   SELECT * FROM fn_cardB_suggest('XYZ-無此醫院', 'PM200', 'CO');
+--     -- 預期跑到 fuzzy_other_mixed 或 system_median_mixed
 --   SELECT * FROM fn_cardB_strategy_floors('CKUS', '10BA40', 'RM');
 --     -- 應回 0 列(auth_can_edit_pricing 擋住,業祕看不到守價)
--- Lynn 視角:
---   兩個都會有資料,strategy_floors 額外回 yellow_floor / red_floor / hint
+-- Lynn 視角(前端帶 JWT 才能驗):
+--   兩個都會有資料;strategy_floors 額外回 yellow_floor / red_floor / hint
+--
+-- discount_source 解讀:
+--   notes_*               → 乾淨折數(同 tx_type 過濾,可信度高)
+--   *_mixed               → 混性質折數(fuzzy 配對,Lynn 看到要意識可信度低)
