@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 原廠預警提早囤貨</title>
+<link rel="stylesheet" href="medsec-common.css">
+<style>
+  .cw-help { background:#fef3c7; border:1px solid #fde68a; border-radius:8px;
+    padding:12px 16px; font-size:13px; color:#92400e; line-height:1.7; margin:12px 0 }
+  .cw-input-row { display:flex; gap:10px; align-items:flex-start; margin:14px 0; flex-wrap:wrap }
+  #cw-codes { flex:1; min-width:320px; min-height:80px; padding:8px 10px; font-family:Menlo,Consolas,monospace;
+    font-size:13px; border:1px solid #d1d5db; border-radius:6px }
+  .cw-stat-row { display:flex; gap:14px; flex-wrap:wrap; margin:10px 0; font-size:13px }
+  .cw-stat-row b { font-size:18px }
+  .cw-tbl td, .cw-tbl th { font-size:12px; padding:6px 8px; vertical-align:top }
+  .cw-tbl tbody tr:hover { background:#f8fafc }
+  .cw-num { text-align:right; font-variant-numeric:tabular-nums }
+  .cw-pill { display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px }
+  .cw-pill-low  { background:#e5e7eb; color:#475569 }
+  .cw-pill-gapA { background:#fee2e2; color:#991b1b }
+  .cw-pill-gapB { background:#fef3c7; color:#92400e }
+  .cw-pill-ok   { background:#dcfce7; color:#166534 }
+  .cw-section-title { font-weight:600; margin:18px 0 6px; font-size:14px; color:#0f172a }
+  .cw-missing-box { background:#f1f5f9; border:1px dashed #cbd5e1; border-radius:6px;
+    padding:10px 14px; font-size:12px; color:#475569; line-height:1.7 }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <main class="main" style="margin-left:0">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="breadcrumb">MedSec Hub / 採購 / 原廠預警提早囤貨</div>
+        <h1>原廠預警 · 下半年提早囤貨評估</h1>
+      </div>
+      <div style="font-size:13px"><span id="cw-user">—</span> · <a href="cindie.html">回採購</a>
+        <span style="color:#94a3b8;margin-left:8px">build cw-1</span></div>
+    </div>
+
+    <div class="cw-help">
+      ⚠️ 用途:原廠來信預警某些型號下半年可能<b>供應緊張 / 漲價 / 限量</b>,Cindie 把信裡的型號清單
+      貼進下方輸入框 → 系統從 <code>v_inventory_intelligence</code> 撈現況 + 近 3 月月銷,算<b>下半年參考需求</b>與<b>缺口</b>,
+      協助你判斷哪些要先囤、囤多少、哪些原廠雖預警但實際無銷量可不囤。
+      <br><br>
+      <b>公式:</b><br>
+      • 下半年需求 = <code>round(近3月月銷 × 6)</code>(用近 3 月而非月均銷,反映近期、新品也準)<br>
+      • <b>缺口 A(保守,不扣在途)</b> = <code>max(下半年需求 − 現有庫存, 0)</code> — 假設在途都不到,最保守要囤的量<br>
+      • <b>缺口 B(樂觀,扣在途)</b> = <code>max(下半年需求 − 現有庫存 − 在途, 0)</code> — 假設在途都到,最少要囤的量<br>
+      原廠供應有壓力時在途可能延誤,在途<b>不自動扣</b>,請依原廠實際出貨情況在 A/B 之間評估。
+    </div>
+
+    <div class="cw-input-row">
+      <textarea id="cw-codes" placeholder="貼原廠預警型號清單(逗號或換行分隔),例如:&#10;42335, 42355, 42365, 44420&#10;42866, 42836&#10;42955MR, 42965MR"></textarea>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="cwAnalyze()">分析</button>
+        <button class="btn-secondary" style="width:auto;padding:8px 20px" onclick="cwExample()">填範例</button>
+        <button class="btn-secondary" style="width:auto;padding:8px 20px" onclick="cwClear()">清除</button>
+      </div>
+    </div>
+
+    <div id="cw-stat" class="cw-stat-row" hidden></div>
+    <div id="cw-result"></div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+let CW_PROFILE = null;
+
+(async function init(){
+  const p = await guardRole('purchasing');
+  if (!p) return;
+  CW_PROFILE = p;
+  renderUserInfo(p);
+  const u = document.getElementById('cw-user');
+  if (u) u.textContent = p.nickname || p.name || '';
+  hideLoading();
+})();
+
+function cwEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function cwNum(v){ return v==null||v==='' ? 0 : (Number(v) || 0); }
+function cwFmt(v, dp){
+  if (v == null || v === '') return '—';
+  const n = Number(v); if (!isFinite(n)) return '—';
+  return n.toLocaleString('zh-Hant-TW', {minimumFractionDigits:dp||0, maximumFractionDigits:dp||0});
+}
+
+function cwExample(){
+  document.getElementById('cw-codes').value =
+    '42335, 42355, 42365, 44420, 42866, 42836, 42955MR, 42965MR,\n92355, 92365, 92866';
+}
+function cwClear(){
+  document.getElementById('cw-codes').value = '';
+  document.getElementById('cw-stat').hidden = true;
+  document.getElementById('cw-result').innerHTML = '';
+}
+
+function cwParseCodes(raw){
+  return [...new Set(
+    String(raw || '').split(/[\s,，、;；]+/)
+      .map(s => s.trim()).filter(Boolean)
+  )];
+}
+
+async function cwAnalyze(){
+  const codes = cwParseCodes(document.getElementById('cw-codes').value);
+  const stat = document.getElementById('cw-stat');
+  const out  = document.getElementById('cw-result');
+  out.innerHTML = ''; stat.hidden = true;
+  if (!codes.length){ alert('請先貼原廠預警的型號清單'); return; }
+  if (codes.length > 200){ alert('一次最多 200 個品號'); return; }
+  out.innerHTML = '<div style="color:#94a3b8;padding:10px">查詢中…</div>';
+  try{
+    // PostgREST IN 過濾 — 沿用 v_inventory_intelligence,不重造月銷/庫存
+    const { data, error } = await supa.from('v_inventory_intelligence')
+      .select('product_code, product_name, stock_alert_level, current_stock_qty, in_transit_qty,'
+            + ' recent_3m_avg, yoy_trend, monthly_avg_sales, supply_to_demand_ratio')
+      .in('product_code', codes);
+    if (error) throw error;
+    const rows = data || [];
+    const found = new Set(rows.map(r => String(r.product_code).trim()));
+    const missing = codes.filter(c => !found.has(c));
+    cwRender(codes, rows, missing);
+  }catch(e){
+    out.innerHTML = `<div style="color:#dc2626;padding:10px">查詢失敗:${cwEsc(e.message||e)}</div>`;
+  }
+}
+
+function cwRender(inputCodes, rows, missing){
+  // 算每列指標
+  const enriched = rows.map(r => {
+    const m3   = cwNum(r.recent_3m_avg);
+    const stk  = cwNum(r.current_stock_qty);
+    const tra  = cwNum(r.in_transit_qty);
+    const need = Math.round(m3 * 6);                  // 下半年需求
+    const gapA = Math.max(need - stk, 0);             // 保守(不扣在途)
+    const gapB = Math.max(need - stk - tra, 0);       // 樂觀(扣在途)
+    const veryLow = m3 < 0.5;                         // 半年內預計 < 3 顆 → 銷量極低
+    // 可用月數 = current_stock_qty / recent_3m_avg
+    //   月銷 0 → 有庫存 ∞,無庫存 —
+    const months = m3 > 0 ? stk / m3 : null;
+    return { ...r, m3, stk, tra, need, gapA, gapB, veryLow, months };
+  }).sort((a, b) => (b.m3 - a.m3) || String(a.product_code).localeCompare(String(b.product_code)));
+
+  const stat = document.getElementById('cw-stat');
+  const totalNeed = enriched.reduce((s, r) => s + r.need, 0);
+  const totalGapA = enriched.reduce((s, r) => s + r.gapA, 0);
+  const totalGapB = enriched.reduce((s, r) => s + r.gapB, 0);
+  const veryLowN  = enriched.filter(r => r.veryLow).length;
+
+  stat.hidden = false;
+  stat.innerHTML = `
+    <div>原廠清單 <b>${inputCodes.length}</b> 個</div>
+    <div>有資料 <b style="color:#16a34a">${enriched.length}</b></div>
+    <div>無資料 <b style="color:#94a3b8">${missing.length}</b></div>
+    <div>銷量極低(建議不囤) <b style="color:#475569">${veryLowN}</b></div>
+    <div style="margin-left:auto">下半年總需求 <b>${cwFmt(totalNeed)}</b> · 缺口 A <b style="color:#991b1b">${cwFmt(totalGapA)}</b> · 缺口 B <b style="color:#92400e">${cwFmt(totalGapB)}</b></div>
+  `;
+
+  const out = document.getElementById('cw-result');
+  const tbl = enriched.length ? `
+    <div class="cw-section-title">📊 下半年提早囤貨評估(依「近3月月銷」高到低)</div>
+    <table class="case-list cw-tbl">
+      <thead><tr>
+        <th>品號</th><th>品名</th><th>警示</th>
+        <th class="cw-num">現有庫存</th>
+        <th class="cw-num">在途<br><small style="font-weight:400;color:#94a3b8">(不自動扣)</small></th>
+        <th class="cw-num">可用月數<br><small style="font-weight:400;color:#94a3b8">=現有÷近3月</small></th>
+        <th class="cw-num">近3月月銷</th>
+        <th class="cw-num">下半年需求<br><small style="font-weight:400;color:#94a3b8">=近3月×6</small></th>
+        <th class="cw-num">缺口 A<br><small style="font-weight:400;color:#94a3b8">不扣在途</small></th>
+        <th class="cw-num">缺口 B<br><small style="font-weight:400;color:#94a3b8">扣在途</small></th>
+        <th>YoY</th>
+      </tr></thead>
+      <tbody>${enriched.map(r => {
+        const lowTag  = r.veryLow ? '<span class="cw-pill cw-pill-low" title="近3月月銷 < 0.5,半年 < 3 顆">銷量極低</span>' : '';
+        const gapACls = r.gapA > 0 ? 'cw-pill cw-pill-gapA' : 'cw-pill cw-pill-ok';
+        const gapBCls = r.gapB > 0 ? 'cw-pill cw-pill-gapB' : 'cw-pill cw-pill-ok';
+        // 可用月數:< 1🔴 / 1~3🟠 / > 3🟢;月銷 0 → 有庫存 ∞、無庫存 —
+        let mTxt, mColor;
+        if (r.months == null) { mTxt = r.stk > 0 ? '∞' : '—'; mColor = '#94a3b8'; }
+        else { mTxt = r.months.toFixed(1); mColor = r.months < 1 ? '#dc2626' : r.months <= 3 ? '#ea580c' : '#16a34a'; }
+        return `<tr>
+          <td><code>${cwEsc(r.product_code)}</code> ${lowTag}</td>
+          <td>${cwEsc(r.product_name || '—')}</td>
+          <td>${cwEsc(r.stock_alert_level || '—')}</td>
+          <td class="cw-num">${cwFmt(r.stk)}</td>
+          <td class="cw-num">${cwFmt(r.tra)}</td>
+          <td class="cw-num" style="color:${mColor};font-weight:600">${mTxt}</td>
+          <td class="cw-num"><b>${cwFmt(r.m3, 1)}</b></td>
+          <td class="cw-num"><b>${cwFmt(r.need)}</b></td>
+          <td class="cw-num"><span class="${gapACls}">${cwFmt(r.gapA)}</span></td>
+          <td class="cw-num"><span class="${gapBCls}">${cwFmt(r.gapB)}</span></td>
+          <td>${cwEsc(r.yoy_trend || '—')}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>
+    <div style="font-size:12px;color:#94a3b8;margin-top:6px;line-height:1.6">
+      💡 <b>可用月數</b>:<span style="color:#dc2626;font-weight:600">&lt; 1 月🔴 緊張</span> /
+        <span style="color:#ea580c;font-weight:600">1~3 月🟠 留意</span> /
+        <span style="color:#16a34a;font-weight:600">&gt; 3 月🟢 充足</span>;<code>∞</code> 表近期無銷售但有庫存。<br>
+      💡 「銷量極低」(近 3 月月銷 &lt; 0.5,半年內 &lt; 3 顆)雖在原廠預警清單裡,實際需求很低,<b>建議不囤</b>。<br>
+      💡 缺口 A 紅色:不扣在途的最保守缺口;缺口 B 黃色:扣完在途的最少缺口。原廠供應緊張時在 A/B 之間評估。
+    </div>` : '<div class="cw-missing-box">原廠預警清單裡的型號全部不在 v_inventory_intelligence 內,見下方「無資料」清單。</div>';
+
+  const missBlock = missing.length ? `
+    <div class="cw-section-title">⚪ 無庫存追蹤資料的型號(${missing.length} 個)</div>
+    <div class="cw-missing-box">
+      下列型號不在 <code>v_inventory_intelligence</code> 內(可能尚未建檔 / 從未銷售 / Excel 沒上傳到):
+      <div style="margin-top:6px;font-family:Menlo,Consolas,monospace;color:#0f172a">
+        ${missing.map(c => `<code style="background:#fff;border:1px solid #e2e8f0;padding:1px 6px;border-radius:3px;margin:2px 4px 2px 0;display:inline-block">${cwEsc(c)}</code>`).join('')}
+      </div>
+      <div style="margin-top:8px">
+        提醒:原廠雖預警這些型號,但<b>公司實際無銷售歷史</b>,建議不囤;若確認需要,請先在「產品採購庫存」頁建檔再上傳銷量。
+      </div>
+    </div>` : '';
+
+  out.innerHTML = tbl + missBlock;
+}
+</script>
+</body>
+</html>

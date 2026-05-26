@@ -236,7 +236,9 @@ const CINDIE_CFG = {
   ],
   derived: {
     eff(r) {
-      const eff = cmNum(r.effective_supply);   // = 現有,逾期不計
+      // 分母統一 recent_3m_avg(對齊原廠預警頁可用月數);
+      // effective_supply 在此 view 等於 current_stock_qty(註解見 file head「有效供應 = 現有庫存」)。
+      const eff = cmNum(r.effective_supply);
       const m = cmNum(r.recent_3m_avg);
       const sub = m > 0 ? `約 ${(eff / m).toFixed(1)} 月` : '無近期銷';
       return `<b>${eff}</b><br><small style="color:#94a3b8">(只現有, ${sub})</small>`;
