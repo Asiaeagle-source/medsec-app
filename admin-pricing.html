@@ -207,7 +207,7 @@
     <!-- ⑥ 報價建議(Card B,Lynn 視角)-->
     <section id="tab-cardB" hidden>
       <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
-        Lynn 視角的 Card B:輸入「醫院 × 品號 × 性質」→ 呼叫 <code>fn_cardB_suggest</code>(建議價/折數/上次報價成交)+ <code>fn_cardB_strategy_floors</code>(守價黃線/紅線/策略提示)。
+        Lynn 視角的 Card B:輸入「醫院 × 品號 × 性質」→ 呼叫 <code>fn_cardb_suggest</code>(建議價/折數/上次報價成交)+ <code>fn_cardb_strategy_floors</code>(守價黃線/紅線/策略提示)。
         建議公式 = <b>本院上次報價 × min(該性質折數中位, 1.0)</b>。
         <code>discount_source</code> 帶 <code>_mixed</code> 後綴表示折數混性質(可信度低,fuzzy 退路)。
         下方「發票核准區」列出業祕已勾、待你核准的 3 張他院發票候選 → 核准後業祕端才能拿給醫院。
@@ -1139,8 +1139,8 @@ async function cbQuery(){
   try{
     // 兩支 RPC 並行呼叫
     const [sugRes, floorRes] = await Promise.all([
-      supa.rpc('fn_cardB_suggest',          { p_hospital_id: hid, p_product_code: pcode, p_tx_kind: tx || null }),
-      supa.rpc('fn_cardB_strategy_floors',  { p_hospital_id: hid, p_product_code: pcode, p_tx_kind: tx || null }),
+      supa.rpc('fn_cardb_suggest',          { p_hospital_id: hid, p_product_code: pcode, p_tx_kind: tx || null }),
+      supa.rpc('fn_cardb_strategy_floors',  { p_hospital_id: hid, p_product_code: pcode, p_tx_kind: tx || null }),
     ]);
     if (sugRes.error)   throw new Error('suggest: ' + sugRes.error.message);
     if (floorRes.error) throw new Error('floors: ' + floorRes.error.message);
