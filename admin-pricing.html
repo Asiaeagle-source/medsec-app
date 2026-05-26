@@ -1206,6 +1206,9 @@ function cbRender(hid, pcode, tx, sug, flr){
           <div class="sub">${sug.last_sale_date || '—'}</div>
         </div>
       </div>
+      <div style="margin-top:10px;padding:8px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e;line-height:1.6">
+        ⚠ <b>建議價為參考值,邏輯優化中</b>(公式偏保守,可能低於本院成交/他院發票)。請對照<b>本院上次報價/成交</b>與<b>他院發票</b>判斷,別盲目照報。完整報價矩陣下個 sprint 重做。
+      </div>
       ${floorBlock}
     </div>
   `;
