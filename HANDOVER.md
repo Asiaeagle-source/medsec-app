@@ -25,7 +25,7 @@
 
 ### 1.1 我是誰
 
-**AE MED Hub · medsec-app**（業務祕書平台）。亞洲鷹眼醫療儀器股份有限公司內部 SaaS。跟同公司另一個專案 `medteam-app`（業務團隊用）**共用 Supabase project `yincuegybnuzgojakkuc` + 帳號系統**，但兩個 app 各自獨立部署。
+**AE MED Hub · medsec-app**（業務祕書平台）。雄鷹有限公司 Asiaeagle 內部 SaaS。跟同公司另一個專案 `medteam-app`（業務團隊用）**共用 Supabase project `yincuegybnuzgojakkuc` + 帳號系統**，但兩個 app 各自獨立部署。
 
 登入流程：
 
