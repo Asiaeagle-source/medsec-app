@@ -16,6 +16,17 @@
 -- 守門:此為「ERP 能查到的他院成交」,業祕需要(報價作業)→ 登入即可。
 --   非 Lynn-only(spec §0 對齊)。SECURITY DEFINER + auth.uid() check。
 --
+-- 2026-05-26 排序加「2023/04 後優先」:
+--   近期成交可查證,業務拿出去對價有底氣;老單僅作參考。
+--   兩群(unit_high / total_high)各自內部:先列 2023/04 後,再列之前的;
+--   群內 ORDER 維持原本(unit_price / invoice_total)。
+--
+-- TODO(未做):按「性質」分流(維修/設備/器械/耗材/汰舊)。
+--   原因:medsec_sales 沒有 CRM 單別欄(crm_quote_type)可串回 quote 性質,
+--   ERP 成交檔本身也無「性質」欄。要做需先在 sales 端建一條
+--   sales↔quote 反向 join(via invoice_no → opportunity_no → quote_type),
+--   且 ~30% 成交對不回 quote,涵蓋率不完整。先列 TODO,Card C 一起評估。
+--
 -- 2026-05-26 hotfix:
 --   執行時 42702「column reference 'invoice_no' is ambiguous」。
 --   原因 total_high 的子查詢 `NOT IN (SELECT invoice_no FROM unit_high)`
@@ -106,7 +117,12 @@ BEGIN
       b.invoice_total::numeric   AS invoice_total
     FROM base b
     LEFT JOIN public.medsec_hospitals h ON h.id = b.hospital_id
-    ORDER BY b.unit_price DESC NULLS LAST, b.sales_date DESC
+    -- 2026-05-26 排序加「2023/04 後優先」:
+    --   近期成交可查證(業務手上 ERP 截圖、客服紀錄都還在),老單僅參考。
+    --   群內仍依單價高到低。NULLS LAST 讓無日期者最後。
+    ORDER BY (b.sales_date >= DATE '2023-04-01') DESC NULLS LAST,
+             b.unit_price DESC NULLS LAST,
+             b.sales_date DESC
     LIMIT 6
   ),
   total_high AS (
@@ -126,7 +142,10 @@ BEGIN
     LEFT JOIN public.medsec_hospitals h ON h.id = b.hospital_id
     WHERE b.invoice_total IS NOT NULL
       AND b.invoice_no NOT IN (SELECT uh.invoice_no FROM unit_high uh)   -- 去重發票號(alias uh)
-    ORDER BY b.invoice_total DESC NULLS LAST, b.sales_date DESC
+    -- 同 unit_high:2023/04 後優先,群內依整張總額高到低
+    ORDER BY (b.sales_date >= DATE '2023-04-01') DESC NULLS LAST,
+             b.invoice_total DESC NULLS LAST,
+             b.sales_date DESC
     LIMIT 2
   )
   SELECT * FROM unit_high
