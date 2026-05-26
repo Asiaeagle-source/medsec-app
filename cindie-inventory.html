@@ -236,22 +236,12 @@ const CINDIE_CFG = {
   ],
   derived: {
     eff(r) {
-      const eff = cmNum(r.effective_supply);   // = 現有,逾期不計
-      const stk = cmNum(r.current_stock_qty);  // 可用月數分子(對齊原廠預警頁)
-      const m   = cmNum(r.recent_3m_avg);
-      // 可用月數 = current_stock_qty / recent_3m_avg
-      //   月銷 0 → 有庫存顯示 ∞,無庫存顯示 —
-      //   < 1 月🔴 / 1~3 月🟠 / > 3 月🟢
-      let monthsTxt, monthsColor;
-      if (m === 0) {
-        monthsTxt = stk > 0 ? '∞' : '—';
-        monthsColor = '#94a3b8';
-      } else {
-        const months = stk / m;
-        monthsTxt = months.toFixed(1) + ' 月';
-        monthsColor = months < 1 ? '#dc2626' : months <= 3 ? '#ea580c' : '#16a34a';
-      }
-      return `<b>${eff}</b><br><small style="color:${monthsColor};font-weight:600">可用 ${monthsTxt}</small>`;
+      // 分母統一 recent_3m_avg(對齊原廠預警頁可用月數);
+      // effective_supply 在此 view 等於 current_stock_qty(註解見 file head「有效供應 = 現有庫存」)。
+      const eff = cmNum(r.effective_supply);
+      const m = cmNum(r.recent_3m_avg);
+      const sub = m > 0 ? `約 ${(eff / m).toFixed(1)} 月` : '無近期銷';
+      return `<b>${eff}</b><br><small style="color:#94a3b8">(只現有, ${sub})</small>`;
     },
     stability(r) {
       const t = r.stability_tier || '一般';
