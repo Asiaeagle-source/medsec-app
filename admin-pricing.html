@@ -28,6 +28,26 @@
   .ca-low{display:inline-block;padding:1px 6px;border-radius:4px;background:#e5e7eb;color:#475569;font-size:10px;margin-left:4px}
   .ca-raise{display:inline-block;padding:1px 6px;border-radius:4px;background:#dbeafe;color:#1d4ed8;font-size:11px}
   .ca-sub td{background:#fafafa;padding:8px 12px}
+  /* Card B 報價建議 */
+  .cb-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+  .cb-card{border:1px solid #e5e7eb;border-radius:10px;padding:14px;background:#fff;margin-top:12px}
+  .cb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:8px}
+  .cb-kpi .l{font-size:12px;color:#64748b}
+  .cb-kpi .b{font-size:22px;font-weight:700;color:#0f172a}
+  .cb-kpi .sub{font-size:11px;color:#94a3b8;margin-top:2px}
+  .cb-src{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:6px}
+  .cb-src-clean{background:#dcfce7;color:#166534}
+  .cb-src-mixed{background:#fef3c7;color:#a16207}
+  .cb-floor{padding:10px 14px;border-radius:8px;margin-top:8px;font-size:13px}
+  .cb-floor-yel{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
+  .cb-floor-red{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+  .cb-floor-ok {background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
+  .cb-hint{font-size:12px;color:#475569;margin-top:6px;padding:8px 12px;background:#f1f5f9;border-radius:6px}
+  .cb-pending-tbl td,.cb-pending-tbl th{font-size:12px;padding:6px}
+  .cb-approve-btn{padding:4px 10px;font-size:12px;background:#16a34a;color:#fff;border:0;border-radius:4px;cursor:pointer}
+  .cb-approve-btn:hover{background:#15803d}
+  .cb-delete-btn{padding:4px 10px;font-size:12px;background:#fff;color:#dc2626;border:1px solid #fecaca;border-radius:4px;cursor:pointer;margin-left:4px}
+  .cb-delete-btn:hover{background:#fef2f2}
 </style>
 </head>
 <body>
@@ -36,7 +56,7 @@
     <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
       <div><div class="breadcrumb">MedSec Hub / 系統設定 / 標價·歷史價管理</div><h1>標價 / 歷史價管理</h1></div>
       <div style="font-size:13px"><span id="pt-user">—</span> · <a href="manager.html">回後台</a>
-        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3B-CardA</span>
+        <span style="color:#94a3b8;margin-left:8px" title="前端版本,用來確認有吃到最新修正">build 3B-CardB</span>
         <span id="pt-sysload" style="margin-left:8px;font-size:12px;color:#94a3b8;cursor:pointer;text-decoration:underline dotted"
           title="點擊 dump SYSTEMS map 全部 key/value"
           onclick="dumpSystems()"></span></div>
@@ -54,6 +74,7 @@
       <div class="pt-tab"        data-tab="list" onclick="ptTab('list')">③ 歷史報價列表</div>
       <div class="pt-tab"        data-tab="strat" onclick="ptTab('strat')">④ 醫院慣用折數</div>
       <div class="pt-tab"        data-tab="nhi"  onclick="ptTab('nhi')">⑤ 上傳健保價</div>
+      <div class="pt-tab"        data-tab="cardB" onclick="ptTab('cardB')">⑥ 報價建議</div>
     </div>
 
     <!-- ① CRM -->
@@ -180,6 +201,50 @@
       <div style="text-align:right;margin-top:10px">
         <button id="nhi-apply" class="btn-primary" style="width:auto;padding:8px 20px" disabled
           onclick="nhiApply()">套用匯入</button>
+      </div>
+    </section>
+
+    <!-- ⑥ 報價建議(Card B,Lynn 視角)-->
+    <section id="tab-cardB" hidden>
+      <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
+        Lynn 視角的 Card B:輸入「醫院 × 品號 × 性質」→ 呼叫 <code>fn_cardB_suggest</code>(建議價/折數/上次報價成交)+ <code>fn_cardB_strategy_floors</code>(守價黃線/紅線/策略提示)。
+        建議公式 = <b>本院上次報價 × min(該性質折數中位, 1.0)</b>。
+        <code>discount_source</code> 帶 <code>_mixed</code> 後綴表示折數混性質(可信度低,fuzzy 退路)。
+        下方「發票核准區」列出業祕已勾、待你核准的 3 張他院發票候選 → 核准後業祕端才能拿給醫院。
+        <b>業祕看不到此頁</b>(strategy_floors 與 status 變 approved 的權限以 <code>auth_can_edit_pricing()</code> 守門)。
+      </div>
+
+      <!-- 查詢列 -->
+      <div class="cb-row">
+        <select id="cb-hospital" class="rc-text-input" style="width:auto;padding:6px"></select>
+        <input  id="cb-product"  class="rc-text-input" style="width:140px;padding:6px" placeholder="品號"
+          onkeydown="if(event.key==='Enter')cbQuery()">
+        <select id="cb-tx" class="rc-text-input" style="width:auto;padding:6px">
+          <option value="">(不指定性質)</option>
+          <option value="RM">維修 RM</option>
+          <option value="EQ">設備 EQ</option>
+          <option value="IN">器械 IN</option>
+          <option value="CO">耗材 CO</option>
+          <option value="NE">汰舊 NE</option>
+          <option value="CC">建碼 CC</option>
+          <option value="BU">預算 BU</option>
+        </select>
+        <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="cbQuery()">查詢建議</button>
+        <span id="cb-status" style="font-size:13px;color:#64748b"></span>
+      </div>
+
+      <!-- 結果區 -->
+      <div id="cb-result"></div>
+
+      <!-- 發票核准區 -->
+      <div class="cb-card" style="margin-top:24px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:600">📋 發票核准區(業祕已勾、待 Lynn 核准)</div>
+          <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="cbLoadPending()">重新整理</button>
+        </div>
+        <div id="cb-pending" style="margin-top:10px">
+          <div style="color:#94a3b8;font-size:13px">點上方「重新整理」載入。</div>
+        </div>
       </div>
     </section>
   </main>
@@ -324,11 +389,12 @@ function enrich(code, xlsName, xlsCat){
 
 function ptTab(t){
   document.querySelectorAll('.pt-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
-  ['crm','erp','list','strat','nhi'].forEach(x=>{
+  ['crm','erp','list','strat','nhi','cardB'].forEach(x=>{
     document.getElementById('tab-'+x).hidden = (x!==t);
   });
-  if (t==='list' && !LIST_INIT) initList();
-  if (t==='strat' && !CA_INIT) caInit();
+  if (t==='list'  && !LIST_INIT) initList();
+  if (t==='strat' && !CA_INIT)   caInit();
+  if (t==='cardB' && !CB_INIT)   cbInit();
 }
 
 /* ---------- 共用 ---------- */
@@ -1020,6 +1086,209 @@ async function nhiApply(){
     alert(`完成:送出 ${sent} 列`);
   }catch(e){ alert('處理失敗:'+(e.message||e)); show('失敗','見上方錯誤,可重新上傳接續'); }
   finally{ btn.disabled=false; btn.textContent='套用匯入'; }
+}
+
+/* ============================================================
+   ⑥ Card B 報價建議(Lynn 視角)
+   ============================================================ */
+let CB_INIT = false;
+
+async function cbInit(){
+  if (CB_INIT) return;
+  CB_INIT = true;
+  await ensureSystems();
+  const hsel = document.getElementById('cb-hospital');
+  hsel.innerHTML = '<option value="">選擇醫院…</option>' + Object.values(HOSP)
+    .sort((a,b)=>String(a.id).localeCompare(String(b.id)))
+    .map(h=>`<option value="${cmEscPt(h.id)}">${cmEscPt(h.id)} ${cmEscPt(h.name_short||h.name_full||'')}</option>`).join('');
+  cbLoadPending();
+}
+
+function cbFmtNum(v, frac){
+  if (v==null) return '—';
+  return Number(v).toLocaleString('zh-Hant-TW', {minimumFractionDigits:frac||0, maximumFractionDigits:frac||0});
+}
+function cbFmtPct(v){
+  if (v==null) return '—';
+  return (Number(v)*100).toFixed(1) + '%';
+}
+function cbSrcLabel(src){
+  if (!src) return '<span class="cb-src" style="background:#e5e7eb;color:#475569">無資料</span>';
+  const isMixed = src.endsWith('_mixed');
+  const cls = isMixed ? 'cb-src cb-src-mixed' : 'cb-src cb-src-clean';
+  const map = {
+    'notes_self':         'notes 自院(乾淨)',
+    'notes_other':        'notes 他院(乾淨)',
+    'fuzzy_self_mixed':   'fuzzy 自院(混性質)',
+    'fuzzy_other_mixed':  'fuzzy 他院(混性質)',
+    'system_median_mixed':'同體系中位(混性質)',
+  };
+  return `<span class="${cls}" title="${cmEscPt(src)}">${cmEscPt(map[src] || src)}</span>`;
+}
+
+async function cbQuery(){
+  const hid   = document.getElementById('cb-hospital').value.trim();
+  const pcode = (document.getElementById('cb-product').value || '').trim();
+  const tx    = document.getElementById('cb-tx').value;
+  const st    = document.getElementById('cb-status');
+  const out   = document.getElementById('cb-result');
+  if (!hid){ st.textContent = '請選擇醫院'; st.style.color='#dc2626'; return; }
+  if (!pcode){ st.textContent = '請輸入品號'; st.style.color='#dc2626'; return; }
+  st.textContent = '查詢中…'; st.style.color='#64748b';
+  out.innerHTML = '';
+  try{
+    // 兩支 RPC 並行呼叫
+    const [sugRes, floorRes] = await Promise.all([
+      supa.rpc('fn_cardB_suggest',          { p_hospital_id: hid, p_product_code: pcode, p_tx_kind: tx || null }),
+      supa.rpc('fn_cardB_strategy_floors',  { p_hospital_id: hid, p_product_code: pcode, p_tx_kind: tx || null }),
+    ]);
+    if (sugRes.error)   throw new Error('suggest: ' + sugRes.error.message);
+    if (floorRes.error) throw new Error('floors: ' + floorRes.error.message);
+    const sug = (sugRes.data && sugRes.data[0]) || null;
+    const flr = (floorRes.data && floorRes.data[0]) || null;
+    cbRender(hid, pcode, tx, sug, flr);
+    st.textContent = '查詢完成 ' + new Date().toLocaleTimeString();
+    st.style.color = '#16a34a';
+  }catch(e){
+    out.innerHTML = `<div class="cb-card" style="color:#dc2626">查詢失敗:${cmEscPt(e.message||e)}</div>`;
+    st.textContent = '失敗';
+    st.style.color = '#dc2626';
+  }
+}
+
+function cbRender(hid, pcode, tx, sug, flr){
+  const out = document.getElementById('cb-result');
+  if (!sug){
+    out.innerHTML = `<div class="cb-card" style="color:#94a3b8">無建議資料(此醫院 × 品號 無報價/折數歷史)</div>`;
+    return;
+  }
+  const hname = (HOSP[hid] && (HOSP[hid].name_short || HOSP[hid].name_full)) || hid;
+  const pname = PRODS[pcode] || (PCAT[pcode] && PCAT[pcode].name) || '—';
+
+  // 守價判斷:目前還沒有 user 輸入價,先顯示 yellow/red 兩條折數值,Lynn 自己對
+  let floorBlock = '';
+  if (flr && (flr.yellow_floor != null || flr.red_floor != null)){
+    const yel = flr.yellow_floor != null ? cbFmtPct(flr.yellow_floor) : '—';
+    const red = flr.red_floor    != null ? cbFmtPct(flr.red_floor)    : '—';
+    floorBlock = `
+      <div class="cb-floor cb-floor-yel">⚠ <b>黃線(本院中位 − 10%)</b>:折 ${yel} — 低於此值要慎重</div>
+      <div class="cb-floor cb-floor-red">🚫 <b>紅線(他院最低折)</b>:折 ${red} — 破底,絕對下限</div>
+      ${flr.hint ? `<div class="cb-hint">💡 ${cmEscPt(flr.hint)}</div>` : ''}
+    `;
+  } else {
+    floorBlock = `<div class="cb-floor cb-floor-ok">無守價資料(此品號歷史成交太少,無 fuzzy 配對可算)</div>`;
+  }
+
+  out.innerHTML = `
+    <div class="cb-card">
+      <div style="font-size:13px;color:#475569;margin-bottom:4px">
+        <b>${cmEscPt(hname)}</b>(${cmEscPt(hid)})· 品號 <code>${cmEscPt(pcode)}</code> ${pname!=='—'?'<span style="color:#94a3b8">'+cmEscPt(pname)+'</span>':''} · 性質 <b>${tx || '(未指定)'}</b>
+      </div>
+      <div class="cb-grid">
+        <div class="cb-kpi">
+          <div class="l">建議價</div>
+          <div class="b">${sug.suggested_price != null ? cbFmtNum(sug.suggested_price) : '—'}</div>
+          <div class="sub">= 上次報價 × min(折數中位, 1.0)</div>
+        </div>
+        <div class="cb-kpi">
+          <div class="l">折數(中位)${cbSrcLabel(sug.discount_source)}</div>
+          <div class="b">${cbFmtPct(sug.discount_used)}</div>
+          <div class="sub"><code>${cmEscPt(sug.discount_source || '—')}</code></div>
+        </div>
+        <div class="cb-kpi">
+          <div class="l">本院上次報價</div>
+          <div class="b">${cbFmtNum(sug.last_quote_price)}</div>
+          <div class="sub">${sug.last_quote_date || '—'}</div>
+        </div>
+        <div class="cb-kpi">
+          <div class="l">本院上次成交</div>
+          <div class="b">${cbFmtNum(sug.last_sale_price)}</div>
+          <div class="sub">${sug.last_sale_date || '—'}</div>
+        </div>
+      </div>
+      ${floorBlock}
+    </div>
+  `;
+}
+
+/* ---------- 發票核准區(列出 status='pending' 的 refs)---------- */
+async function cbLoadPending(){
+  const box = document.getElementById('cb-pending');
+  box.innerHTML = '<div style="color:#94a3b8;font-size:13px">載入中…</div>';
+  try{
+    const { data, error } = await supa.from('medsec_quote_invoice_refs')
+      .select('crm_quote_type, crm_quote_no, product_code, invoice_no, hospital_id, selected_by, selected_at, status')
+      .eq('status', 'pending')
+      .order('selected_at', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    if (!data || !data.length){
+      box.innerHTML = '<div style="color:#94a3b8;font-size:13px">沒有待核准的他院發票。</div>';
+      return;
+    }
+    // 補醫院名(client-side)
+    const rows = data.map(r => {
+      const h = HOSP[r.hospital_id] || {};
+      return `
+        <tr>
+          <td>${r.crm_quote_type || ''} ${r.crm_quote_no || ''}</td>
+          <td>${cmEscPt(r.product_code)}</td>
+          <td><code>${cmEscPt(r.invoice_no)}</code></td>
+          <td>${cmEscPt(h.name_short || h.name_full || r.hospital_id || '')}<br>
+            <span style="color:#94a3b8;font-size:11px">${cmEscPt(r.hospital_id || '')}</span></td>
+          <td>${r.selected_at ? new Date(r.selected_at).toLocaleString('zh-Hant-TW') : '—'}</td>
+          <td>
+            <button class="cb-approve-btn"
+              onclick="cbApprove('${cmEscPt(r.crm_quote_type)}','${cmEscPt(r.crm_quote_no)}','${cmEscPt(r.product_code)}','${cmEscPt(r.invoice_no)}', this)">核准</button>
+            <button class="cb-delete-btn"
+              onclick="cbDeleteRef('${cmEscPt(r.crm_quote_type)}','${cmEscPt(r.crm_quote_no)}','${cmEscPt(r.product_code)}','${cmEscPt(r.invoice_no)}', this)">撤回</button>
+          </td>
+        </tr>`;
+    }).join('');
+    box.innerHTML = `
+      <table class="case-list cb-pending-tbl">
+        <thead><tr>
+          <th>報價單</th><th>品號</th><th>發票號</th><th>對應醫院</th><th>業祕勾選時間</th><th style="width:140px">動作</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="font-size:12px;color:#94a3b8;margin-top:6px">共 ${data.length} 筆(顯示前 200 筆)</div>
+    `;
+  }catch(e){
+    box.innerHTML = `<div style="color:#dc2626;font-size:13px">載入失敗:${cmEscPt(e.message||e)}</div>`;
+  }
+}
+
+async function cbApprove(qtype, qno, pcode, invNo, btn){
+  if (!confirm(`核准此發票給醫院?\n${qtype} ${qno} / ${pcode} / ${invNo}`)) return;
+  btn.disabled = true; btn.textContent = '核准中…';
+  try{
+    const { error } = await supa.from('medsec_quote_invoice_refs')
+      .update({ status: 'approved' })
+      .eq('crm_quote_type', qtype).eq('crm_quote_no', qno)
+      .eq('product_code', pcode).eq('invoice_no', invNo);
+    if (error) throw error;
+    cbLoadPending();
+  }catch(e){
+    alert('核准失敗:' + (e.message || e));
+    btn.disabled = false; btn.textContent = '核准';
+  }
+}
+
+async function cbDeleteRef(qtype, qno, pcode, invNo, btn){
+  if (!confirm(`撤回此發票勾選?(刪除後業祕需重新勾選)\n${qtype} ${qno} / ${pcode} / ${invNo}`)) return;
+  btn.disabled = true; btn.textContent = '撤回中…';
+  try{
+    const { error } = await supa.from('medsec_quote_invoice_refs')
+      .delete()
+      .eq('crm_quote_type', qtype).eq('crm_quote_no', qno)
+      .eq('product_code', pcode).eq('invoice_no', invNo);
+    if (error) throw error;
+    cbLoadPending();
+  }catch(e){
+    alert('撤回失敗:' + (e.message || e));
+    btn.disabled = false; btn.textContent = '撤回';
+  }
 }
 </script>
 </body>
