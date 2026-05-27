@@ -320,6 +320,39 @@ const SOP_CARDS = {
 };
 
 /* ------------------------------------------------------------
+   守門 (採購 AOP 模組) — Cindie + Lynn + Andrew 可進
+     • purchasing  → Cindie(採購節奏/備貨工具)
+     • manager     → Lynn(boss 視角同採購)
+     • boss 0001   → Andrew(總覽)
+   業祕 / 一般業務擋掉(此頁含買價、達成%,非業績考核但業祕不該看)。
+   ------------------------------------------------------------ */
+async function guardProcurementAop() {
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session) { window.location.href = 'login.html'; return null; }
+  const { data: profile, error } = await supa.from('profiles')
+    .select('id, employee_id, name, nickname, medsec_role, has_medsec_access')
+    .eq('id', session.user.id).single();
+  if (error || !profile) {
+    alert('找不到帳號資料,請聯繫管理員');
+    await supa.auth.signOut(); window.location.href = 'login.html'; return null;
+  }
+  if (!profile.has_medsec_access) {
+    alert('您沒有 MedSec Hub 的存取權限');
+    await supa.auth.signOut(); window.location.href = 'login.html'; return null;
+  }
+  const ok = profile.medsec_role === 'purchasing'
+          || profile.medsec_role === 'manager'
+          || profile.employee_id === '0001';
+  if (!ok) {
+    alert('此頁僅 採購 / Lynn / 老闆 可進(採購 AOP 模組)');
+    const tgt = ROLE_PAGE_MAP[profile.medsec_role] || 'login.html';
+    window.location.href = tgt; return null;
+  }
+  currentProfile = profile;
+  return profile;
+}
+
+/* ------------------------------------------------------------
    守門 (任意 medsec 角色) — hospital.html 之類共用頁面用
    ------------------------------------------------------------ */
 async function guardAnyMedsecRole() {

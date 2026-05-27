@@ -38,7 +38,8 @@ async function initCindieMaintain(cfg) {
   document.getElementById('cm-h1').textContent = cfg.title;
   document.getElementById('cm-bc').textContent = cfg.breadcrumb;
   if (typeof hideLoading === 'function') hideLoading();
-  buildTableHead();
+  // headerFilter 模式:thead 改由主頁面用 HeaderFilter.init 接管
+  if (!CM.headerFilter) buildTableHead();
   loadRows();
 }
 
@@ -57,11 +58,23 @@ let CM_TREND = '__all__';
 let CM_SORT = '';
 
 function renderFilters() {
+  // headerFilter 模式:framework 的 filter/sort/cat dropdown 全部不渲染(由表頭 HF 接管)
+  if (CM.headerFilter) return;
   const box = document.getElementById('cm-filters');
   if (!box || !CM.filters) return;
-  const pills = CM.filters.map(f =>
-    `<button class="qm-pill ${CM_FILTER === f.key ? 'active' : ''}" onclick="cmSetFilter('${f.key}')">${f.label}</button>`
-  ).join('');
+  // filtersStyle:'select' → 下拉(整合按鈕,省版面);預設仍 pills 維持其他頁兼容
+  let pills;
+  if (CM.filtersStyle === 'select') {
+    pills = `<label style="font-size:13px">狀態:
+      <select class="rc-text-input" style="width:auto;padding:6px 10px"
+        onchange="cmSetFilter(this.value)">
+        ${CM.filters.map(f => `<option value="${f.key}"${CM_FILTER===f.key?' selected':''}>${cmEsc(f.label)}</option>`).join('')}
+      </select></label>`;
+  } else {
+    pills = CM.filters.map(f =>
+      `<button class="qm-pill ${CM_FILTER === f.key ? 'active' : ''}" onclick="cmSetFilter('${f.key}')">${f.label}</button>`
+    ).join('');
+  }
   let cat = '';
   if (CM.categoryFilter) {
     const vals = [...new Set(CM_DATA
@@ -125,15 +138,23 @@ function cmExportCsv() {
 
 function renderRows() {
   const tb = document.getElementById('cm-tbody');
-  const f = (CM.filters || []).find(x => x.key === CM_FILTER);
-  let rows = (f && f.match) ? CM_DATA.filter(f.match) : CM_DATA;
-  if (CM.categoryFilter && CM_CAT !== '__all__')
-    rows = rows.filter(r => r[CM.categoryFilter] === CM_CAT);
-  if (CM.trendFilter && CM_TREND !== '__all__') {
-    const t = CM.trendFilter.find(x => x.key === CM_TREND);
-    if (t && t.match) rows = rows.filter(t.match);
+  let rows;
+  if (CM.headerFilter && window.CM_HF) {
+    // headerFilter 模式:篩選/排序全由 HeaderFilter.applyTo 負責
+    rows = window.CM_HF.applyTo(CM_DATA);
+  } else {
+    const f = (CM.filters || []).find(x => x.key === CM_FILTER);
+    rows = (f && f.match) ? CM_DATA.filter(f.match) : CM_DATA;
+    if (CM.categoryFilter && CM_CAT !== '__all__')
+      rows = rows.filter(r => r[CM.categoryFilter] === CM_CAT);
+    if (CM.trendFilter && CM_TREND !== '__all__') {
+      const t = CM.trendFilter.find(x => x.key === CM_TREND);
+      if (t && t.match) rows = rows.filter(t.match);
+    }
   }
-  if (CM.sortModes && CM.sortModes.length) {
+  // 外掛過濾(讓 inventory 頁加產品線/預警卡篩選,不污染 framework cfg)
+  if (typeof window.CM_EXTRA_MATCH === 'function') rows = rows.filter(window.CM_EXTRA_MATCH);
+  if (!CM.headerFilter && CM.sortModes && CM.sortModes.length) {
     const sm = CM.sortModes.find(x => x.key === CM_SORT) || CM.sortModes[0];
     if (sm && sm.cmp) rows = rows.slice().sort(sm.cmp);
   }
@@ -175,7 +196,13 @@ async function loadRows() {
   const src = CM.readView || CM.table;            // 顯示讀 view,寫仍 CM.table
   const orderCol = CM.orderBy || 'updated_at';
   let q = supa.from(src).select('*').order(orderCol, { ascending: !!CM.orderAsc }).limit(3000);
-  if (kw) q = q.ilike('product_code', `%${kw}%`);
+  if (kw) {
+    // 搜 品號 + 品名 + 分類(brief「品號 + 品名 + 產品線」;產品線在 v_inventory
+    // _intelligence 對應 product_category)。kw 內 comma 用空白替代避開 PostgREST
+    // .or() 的分隔字元;% 在 ilike 是萬用字無需 escape。
+    const safe = kw.replace(/,/g, ' ');
+    q = q.or(`product_code.ilike.%${safe}%,product_name.ilike.%${safe}%,product_category.ilike.%${safe}%`);
+  }
   const { data, error } = await q;
   if (error) { tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
   CM_DATA = data || [];
