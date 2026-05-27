@@ -38,7 +38,8 @@ async function initCindieMaintain(cfg) {
   document.getElementById('cm-h1').textContent = cfg.title;
   document.getElementById('cm-bc').textContent = cfg.breadcrumb;
   if (typeof hideLoading === 'function') hideLoading();
-  buildTableHead();
+  // headerFilter 模式:thead 改由主頁面用 HeaderFilter.init 接管
+  if (!CM.headerFilter) buildTableHead();
   loadRows();
 }
 
@@ -57,6 +58,8 @@ let CM_TREND = '__all__';
 let CM_SORT = '';
 
 function renderFilters() {
+  // headerFilter 模式:framework 的 filter/sort/cat dropdown 全部不渲染(由表頭 HF 接管)
+  if (CM.headerFilter) return;
   const box = document.getElementById('cm-filters');
   if (!box || !CM.filters) return;
   // filtersStyle:'select' → 下拉(整合按鈕,省版面);預設仍 pills 維持其他頁兼容
@@ -135,17 +138,23 @@ function cmExportCsv() {
 
 function renderRows() {
   const tb = document.getElementById('cm-tbody');
-  const f = (CM.filters || []).find(x => x.key === CM_FILTER);
-  let rows = (f && f.match) ? CM_DATA.filter(f.match) : CM_DATA;
-  if (CM.categoryFilter && CM_CAT !== '__all__')
-    rows = rows.filter(r => r[CM.categoryFilter] === CM_CAT);
-  if (CM.trendFilter && CM_TREND !== '__all__') {
-    const t = CM.trendFilter.find(x => x.key === CM_TREND);
-    if (t && t.match) rows = rows.filter(t.match);
+  let rows;
+  if (CM.headerFilter && window.CM_HF) {
+    // headerFilter 模式:篩選/排序全由 HeaderFilter.applyTo 負責
+    rows = window.CM_HF.applyTo(CM_DATA);
+  } else {
+    const f = (CM.filters || []).find(x => x.key === CM_FILTER);
+    rows = (f && f.match) ? CM_DATA.filter(f.match) : CM_DATA;
+    if (CM.categoryFilter && CM_CAT !== '__all__')
+      rows = rows.filter(r => r[CM.categoryFilter] === CM_CAT);
+    if (CM.trendFilter && CM_TREND !== '__all__') {
+      const t = CM.trendFilter.find(x => x.key === CM_TREND);
+      if (t && t.match) rows = rows.filter(t.match);
+    }
   }
   // 外掛過濾(讓 inventory 頁加產品線/預警卡篩選,不污染 framework cfg)
   if (typeof window.CM_EXTRA_MATCH === 'function') rows = rows.filter(window.CM_EXTRA_MATCH);
-  if (CM.sortModes && CM.sortModes.length) {
+  if (!CM.headerFilter && CM.sortModes && CM.sortModes.length) {
     const sm = CM.sortModes.find(x => x.key === CM_SORT) || CM.sortModes[0];
     if (sm && sm.cmp) rows = rows.slice().sort(sm.cmp);
   }

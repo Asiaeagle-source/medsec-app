@@ -65,12 +65,11 @@
     <!-- ★ 預警卡(從 v_purchase_plan 旗標撈,點卡 → 篩出該批品)-->
     <div id="cm-alerts" class="cm-alerts" hidden></div>
 
-    <!-- 上方下拉列(產品線是新加,從 v_purchase_plan distinct line 撈)-->
-    <div id="cm-prefilters" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0 4px;font-size:13px"></div>
-    <!-- 預警卡 active 提示 -->
-    <div id="cm-active-filter" hidden></div>
-    <!-- framework 控制的 filters/sort/category dropdowns -->
-    <div id="cm-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
+    <!-- 已套用 chip 列(HeaderFilter chips + 預警卡 chip + 「清除全部」)-->
+    <div id="cm-chips" class="hf-chip-bar"></div>
+
+    <!-- (上方下拉全收掉,改點表頭 ▾)— framework 仍渲染但 headerFilter:true 模式下會 return -->
+    <div id="cm-filters" style="display:none"></div>
 
     <table class="case-list">
       <thead id="cm-thead"></thead>
@@ -121,6 +120,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="medsec-common.js"></script>
 <script src="cindie-maintain.js"></script>
+<script src="header-filter.js"></script>
 <script>
 function cmNum(v) { return v == null || v === '' ? 0 : Number(v) || 0; }
 // view 的 stock_alert_level 是 "🔴 嚴重缺貨" 這種帶 emoji 字串
@@ -172,8 +172,9 @@ const CINDIE_CFG = {
   title: '產品採購庫存',
   breadcrumb: 'MedSec Hub / 採購 / 產品採購庫存',
   uploadStamp: 'last_excel_update',
-  // 5 個狀態 pill 整合成下拉(brief v2):省版面、互斥單選
-  filtersStyle: 'select',
+  // 上方獨立下拉全收掉(brief「表頭篩選」改造):filters/sort/cat/trend 全部
+  // 改由 HeaderFilter 接管,thead 改由主頁面 HF.init 渲染
+  headerFilter: true,
   // 全欄(解析 + 單筆編輯用;label 短、aliases 對 Cindie 真實 Excel 中文表頭)
   columns: [
     { key:'product_category', label:'分類', aliases:['產品分類'] },
@@ -380,13 +381,97 @@ async function loadSeasonBanner() {
 
 initCindieMaintain(CINDIE_CFG).then(() => {
   cmBindDrop(); loadSeasonBanner();
+  // HeaderFilter 接管 thead(headerFilter:true 模式下 framework 不渲染 thead)
+  initHeaderFilter();
+  // 預警卡(來源 v_purchase_plan;與 HF 共存,顯示在同一 chip 列)
   const params = new URLSearchParams(location.search);
-  const f = params.get('f');
-  const ok = (CINDIE_CFG.filters || []).some(x => x.key === f);
-  if (ok) { CM_FILTER = f; renderFilters(); renderRows(); }
-  // 預警卡 + 產品線下拉(來源 v_purchase_plan)
   loadPurchasePlanOverlay(params.get('alert'));
 });
+
+/* ============================================================
+   ★ HeaderFilter 接管:庫存頁表頭點 ▾ 篩選/排序
+   ============================================================ */
+function initHeaderFilter(){
+  // thead 多一列「操作」對應 tbody 的編輯按鈕
+  const cols = [
+    { key:'product_code',    label:'品號',   type:'plain' },
+    { key:'product_name',    label:'品名',   type:'plain' },
+    { key:'product_category', label:'分類',  type:'filter' },   // 自動 distinct
+    { key:'effective_supply', label:'現有(=有效)', type:'sort', num:true },
+    { key:'in_transit',      label:'在途(逾期+待進)', type:'sort', num:true,
+      getValue: r => cmInTransit(r) },
+    { key:'recent_3m_avg',   label:'近3月銷', type:'sort', num:true },
+    { key:'yoy_trend',       label:'YoY 比較', type:'filter',
+      // 4 值固定(brief「同期成長/平穩/下滑/市場萎縮」對齊 view 的 yoy_trend 符號)
+      options: [
+        { value:'↗ 同期成長', group:'YoY' },
+        { value:'→ 同期平穩', group:'YoY' },
+        { value:'↘ 同期下滑', group:'YoY' },
+        { value:'— 無同期',   group:'YoY' },
+      ],
+    },
+    { key:'stability_tier', label:'穩定度', type:'filter',
+      // ★ brief 強調補齊全部 4 值(原本只有「⭐高頻穩定」filter,中頻等沒篩出來)
+      options: [
+        { value:'⭐ 高頻穩定', group:'穩定度' },
+        { value:'✓ 中頻',     group:'穩定度' },
+        { value:'波動偶用',   group:'穩定度' },
+        { value:'一般',       group:'穩定度' },
+      ],
+    },
+    { key:'alerts', label:'警示', type:'filter',
+      // 一欄兩來源(stock_alert_level + stockless_alert_level),分組顯示
+      getValues: r => [r.stock_alert_level, r.stockless_alert_level].filter(v => v != null && v !== '' && v !== 'normal'),
+      groupOf: (v) => {
+        const e = Array.from(String(v).trim())[0];
+        if (e === '🔴' || e === '🟠' || e === '🟡') return '缺貨類';
+        if (e === '☠️' || e === '⚠️' || e === '💸' || /滯銷|過貨|過度|衰退|萎縮|下滑/.test(v)) return '滯銷過貨類';
+        if (e === '⚫') return '停產';
+        if (e === '🟢') return '正常';
+        return '其他';
+      },
+      groupOrder: ['缺貨類', '滯銷過貨類', '停產', '正常', '其他'],
+    },
+    { key:'suggested_order_qty', label:'訂貨建議', type:'sort', num:true },
+    { key:'_op', label:'操作', type:'plain', thClass:'cm-op-th' },
+  ];
+  window.CM_HF = HeaderFilter.init({
+    thead: document.getElementById('cm-thead'),
+    columns: cols,
+    onChange: () => {
+      if (typeof renderRows === 'function') renderRows();
+      renderChipBar();
+    },
+  });
+  // 初次 render(tbody 由 framework load 後自動渲染)
+  renderChipBar();
+}
+
+function renderChipBar(){
+  const box = document.getElementById('cm-chips');
+  if (!box) return;
+  const allChips = [];
+  if (window.CM_HF) allChips.push(...window.CM_HF.getChips());
+  if (CW_ALERT) {
+    const a = CW_ALERT_DEFS.find(x => x.flag === CW_ALERT);
+    if (a) allChips.push({ key:'alert:'+a.flag, label:`${a.icon} ${a.title}`,
+      clear: () => { CW_ALERT = null; renderAlertCards(); applyOverlayFilter(); } });
+  }
+  if (CW_LINE) {
+    allChips.push({ key:'line:'+CW_LINE, label:`產品線:${CW_LINE} ${PP_LINES.get(CW_LINE)||''}`,
+      clear: () => { CW_LINE = ''; applyOverlayFilter(); } });
+  }
+  if (!allChips.length){ box.innerHTML = ''; return; }
+  box.innerHTML = allChips.map((ch, i) =>
+    `<span class="hf-chip">${cmEsc(ch.label)}<button class="hf-chip-x" data-i="${i}" title="清除">✕</button></span>`
+  ).join('') + `<button class="hf-chip-clear-all">清除全部</button>`;
+  box.querySelectorAll('.hf-chip-x').forEach((btn, i) => btn.addEventListener('click', () => allChips[i].clear()));
+  box.querySelector('.hf-chip-clear-all').addEventListener('click', () => {
+    if (window.CM_HF) window.CM_HF.clearAll();
+    CW_ALERT = null; CW_LINE = '';
+    renderAlertCards(); applyOverlayFilter();
+  });
+}
 
 /* ============================================================
    ★ 預警卡 + 產品線下拉(來源 v_purchase_plan,brief v2)
@@ -431,19 +516,9 @@ async function loadPurchasePlanOverlay(presetAlert){
   }
 }
 
-function renderPrefilters(){
-  const box = document.getElementById('cm-prefilters');
-  if (!box) return;
-  const lineOpts = [...PP_LINES.entries()].sort((a,b) => String(a[0]).localeCompare(String(b[0])))
-    .map(([c,n]) => `<option value="${cmEsc(c)}"${CW_LINE===c?' selected':''}>${cmEsc(c)} ${cmEsc(n)}</option>`).join('');
-  box.innerHTML = `<label>產品線(美敦力):
-    <select class="rc-text-input" style="width:auto;padding:6px 10px"
-      onchange="cwSelectLine(this.value)">
-      <option value=""${CW_LINE===''?' selected':''}>全部產品線</option>
-      ${lineOpts}
-    </select></label>
-    <span style="color:#94a3b8;font-size:12px">— 來源 v_purchase_plan(限美敦力品)</span>`;
-}
+// 產品線下拉收掉(brief「上方下拉全收掉」)— 美敦力篩選改透過預警卡或表頭「分類」欄;
+// 保留 cwSelectLine()/applyOverlayFilter() 供 URL 預設 + 預警卡互動,but DOM 沒這個下拉
+function renderPrefilters(){ /* no-op:上方下拉已收;產品線篩選由 chip 列管 */ }
 
 function renderAlertCards(){
   const box = document.getElementById('cm-alerts');
@@ -503,7 +578,12 @@ function applyOverlayFilter(){
       return true;
     };
   }
-  // active filter 提示條
+  // active 提示改由統一的 chip 列(cm-chips)管;舊 cm-active-filter bar 已撤
+  if (typeof renderChipBar === 'function') renderChipBar();
+  if (typeof renderRows === 'function') renderRows();
+  return;
+
+  // === 以下為舊邏輯(已停用,保留供 reference)===
   const fb = document.getElementById('cm-active-filter');
   const tags = [];
   if (CW_ALERT) {
