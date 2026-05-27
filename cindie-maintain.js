@@ -196,7 +196,13 @@ async function loadRows() {
   const src = CM.readView || CM.table;            // 顯示讀 view,寫仍 CM.table
   const orderCol = CM.orderBy || 'updated_at';
   let q = supa.from(src).select('*').order(orderCol, { ascending: !!CM.orderAsc }).limit(3000);
-  if (kw) q = q.ilike('product_code', `%${kw}%`);
+  if (kw) {
+    // 搜 品號 + 品名 + 分類(brief「品號 + 品名 + 產品線」;產品線在 v_inventory
+    // _intelligence 對應 product_category)。kw 內 comma 用空白替代避開 PostgREST
+    // .or() 的分隔字元;% 在 ilike 是萬用字無需 escape。
+    const safe = kw.replace(/,/g, ' ');
+    q = q.or(`product_code.ilike.%${safe}%,product_name.ilike.%${safe}%,product_category.ilike.%${safe}%`);
+  }
   const { data, error } = await q;
   if (error) { tb.innerHTML = `<tr><td colspan="${cmListCols().length + 1}" class="case-empty">載入失敗:${error.message}</td></tr>`; return; }
   CM_DATA = data || [];

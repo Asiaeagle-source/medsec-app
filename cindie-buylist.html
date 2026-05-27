@@ -81,8 +81,10 @@
     <!-- ★ 預警卡 -->
     <div class="bl-alerts" id="bl-alerts"></div>
 
-    <!-- 上方下拉收掉(brief「表頭篩選」改造);只留搜尋/重抓功能性按鈕 -->
+    <!-- 上方下拉收掉(brief「表頭篩選」改造);只留搜尋/開關/重抓功能性 -->
     <div class="bl-toolbar">
+      <input id="bl-search" class="rc-text-input" style="width:260px;padding:7px"
+        placeholder="🔍 搜 品號 / 品名 / 產品線…" oninput="blRender()">
       <label class="tg"><input type="checkbox" id="bl-only-need" onchange="blRender()"> 只看該進的</label>
       <label class="tg"><input type="checkbox" id="bl-no-pending" onchange="blRender()"> 排除呆料(待補價)</label>
       <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="blReload()">重抓</button>
@@ -231,15 +233,26 @@ function blSelectAlert(flag){
 function blRender(){
   const onlyNeed = document.getElementById('bl-only-need').checked;
   const noPend   = document.getElementById('bl-no-pending').checked;
+  const kwRaw    = (document.getElementById('bl-search').value || '').trim().toLowerCase();
 
   // Step 1:HeaderFilter 套表頭篩選 + 排序
   let rows = BL_HF ? BL_HF.applyTo(BL_ROWS) : BL_ROWS.slice();
 
-  // Step 2:toolbar toggle(輔助篩選,獨立於 HF)
+  // Step 2:即時模糊搜(品號 + 品名 + 產品線);多詞空白分隔 AND
+  if (kwRaw) {
+    const terms = kwRaw.split(/\s+/).filter(Boolean);
+    rows = rows.filter(r => {
+      const hay = [r.product_code, r.product_name, r.line_code, r.line_name]
+        .filter(Boolean).join(' ').toLowerCase();
+      return terms.every(t => hay.includes(t));
+    });
+  }
+
+  // Step 3:toolbar toggle(輔助篩選,獨立於 HF)
   if (onlyNeed) rows = rows.filter(r => blN(r.suggested_buy_qty) > 0);
   if (noPend)   rows = rows.filter(r => r.price_status !== '待補價');
 
-  // Step 3:預警卡(獨立 chip,與 HF 共存 AND)
+  // Step 4:預警卡(獨立 chip,與 HF 共存 AND)
   if (BL_ALERT) rows = rows.filter(r => !!r[BL_ALERT]);
 
   // chip 列:HF chips + 預警卡 chip + 「清除全部」
