@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 一鍵買清單</title>
+<link rel="stylesheet" href="medsec-common.css">
+<style>
+  .bl-toolbar { display:flex; gap:10px; align-items:center; margin:14px 0; flex-wrap:wrap }
+  .bl-toolbar .spacer { flex:1 }
+  .bl-stat { display:flex; gap:18px; flex-wrap:wrap; margin:10px 0; font-size:13px }
+  .bl-stat b { font-size:20px }
+  .bl-tbl td, .bl-tbl th { font-size:12px; padding:6px 8px; vertical-align:top }
+  .bl-tbl tbody tr:hover { background:#f8fafc }
+  .bl-num { text-align:right; font-variant-numeric:tabular-nums }
+  .bl-pending { color:#94a3b8; font-style:italic }
+  .bl-ok-row { background:#f0fdf4 }
+  .bl-ok-row td { color:#475569 }
+  .bl-ok-pill { display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px;
+    background:#dcfce7; color:#166534 }
+  .bl-totals-row { background:#eef2ff; font-weight:600 }
+  .bl-totals-row td { padding-top:10px; padding-bottom:10px; border-top:2px solid #c7d2fe }
+  .bl-help { background:#fef3c7; border:1px solid #fde68a; border-radius:8px;
+    padding:10px 14px; font-size:13px; color:#92400e; line-height:1.7; margin:10px 0 }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <main class="main" style="margin-left:0">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="breadcrumb">MedSec Hub / 採購 / 一鍵買清單</div>
+        <h1>美敦力 · 一鍵買清單</h1>
+      </div>
+      <div style="font-size:13px">
+        <span id="bl-user">—</span> ·
+        <a href="cindie-aop.html">AOP 達成率 →</a> ·
+        <a href="cindie.html">回採購</a>
+        <span style="color:#94a3b8;margin-left:8px">build aop-1</span>
+      </div>
+    </div>
+
+    <div class="bl-help">
+      📦 來源 view <code>v_purchase_plan</code>(已篩 supplier=美敦力)。<br>
+      🎯 <b>建議進量 = max(目標供應 − 現有 − 在途待進, 0)</b>;目標供應 = 近 3 月月均 × 3。<br>
+      💡 整條線一眼看「該進哪些、各幾個、總共多少錢」;在途已夠的品(建議進量=0)沉到表底並標綠「暫不需」。
+    </div>
+
+    <div class="bl-toolbar">
+      <label style="font-size:13px">線:
+        <select id="bl-line" class="rc-text-input" style="width:auto;padding:6px" onchange="blLoad()"></select>
+      </label>
+      <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="blLoad()">重抓</button>
+      <span class="spacer"></span>
+      <span id="bl-count" style="font-size:13px;color:#64748b">—</span>
+    </div>
+
+    <div id="bl-stat" class="bl-stat" hidden></div>
+
+    <table class="case-list bl-tbl">
+      <thead><tr>
+        <th>品號</th><th>品名</th><th>線</th>
+        <th class="bl-num">近3月月均</th>
+        <th class="bl-num">現有</th>
+        <th class="bl-num">在途待進</th>
+        <th class="bl-num">逾期</th>
+        <th class="bl-num">目標供應<br><small style="font-weight:400;color:#94a3b8">月均×3</small></th>
+        <th class="bl-num">建議進量</th>
+        <th class="bl-num">買價</th>
+        <th class="bl-num">建議金額</th>
+      </tr></thead>
+      <tbody id="bl-tbody"><tr><td colspan="11" class="case-empty">載入中…</td></tr></tbody>
+    </table>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+let BL_ROWS = [];
+
+(async function init(){
+  const p = await guardProcurementAop();
+  if (!p) return;
+  renderUserInfo(p);
+  const u = document.getElementById('bl-user');
+  if (u) u.textContent = (p.nickname || p.name || '') + ' · ' + (ROLE_LABEL_MAP[p.medsec_role] || p.medsec_role);
+  hideLoading();
+  await blInitLines();
+  await blLoad();
+})();
+
+function blEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function blNum(v){ return v==null||v==='' ? 0 : (Number(v) || 0); }
+// 金額顯示:用千分位,>=1 億顯示「X.X 億」、>=1 萬顯示「X.X 萬」(沿用台灣業務頁習慣)
+function blMoney(v){
+  if (v == null || v === '') return '—';
+  const n = Number(v); if (!isFinite(n)) return '—';
+  if (Math.abs(n) >= 1e8) return (n/1e8).toFixed(1) + ' 億';
+  if (Math.abs(n) >= 1e4) return (n/1e4).toFixed(1) + ' 萬';
+  return n.toLocaleString('zh-Hant-TW');
+}
+function blInt(v){
+  if (v == null || v === '') return '—';
+  const n = Number(v); if (!isFinite(n)) return '—';
+  return n.toLocaleString('zh-Hant-TW');
+}
+function blFmt1(v){
+  if (v == null || v === '') return '—';
+  const n = Number(v); if (!isFinite(n)) return '—';
+  return n.toFixed(1);
+}
+
+async function blInitLines(){
+  // distinct line_code/line_name 從 v_purchase_plan 撈一次
+  const { data, error } = await supa.from('v_purchase_plan')
+    .select('line_code, line_name')
+    .limit(2000);
+  if (error){
+    document.getElementById('bl-tbody').innerHTML =
+      `<tr><td colspan="11" class="case-empty" style="color:#dc2626">載入線清單失敗:${blEsc(error.message)}</td></tr>`;
+    return;
+  }
+  const seen = new Map();
+  (data || []).forEach(r => {
+    const c = r.line_code; if (!c || seen.has(c)) return;
+    seen.set(c, r.line_name || c);
+  });
+  const sel = document.getElementById('bl-line');
+  sel.innerHTML = [...seen.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0])))
+    .map(([c,n]) => `<option value="${blEsc(c)}">${blEsc(c)} ${blEsc(n||'')}</option>`).join('');
+  // 預設 5004 NV(brief 指定),若無則第一個
+  if (sel.querySelector('option[value="5004"]')) sel.value = '5004';
+}
+
+async function blLoad(){
+  const tb = document.getElementById('bl-tbody');
+  const lineCode = document.getElementById('bl-line').value;
+  if (!lineCode){
+    tb.innerHTML = '<tr><td colspan="11" class="case-empty">請先選線</td></tr>';
+    return;
+  }
+  tb.innerHTML = '<tr><td colspan="11" class="case-empty">載入中…</td></tr>';
+  const { data, error } = await supa.from('v_purchase_plan')
+    .select('product_code, product_name, line_code, line_name,'
+          + ' monthly_avg_3m, current_stock, pending_inbound, overdue_inbound,'
+          + ' target_supply, suggested_buy_qty, unit_buy_price, suggested_buy_amount, price_status')
+    .eq('line_code', lineCode)
+    .limit(2000);
+  if (error){
+    tb.innerHTML = `<tr><td colspan="11" class="case-empty" style="color:#dc2626">載入失敗:${blEsc(error.message)}</td></tr>`;
+    return;
+  }
+  BL_ROWS = data || [];
+  blRender();
+}
+
+function blRender(){
+  const rows = BL_ROWS.slice().sort((a,b) => {
+    // 建議進量 > 0 的先,組內 DESC;= 0 的後沉(在途充足)
+    const qa = blNum(a.suggested_buy_qty);
+    const qb = blNum(b.suggested_buy_qty);
+    const ga = qa > 0 ? 0 : 1;
+    const gb = qb > 0 ? 0 : 1;
+    if (ga !== gb) return ga - gb;
+    if (qa !== qb) return qb - qa;
+    return String(a.product_code || '').localeCompare(String(b.product_code || ''));
+  });
+
+  const cnt = document.getElementById('bl-count');
+  cnt.textContent = `共 ${rows.length} 品`;
+
+  // 加總(只算建議進量 > 0 的)
+  let sumQty = 0, sumAmt = 0, pendingPrice = 0;
+  rows.forEach(r => {
+    const q = blNum(r.suggested_buy_qty);
+    if (q <= 0) return;
+    sumQty += q;
+    if (r.price_status === '待補價') pendingPrice++;
+    else sumAmt += blNum(r.suggested_buy_amount);
+  });
+
+  const stat = document.getElementById('bl-stat');
+  stat.hidden = false;
+  stat.innerHTML = `
+    <div>該進品數 <b>${rows.filter(r => blNum(r.suggested_buy_qty) > 0).length}</b></div>
+    <div>建議進量加總 <b>${blInt(sumQty)}</b></div>
+    <div>建議金額加總 <b style="color:#1d4ed8">${blMoney(sumAmt)}</b></div>
+    ${pendingPrice ? `<div style="color:#92400e">⚠ 待補價品數 <b>${pendingPrice}</b>(金額未計入)</div>` : ''}
+    <div style="margin-left:auto;color:#94a3b8">在途充足/暫不需 <b>${rows.filter(r => blNum(r.suggested_buy_qty) <= 0).length}</b></div>
+  `;
+
+  const tb = document.getElementById('bl-tbody');
+  if (!rows.length){
+    tb.innerHTML = '<tr><td colspan="11" class="case-empty">此線無資料</td></tr>';
+    return;
+  }
+
+  const trs = rows.map(r => {
+    const q = blNum(r.suggested_buy_qty);
+    const okRow = q <= 0;
+    const cls = okRow ? 'bl-ok-row' : '';
+    const okTag = okRow ? '<span class="bl-ok-pill">在途充足/暫不需</span>' : '';
+    const amtCell = r.price_status === '待補價'
+      ? `<td class="bl-num bl-pending">待補價</td>`
+      : `<td class="bl-num">${blMoney(r.suggested_buy_amount)}</td>`;
+    const priceCell = r.price_status === '待補價'
+      ? `<td class="bl-num bl-pending">—</td>`
+      : `<td class="bl-num">${blMoney(r.unit_buy_price)}</td>`;
+    return `<tr class="${cls}">
+      <td><code>${blEsc(r.product_code)}</code></td>
+      <td>${blEsc(r.product_name || '—')} ${okTag}</td>
+      <td><small style="color:#64748b">${blEsc(r.line_name || r.line_code || '')}</small></td>
+      <td class="bl-num">${blFmt1(r.monthly_avg_3m)}</td>
+      <td class="bl-num">${blInt(r.current_stock)}</td>
+      <td class="bl-num">${blInt(r.pending_inbound)}</td>
+      <td class="bl-num">${blInt(r.overdue_inbound)}</td>
+      <td class="bl-num">${blInt(r.target_supply)}</td>
+      <td class="bl-num"><b style="color:${q > 0 ? '#1d4ed8' : '#94a3b8'}">${blInt(q)}</b></td>
+      ${priceCell}
+      ${amtCell}
+    </tr>`;
+  }).join('');
+
+  const totalsRow = `<tr class="bl-totals-row">
+    <td colspan="8" style="text-align:right">線小計(只算建議進量 &gt; 0 的品):</td>
+    <td class="bl-num">${blInt(sumQty)}</td>
+    <td class="bl-num">—</td>
+    <td class="bl-num" style="color:#1d4ed8">${blMoney(sumAmt)}${pendingPrice?` <small style="color:#92400e">+待補 ${pendingPrice} 品</small>`:''}</td>
+  </tr>`;
+
+  tb.innerHTML = trs + totalsRow;
+}
+</script>
+</body>
+</html>

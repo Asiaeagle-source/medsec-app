@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AE MED Hub · 採購 AOP 達成率</title>
+<link rel="stylesheet" href="medsec-common.css">
+<style>
+  .aop-tabs { display:flex; gap:6px; flex-wrap:wrap; margin:14px 0 }
+  .aop-tab { padding:8px 16px; border:1px solid #d1d5db; border-radius:8px; background:#fff;
+    cursor:pointer; font-size:14px }
+  .aop-tab.active { background:#4f46e5; color:#fff; border-color:#4f46e5 }
+  .aop-help { background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px;
+    padding:10px 14px; font-size:13px; color:#3730a3; line-height:1.7; margin:10px 0 }
+  .aop-toolbar { display:flex; gap:10px; align-items:center; margin:10px 0; flex-wrap:wrap }
+  .aop-tbl td, .aop-tbl th { font-size:13px; padding:8px 10px; vertical-align:top }
+  .aop-tbl tbody tr:hover { background:#f8fafc }
+  .aop-num { text-align:right; font-variant-numeric:tabular-nums }
+  .aop-row-gap td { background:#f8fafc; color:#94a3b8 }
+  .aop-row-gap td b { color:#64748b }
+  .aop-pill { display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px }
+  .aop-pill-red   { background:#fee2e2; color:#991b1b }
+  .aop-pill-orng  { background:#fef3c7; color:#92400e }
+  .aop-pill-grn   { background:#dcfce7; color:#166534 }
+  .aop-pill-warn  { background:#fef3c7; color:#92400e; margin-left:4px }
+  .aop-pill-exact { background:#dcfce7; color:#166534; margin-left:4px }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <main class="main" style="margin-left:0">
+    <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="breadcrumb">MedSec Hub / 採購 / AOP 達成率</div>
+        <h1>採購 AOP 達成率(美敦力)</h1>
+      </div>
+      <div style="font-size:13px">
+        <span id="aop-user">—</span> ·
+        <a href="cindie-buylist.html">一鍵買清單 →</a> ·
+        <a href="cindie.html">回採購</a>
+        <span style="color:#94a3b8;margin-left:8px">build aop-1</span>
+      </div>
+    </div>
+
+    <div class="aop-help">
+      📊 美敦力財年:<b>FY2025 = 2024/05 ~ 2025/04</b>。財季:Q1=5/6/7、Q2=8/9/10、Q3=11/12/1、Q4=2/3/4。<br>
+      🎯 達成% 顏色:<span class="aop-pill aop-pill-red">&lt; 40%</span>
+        <span class="aop-pill aop-pill-orng">40~70%</span>
+        <span class="aop-pill aop-pill-grn">&gt; 70%</span>(僅視覺,數字照實)。<br>
+      ⚠ 預設只顯示 <code>data_quality='reliable'</code> 的 FY2024/2025;FY2022/2023 的 ERP 資料 2023/04 前不全,僅供參考。
+    </div>
+
+    <div class="aop-tabs">
+      <div class="aop-tab active" data-tab="year"    onclick="aopTab('year')">📅 年度</div>
+      <div class="aop-tab"        data-tab="quarter" onclick="aopTab('quarter')">📆 季度</div>
+    </div>
+
+    <!-- ① 年度 -->
+    <section id="aop-tab-year">
+      <div class="aop-toolbar">
+        <label style="font-size:13px">
+          <input type="checkbox" id="aop-y-showall" onchange="aopRenderYear()"> 顯示全部年(含 pre_erp_gap)
+        </label>
+        <span style="font-size:12px;color:#94a3b8">— FY2022/2023 ERP 資料不完整,僅供參考</span>
+        <span class="filter-spacer" style="flex:1"></span>
+        <span id="aop-y-count" style="font-size:13px;color:#64748b">—</span>
+      </div>
+      <table class="case-list aop-tbl">
+        <thead><tr>
+          <th>線</th><th>財年</th>
+          <th class="aop-num">目標(營業額)</th>
+          <th class="aop-num">實際(營業額)</th>
+          <th class="aop-num">達成%</th>
+          <th>資料品質</th>
+        </tr></thead>
+        <tbody id="aop-y-tbody"><tr><td colspan="6" class="case-empty">載入中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <!-- ② 季度 -->
+    <section id="aop-tab-quarter" hidden>
+      <div class="aop-toolbar">
+        <label style="font-size:13px">財年:
+          <select id="aop-q-fy" class="rc-text-input" style="width:auto;padding:6px" onchange="aopRenderQuarter()"></select>
+        </label>
+        <label style="font-size:13px">
+          <input type="checkbox" id="aop-q-showall" onchange="aopRenderQuarter()"> 顯示全部財年(含 pre_erp_gap)
+        </label>
+        <span style="font-size:12px;color:#94a3b8">— <span class="aop-pill aop-pill-warn">足月近似</span> 表示待美敦力月曆精修</span>
+        <span class="filter-spacer" style="flex:1"></span>
+        <span id="aop-q-count" style="font-size:13px;color:#64748b">—</span>
+      </div>
+      <table class="case-list aop-tbl">
+        <thead><tr>
+          <th>線</th><th>財年</th><th>季</th>
+          <th class="aop-num">目標</th>
+          <th class="aop-num">實際</th>
+          <th class="aop-num">達成%</th>
+          <th>口徑</th>
+        </tr></thead>
+        <tbody id="aop-q-tbody"><tr><td colspan="7" class="case-empty">點上方「季度」自動載入</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+let AOP_Y = [], AOP_Q = [], AOP_Q_LOADED = false;
+
+(async function init(){
+  const p = await guardProcurementAop();
+  if (!p) return;
+  renderUserInfo(p);
+  const u = document.getElementById('aop-user');
+  if (u) u.textContent = (p.nickname || p.name || '') + ' · ' + (ROLE_LABEL_MAP[p.medsec_role] || p.medsec_role);
+  hideLoading();
+  await aopLoadYear();
+})();
+
+function aopEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function aopMoney(v){
+  if (v == null || v === '') return '—';
+  const n = Number(v); if (!isFinite(n)) return '—';
+  if (Math.abs(n) >= 1e8) return (n/1e8).toFixed(1) + ' 億';
+  if (Math.abs(n) >= 1e4) return (n/1e4).toFixed(1) + ' 萬';
+  return n.toLocaleString('zh-Hant-TW');
+}
+function aopPctCls(p){
+  if (p == null) return '';
+  const v = Number(p) * (Number(p) <= 1 ? 100 : 1); // 容忍 view 回 0~1 或 0~100
+  if (v < 40) return 'aop-pill aop-pill-red';
+  if (v <= 70) return 'aop-pill aop-pill-orng';
+  return 'aop-pill aop-pill-grn';
+}
+function aopPctText(p){
+  if (p == null) return '—';
+  const v = Number(p) * (Number(p) <= 1 ? 100 : 1);
+  return v.toFixed(1) + '%';
+}
+
+function aopTab(t){
+  document.querySelectorAll('.aop-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+  document.getElementById('aop-tab-year').hidden    = (t !== 'year');
+  document.getElementById('aop-tab-quarter').hidden = (t !== 'quarter');
+  if (t === 'quarter' && !AOP_Q_LOADED) aopLoadQuarter();
+}
+
+/* ---------- 年度 ---------- */
+async function aopLoadYear(){
+  const tb = document.getElementById('aop-y-tbody');
+  const { data, error } = await supa.from('v_aop_sales_vs_target')
+    .select('line_name, fiscal_year, target_sales, actual_sales, achieve_pct, data_quality')
+    .limit(500);
+  if (error){
+    tb.innerHTML = `<tr><td colspan="6" class="case-empty" style="color:#dc2626">載入失敗:${aopEsc(error.message)}</td></tr>`;
+    return;
+  }
+  AOP_Y = data || [];
+  aopRenderYear();
+}
+
+function aopRenderYear(){
+  const showAll = document.getElementById('aop-y-showall').checked;
+  const rows = AOP_Y
+    .filter(r => showAll || r.data_quality === 'reliable')
+    .sort((a, b) => String(a.line_name||'').localeCompare(String(b.line_name||''))
+                 || String(b.fiscal_year||'').localeCompare(String(a.fiscal_year||'')));
+  document.getElementById('aop-y-count').textContent = `共 ${rows.length} 列(${showAll ? '全部年' : '僅 reliable'})`;
+  const tb = document.getElementById('aop-y-tbody');
+  if (!rows.length){
+    tb.innerHTML = '<tr><td colspan="6" class="case-empty">無資料</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(r => {
+    const gap = r.data_quality === 'pre_erp_gap';
+    const trCls = gap ? 'aop-row-gap' : '';
+    const qq = r.data_quality === 'reliable'
+      ? '<span class="aop-pill aop-pill-grn">reliable</span>'
+      : `<span class="aop-pill aop-pill-warn" title="ERP 資料 2023/04 前不全">${aopEsc(r.data_quality || '—')}</span>`;
+    return `<tr class="${trCls}">
+      <td><b>${aopEsc(r.line_name || '—')}</b></td>
+      <td>FY${aopEsc(String(r.fiscal_year || '—'))}</td>
+      <td class="aop-num">${aopMoney(r.target_sales)}</td>
+      <td class="aop-num">${aopMoney(r.actual_sales)}</td>
+      <td class="aop-num"><span class="${aopPctCls(r.achieve_pct)}">${aopPctText(r.achieve_pct)}</span></td>
+      <td>${qq}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ---------- 季度 ---------- */
+async function aopLoadQuarter(){
+  AOP_Q_LOADED = true;
+  const tb = document.getElementById('aop-q-tbody');
+  tb.innerHTML = '<tr><td colspan="7" class="case-empty">載入中…</td></tr>';
+  const { data, error } = await supa.from('v_aop_sales_vs_target_q')
+    .select('line_name, fiscal_year, fiscal_quarter, target_sales, actual_sales, achieve_pct, data_quality, period_basis')
+    .limit(2000);
+  if (error){
+    tb.innerHTML = `<tr><td colspan="7" class="case-empty" style="color:#dc2626">載入失敗:${aopEsc(error.message)}</td></tr>`;
+    return;
+  }
+  AOP_Q = data || [];
+  // FY 下拉
+  const fys = [...new Set(AOP_Q.map(r => String(r.fiscal_year)).filter(Boolean))]
+    .sort((a, b) => b.localeCompare(a));
+  const sel = document.getElementById('aop-q-fy');
+  sel.innerHTML = '<option value="">全部財年</option>' + fys.map(f => `<option value="${aopEsc(f)}">FY${aopEsc(f)}</option>`).join('');
+  aopRenderQuarter();
+}
+
+function aopRenderQuarter(){
+  const fy = document.getElementById('aop-q-fy').value;
+  const showAll = document.getElementById('aop-q-showall').checked;
+  const rows = AOP_Q
+    .filter(r => showAll || r.data_quality === 'reliable')
+    .filter(r => !fy || String(r.fiscal_year) === fy)
+    .sort((a, b) => String(a.line_name||'').localeCompare(String(b.line_name||''))
+                 || String(b.fiscal_year||'').localeCompare(String(a.fiscal_year||''))
+                 || Number(a.fiscal_quarter) - Number(b.fiscal_quarter));
+  document.getElementById('aop-q-count').textContent = `共 ${rows.length} 列`;
+  const tb = document.getElementById('aop-q-tbody');
+  if (!rows.length){
+    tb.innerHTML = '<tr><td colspan="7" class="case-empty">無資料</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(r => {
+    const gap = r.data_quality === 'pre_erp_gap';
+    const trCls = gap ? 'aop-row-gap' : '';
+    const pb = r.period_basis === 'exact'
+      ? '<span class="aop-pill aop-pill-exact">exact</span>'
+      : `<span class="aop-pill aop-pill-warn" title="月曆未匯入,以足月近似;待美敦力月曆精修">足月近似</span>`;
+    return `<tr class="${trCls}">
+      <td><b>${aopEsc(r.line_name || '—')}</b></td>
+      <td>FY${aopEsc(String(r.fiscal_year || '—'))}</td>
+      <td>Q${aopEsc(String(r.fiscal_quarter || '—'))}</td>
+      <td class="aop-num">${aopMoney(r.target_sales)}</td>
+      <td class="aop-num">${aopMoney(r.actual_sales)}</td>
+      <td class="aop-num"><span class="${aopPctCls(r.achieve_pct)}">${aopPctText(r.achieve_pct)}</span></td>
+      <td>${pb}</td>
+    </tr>`;
+  }).join('');
+}
+</script>
+</body>
+</html>
