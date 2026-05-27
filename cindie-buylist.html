@@ -6,11 +6,34 @@
 <title>AE MED Hub · 一鍵買清單</title>
 <link rel="stylesheet" href="medsec-common.css">
 <style>
-  .bl-toolbar { display:flex; gap:10px; align-items:center; margin:14px 0; flex-wrap:wrap }
+  .bl-alerts { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:10px; margin:14px 0 }
+  .bl-alert-card { border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px;
+    cursor:pointer; background:#fff; transition:transform .1s, box-shadow .1s }
+  .bl-alert-card:hover { transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.06) }
+  .bl-alert-card.active { border-width:2px; box-shadow:0 0 0 2px #c7d2fe inset }
+  .bl-alert-card.empty { opacity:.45; cursor:default }
+  .bl-alert-card.empty:hover { transform:none; box-shadow:none }
+  .bl-alert-card .icon { font-size:22px; line-height:1 }
+  .bl-alert-card .title { font-size:13px; font-weight:600; margin-top:4px }
+  .bl-alert-card .desc { font-size:11px; color:#94a3b8; margin-top:2px; line-height:1.4 }
+  .bl-alert-card .count { font-size:24px; font-weight:700; line-height:1.1; margin-top:4px }
+  .bl-card-stockout { border-left:4px solid #dc2626 }   .bl-card-stockout .count { color:#dc2626 }
+  .bl-card-growth   { border-left:4px solid #ea580c }   .bl-card-growth   .count { color:#ea580c }
+  .bl-card-overdue  { border-left:4px solid #ca8a04 }   .bl-card-overdue  .count { color:#ca8a04 }
+  .bl-card-highfreq { border-left:4px solid #4f46e5 }   .bl-card-highfreq .count { color:#4f46e5 }
+
+  .bl-toolbar { display:flex; gap:14px; align-items:center; margin:12px 0; flex-wrap:wrap; font-size:13px }
+  .bl-toolbar label.tg { display:inline-flex; align-items:center; gap:4px; cursor:pointer }
   .bl-toolbar .spacer { flex:1 }
+
   .bl-stat { display:flex; gap:18px; flex-wrap:wrap; margin:10px 0; font-size:13px }
   .bl-stat b { font-size:20px }
   .bl-tbl td, .bl-tbl th { font-size:12px; padding:6px 8px; vertical-align:top }
+  .bl-tbl thead th.sortable { cursor:pointer; user-select:none }
+  .bl-tbl thead th.sortable:hover { background:#f1f5f9 }
+  .bl-tbl thead th.sortable .arrow { color:#94a3b8; margin-left:2px; font-size:10px }
+  .bl-tbl thead th.sortable.active .arrow { color:#4f46e5; font-weight:700 }
   .bl-tbl tbody tr:hover { background:#f8fafc }
   .bl-num { text-align:right; font-variant-numeric:tabular-nums }
   .bl-pending { color:#94a3b8; font-style:italic }
@@ -18,10 +41,20 @@
   .bl-ok-row td { color:#475569 }
   .bl-ok-pill { display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px;
     background:#dcfce7; color:#166534 }
+  .bl-growth-hot { color:#dc2626; font-weight:600 }
+  .bl-month-red    { color:#dc2626; font-weight:600 }
+  .bl-month-orng   { color:#ea580c; font-weight:600 }
+  .bl-month-grn    { color:#16a34a; font-weight:600 }
+  .bl-month-na     { color:#94a3b8 }
   .bl-totals-row { background:#eef2ff; font-weight:600 }
   .bl-totals-row td { padding-top:10px; padding-bottom:10px; border-top:2px solid #c7d2fe }
   .bl-help { background:#fef3c7; border:1px solid #fde68a; border-radius:8px;
     padding:10px 14px; font-size:13px; color:#92400e; line-height:1.7; margin:10px 0 }
+  .bl-active-filter-bar { background:#eef2ff; border:1px solid #c7d2fe; border-radius:6px;
+    padding:6px 12px; margin:8px 0; font-size:12px; color:#3730a3;
+    display:flex; align-items:center; gap:10px }
+  .bl-active-filter-bar button { background:#fff; border:1px solid #c7d2fe; color:#4f46e5;
+    padding:2px 10px; border-radius:4px; font-size:11px; cursor:pointer }
 </style>
 </head>
 <body>
@@ -34,42 +67,40 @@
       </div>
       <div style="font-size:13px">
         <span id="bl-user">—</span> ·
-        <a href="cindie-aop.html">AOP 達成率 →</a> ·
         <a href="cindie.html">回採購</a>
-        <span style="color:#94a3b8;margin-left:8px">build aop-1</span>
+        <span style="color:#94a3b8;margin-left:8px">build aop-v2</span>
       </div>
     </div>
 
     <div class="bl-help">
       📦 來源 view <code>v_purchase_plan</code>(已篩 supplier=美敦力)。<br>
-      🎯 <b>建議進量 = max(目標供應 − 現有 − 在途待進, 0)</b>;目標供應 = 近 3 月月均 × 3。<br>
-      💡 整條線一眼看「該進哪些、各幾個、總共多少錢」;在途已夠的品(建議進量=0)沉到表底並標綠「暫不需」。
+      🎯 建議進量 = max(目標供應 − 現有 − 在途待進, 0);目標供應 = 近 3 月月均 × 3。<br>
+      💡 點上方<b>預警卡</b>:一鍵篩出該批品;再點同一張卡或「清除篩選」回全部。表頭可點 ▾ 切排序。
     </div>
 
+    <!-- ★ 預警卡 -->
+    <div class="bl-alerts" id="bl-alerts"></div>
+
+    <!-- 篩選列 -->
     <div class="bl-toolbar">
-      <label style="font-size:13px">線:
-        <select id="bl-line" class="rc-text-input" style="width:auto;padding:6px" onchange="blLoad()"></select>
+      <label>產品線:
+        <select id="bl-line" class="rc-text-input" style="width:auto;padding:6px" onchange="blRender()"></select>
       </label>
-      <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="blLoad()">重抓</button>
+      <label class="tg"><input type="checkbox" id="bl-only-need" onchange="blRender()"> 只看該進的</label>
+      <label class="tg"><input type="checkbox" id="bl-no-pending" onchange="blRender()"> 排除呆料(待補價)</label>
+      <button class="btn-secondary" style="width:auto;padding:6px 14px" onclick="blReload()">重抓</button>
       <span class="spacer"></span>
       <span id="bl-count" style="font-size:13px;color:#64748b">—</span>
     </div>
 
+    <!-- 預警卡 active 提示 + 清除 -->
+    <div id="bl-active-filter" hidden></div>
+
     <div id="bl-stat" class="bl-stat" hidden></div>
 
     <table class="case-list bl-tbl">
-      <thead><tr>
-        <th>品號</th><th>品名</th><th>線</th>
-        <th class="bl-num">近3月月均</th>
-        <th class="bl-num">現有</th>
-        <th class="bl-num">在途待進</th>
-        <th class="bl-num">逾期</th>
-        <th class="bl-num">目標供應<br><small style="font-weight:400;color:#94a3b8">月均×3</small></th>
-        <th class="bl-num">建議進量</th>
-        <th class="bl-num">買價</th>
-        <th class="bl-num">建議金額</th>
-      </tr></thead>
-      <tbody id="bl-tbody"><tr><td colspan="11" class="case-empty">載入中…</td></tr></tbody>
+      <thead id="bl-thead"></thead>
+      <tbody id="bl-tbody"><tr><td colspan="12" class="case-empty">載入中…</td></tr></tbody>
     </table>
   </main>
 </div>
@@ -78,6 +109,35 @@
 <script src="medsec-common.js"></script>
 <script>
 let BL_ROWS = [];
+let BL_SORT = { key: 'available_months', dir: 'asc' };  // 預設:可用月數低到高
+let BL_ALERT = null;                                     // 當前點選的預警卡 flag
+
+const ALERT_DEFS = [
+  { flag:'flag_stockout_soon', icon:'🔴', cls:'bl-card-stockout',
+    title:'即將缺貨', desc:'可用月數 < 1,最急' },
+  { flag:'flag_fast_growth',   icon:'📈', cls:'bl-card-growth',
+    title:'成長超過訂貨', desc:'需求加速,易被忽略' },
+  { flag:'flag_overdue_risk',  icon:'⚠️', cls:'bl-card-overdue',
+    title:'在途逾期風險', desc:'帳面夠但廠商欠交' },
+  { flag:'flag_highfreq_low',  icon:'⭐', cls:'bl-card-highfreq',
+    title:'高頻品觸底', desc:'高頻品庫存低於安全線' },
+];
+
+const SORTABLE_HEAD = [
+  { key:'product_code',          label:'品號' },
+  { key:'product_name',          label:'品名' },
+  { key:'line_name',             label:'線' },
+  { key:'monthly_avg_3m',        label:'近3月月均',  sortable:true, num:true, hint:'數值' },
+  { key:'current_stock',         label:'現有',        num:true },
+  { key:'pending_inbound',       label:'在途待進',    num:true },
+  { key:'overdue_inbound',       label:'逾期',        num:true },
+  { key:'available_months',      label:'可用月數',    sortable:true, num:true, hint:'現有÷月均,NULL沉底' },
+  { key:'growth_ratio',          label:'成長率',      sortable:true, num:true, hint:'近3月÷近4-6月,>1.2📈' },
+  { key:'target_supply',         label:'目標供應',    num:true },
+  { key:'suggested_buy_qty',     label:'建議進量',    sortable:true, num:true },
+  { key:'unit_buy_price',        label:'買價',        num:true },
+  { key:'suggested_buy_amount',  label:'建議金額',    sortable:true, num:true },
+];
 
 (async function init(){
   const p = await guardProcurementAop();
@@ -86,13 +146,13 @@ let BL_ROWS = [];
   const u = document.getElementById('bl-user');
   if (u) u.textContent = (p.nickname || p.name || '') + ' · ' + (ROLE_LABEL_MAP[p.medsec_role] || p.medsec_role);
   hideLoading();
-  await blInitLines();
-  await blLoad();
+  blBuildThead();
+  await blReload();
 })();
 
 function blEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function blNum(v){ return v==null||v==='' ? 0 : (Number(v) || 0); }
-// 金額顯示:用千分位,>=1 億顯示「X.X 億」、>=1 萬顯示「X.X 萬」(沿用台灣業務頁習慣)
+function blN(v){ return v==null||v==='' ? 0 : (Number(v) || 0); }
+function blIsNum(v){ return v != null && v !== '' && isFinite(Number(v)); }
 function blMoney(v){
   if (v == null || v === '') return '—';
   const n = Number(v); if (!isFinite(n)) return '—';
@@ -111,102 +171,190 @@ function blFmt1(v){
   return n.toFixed(1);
 }
 
-async function blInitLines(){
-  // distinct line_code/line_name 從 v_purchase_plan 撈一次
-  const { data, error } = await supa.from('v_purchase_plan')
-    .select('line_code, line_name')
-    .limit(2000);
-  if (error){
-    document.getElementById('bl-tbody').innerHTML =
-      `<tr><td colspan="11" class="case-empty" style="color:#dc2626">載入線清單失敗:${blEsc(error.message)}</td></tr>`;
-    return;
-  }
-  const seen = new Map();
-  (data || []).forEach(r => {
-    const c = r.line_code; if (!c || seen.has(c)) return;
-    seen.set(c, r.line_name || c);
-  });
-  const sel = document.getElementById('bl-line');
-  sel.innerHTML = [...seen.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0])))
-    .map(([c,n]) => `<option value="${blEsc(c)}">${blEsc(c)} ${blEsc(n||'')}</option>`).join('');
-  // 預設 5004 NV(brief 指定),若無則第一個
-  if (sel.querySelector('option[value="5004"]')) sel.value = '5004';
+function blBuildThead(){
+  const thead = document.getElementById('bl-thead');
+  thead.innerHTML = '<tr>' + SORTABLE_HEAD.map(c => {
+    if (!c.sortable) {
+      return `<th class="${c.num?'bl-num':''}">${blEsc(c.label)}</th>`;
+    }
+    const active = BL_SORT.key === c.key;
+    const arrow  = active ? (BL_SORT.dir === 'asc' ? '▲' : '▼') : '▾';
+    return `<th class="${c.num?'bl-num':''} sortable${active?' active':''}"
+      onclick="blToggleSort('${c.key}')" title="${blEsc(c.hint||'點切排序')}">
+      ${blEsc(c.label)}<span class="arrow">${arrow}</span></th>`;
+  }).join('') + '</tr>';
 }
 
-async function blLoad(){
-  const tb = document.getElementById('bl-tbody');
-  const lineCode = document.getElementById('bl-line').value;
-  if (!lineCode){
-    tb.innerHTML = '<tr><td colspan="11" class="case-empty">請先選線</td></tr>';
-    return;
+function blToggleSort(key){
+  if (BL_SORT.key === key) {
+    BL_SORT.dir = BL_SORT.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    BL_SORT.key = key;
+    // 數值欄預設高到低,但 available_months 預設低到高(最急在上)
+    BL_SORT.dir = (key === 'available_months') ? 'asc' : 'desc';
   }
-  tb.innerHTML = '<tr><td colspan="11" class="case-empty">載入中…</td></tr>';
+  blBuildThead();
+  blRender();
+}
+
+async function blReload(){
+  const tb = document.getElementById('bl-tbody');
+  tb.innerHTML = '<tr><td colspan="13" class="case-empty">載入中…</td></tr>';
   const { data, error } = await supa.from('v_purchase_plan')
     .select('product_code, product_name, line_code, line_name,'
           + ' monthly_avg_3m, current_stock, pending_inbound, overdue_inbound,'
-          + ' target_supply, suggested_buy_qty, unit_buy_price, suggested_buy_amount, price_status')
-    .eq('line_code', lineCode)
-    .limit(2000);
+          + ' target_supply, suggested_buy_qty, unit_buy_price, suggested_buy_amount,'
+          + ' price_status, available_months, growth_ratio,'
+          + ' flag_stockout_soon, flag_fast_growth, flag_overdue_risk, flag_highfreq_low')
+    .limit(5000);
   if (error){
-    tb.innerHTML = `<tr><td colspan="11" class="case-empty" style="color:#dc2626">載入失敗:${blEsc(error.message)}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="13" class="case-empty" style="color:#dc2626">載入失敗:${blEsc(error.message)}</td></tr>`;
     return;
   }
   BL_ROWS = data || [];
+
+  // 產品線下拉(distinct;預設「全部」)
+  const sel = document.getElementById('bl-line');
+  const cur = sel.value;
+  const lineMap = new Map();
+  BL_ROWS.forEach(r => { if (r.line_code) lineMap.set(r.line_code, r.line_name || r.line_code); });
+  sel.innerHTML = '<option value="">全部產品線</option>'
+    + [...lineMap.entries()].sort((a,b) => String(a[0]).localeCompare(String(b[0])))
+        .map(([c,n]) => `<option value="${blEsc(c)}">${blEsc(c)} ${blEsc(n)}</option>`).join('');
+  if (cur && [...lineMap.keys()].includes(cur)) sel.value = cur;
+
+  blRenderAlerts();
+  blRender();
+}
+
+function blRenderAlerts(){
+  const counts = {};
+  ALERT_DEFS.forEach(a => counts[a.flag] = 0);
+  BL_ROWS.forEach(r => {
+    ALERT_DEFS.forEach(a => { if (r[a.flag]) counts[a.flag]++; });
+  });
+  const box = document.getElementById('bl-alerts');
+  box.innerHTML = ALERT_DEFS.map(a => {
+    const n = counts[a.flag];
+    const isActive = BL_ALERT === a.flag;
+    const isEmpty  = n === 0;
+    const onClick  = isEmpty ? '' : `onclick="blSelectAlert('${a.flag}')"`;
+    return `<div class="bl-alert-card ${a.cls} ${isActive?'active':''} ${isEmpty?'empty':''}" ${onClick}>
+      <div class="icon">${a.icon}</div>
+      <div class="title">${blEsc(a.title)}</div>
+      <div class="desc">${blEsc(a.desc)}</div>
+      <div class="count">${n}</div>
+    </div>`;
+  }).join('');
+}
+
+function blSelectAlert(flag){
+  BL_ALERT = (BL_ALERT === flag) ? null : flag;
+  blRenderAlerts();
+  blRender();
+}
+function blClearAlert(){
+  BL_ALERT = null;
+  blRenderAlerts();
   blRender();
 }
 
 function blRender(){
-  const rows = BL_ROWS.slice().sort((a,b) => {
-    // 建議進量 > 0 的先,組內 DESC;= 0 的後沉(在途充足)
-    const qa = blNum(a.suggested_buy_qty);
-    const qb = blNum(b.suggested_buy_qty);
-    const ga = qa > 0 ? 0 : 1;
-    const gb = qb > 0 ? 0 : 1;
-    if (ga !== gb) return ga - gb;
-    if (qa !== qb) return qb - qa;
-    return String(a.product_code || '').localeCompare(String(b.product_code || ''));
+  const line     = document.getElementById('bl-line').value;
+  const onlyNeed = document.getElementById('bl-only-need').checked;
+  const noPend   = document.getElementById('bl-no-pending').checked;
+
+  let rows = BL_ROWS.slice();
+  if (line)     rows = rows.filter(r => r.line_code === line);
+  if (onlyNeed) rows = rows.filter(r => blN(r.suggested_buy_qty) > 0);
+  if (noPend)   rows = rows.filter(r => r.price_status !== '待補價');
+  if (BL_ALERT) rows = rows.filter(r => !!r[BL_ALERT]);
+
+  // 排序
+  const key = BL_SORT.key;
+  const dir = BL_SORT.dir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const va = a[key], vb = b[key];
+    const na = blIsNum(va), nb = blIsNum(vb);
+    // NULL 統一沉底(不論 asc/desc)
+    if (!na && !nb) return String(a.product_code||'').localeCompare(String(b.product_code||''));
+    if (!na) return 1;
+    if (!nb) return -1;
+    return (Number(va) - Number(vb)) * dir;
   });
 
-  const cnt = document.getElementById('bl-count');
-  cnt.textContent = `共 ${rows.length} 品`;
+  // active filter 提示
+  const fb = document.getElementById('bl-active-filter');
+  if (BL_ALERT) {
+    const a = ALERT_DEFS.find(x => x.flag === BL_ALERT);
+    fb.hidden = false;
+    fb.className = 'bl-active-filter-bar';
+    fb.innerHTML = `${a.icon} 已套用預警「<b>${blEsc(a.title)}</b>」篩選 → ${rows.length} 品
+      <button onclick="blClearAlert()">清除篩選</button>`;
+  } else {
+    fb.hidden = true;
+  }
 
-  // 加總(只算建議進量 > 0 的)
+  document.getElementById('bl-count').textContent = `共 ${rows.length} 品`;
+
+  // 加總
   let sumQty = 0, sumAmt = 0, pendingPrice = 0;
   rows.forEach(r => {
-    const q = blNum(r.suggested_buy_qty);
+    const q = blN(r.suggested_buy_qty);
     if (q <= 0) return;
     sumQty += q;
     if (r.price_status === '待補價') pendingPrice++;
-    else sumAmt += blNum(r.suggested_buy_amount);
+    else sumAmt += blN(r.suggested_buy_amount);
   });
-
   const stat = document.getElementById('bl-stat');
   stat.hidden = false;
   stat.innerHTML = `
-    <div>該進品數 <b>${rows.filter(r => blNum(r.suggested_buy_qty) > 0).length}</b></div>
+    <div>該進品數 <b>${rows.filter(r => blN(r.suggested_buy_qty) > 0).length}</b></div>
     <div>建議進量加總 <b>${blInt(sumQty)}</b></div>
     <div>建議金額加總 <b style="color:#1d4ed8">${blMoney(sumAmt)}</b></div>
     ${pendingPrice ? `<div style="color:#92400e">⚠ 待補價品數 <b>${pendingPrice}</b>(金額未計入)</div>` : ''}
-    <div style="margin-left:auto;color:#94a3b8">在途充足/暫不需 <b>${rows.filter(r => blNum(r.suggested_buy_qty) <= 0).length}</b></div>
+    <div style="margin-left:auto;color:#94a3b8">在途充足/暫不需 <b>${rows.filter(r => blN(r.suggested_buy_qty) <= 0).length}</b></div>
   `;
 
   const tb = document.getElementById('bl-tbody');
   if (!rows.length){
-    tb.innerHTML = '<tr><td colspan="11" class="case-empty">此線無資料</td></tr>';
+    tb.innerHTML = `<tr><td colspan="${SORTABLE_HEAD.length}" class="case-empty">無符合條件的品</td></tr>`;
     return;
   }
 
   const trs = rows.map(r => {
-    const q = blNum(r.suggested_buy_qty);
+    const q = blN(r.suggested_buy_qty);
     const okRow = q <= 0;
     const cls = okRow ? 'bl-ok-row' : '';
     const okTag = okRow ? '<span class="bl-ok-pill">在途充足/暫不需</span>' : '';
+
+    // 可用月數 顏色:< 1 紅 / 1~3 橙 / > 3 綠;NULL 灰「—」
+    let amCell;
+    if (r.available_months == null || r.available_months === '') {
+      amCell = '<td class="bl-num bl-month-na">—</td>';
+    } else {
+      const m = Number(r.available_months);
+      const c = m < 1 ? 'bl-month-red' : m <= 3 ? 'bl-month-orng' : 'bl-month-grn';
+      amCell = `<td class="bl-num ${c}">${m.toFixed(1)}</td>`;
+    }
+
+    // 成長率 > 1.2 標 📈 紅;NULL 灰
+    let grCell;
+    if (r.growth_ratio == null || r.growth_ratio === '') {
+      grCell = '<td class="bl-num bl-month-na">—</td>';
+    } else {
+      const g = Number(r.growth_ratio);
+      if (g > 1.2) grCell = `<td class="bl-num bl-growth-hot">📈 ${g.toFixed(2)}</td>`;
+      else         grCell = `<td class="bl-num">${g.toFixed(2)}</td>`;
+    }
+
     const amtCell = r.price_status === '待補價'
       ? `<td class="bl-num bl-pending">待補價</td>`
       : `<td class="bl-num">${blMoney(r.suggested_buy_amount)}</td>`;
     const priceCell = r.price_status === '待補價'
       ? `<td class="bl-num bl-pending">—</td>`
       : `<td class="bl-num">${blMoney(r.unit_buy_price)}</td>`;
+
     return `<tr class="${cls}">
       <td><code>${blEsc(r.product_code)}</code></td>
       <td>${blEsc(r.product_name || '—')} ${okTag}</td>
@@ -215,6 +363,8 @@ function blRender(){
       <td class="bl-num">${blInt(r.current_stock)}</td>
       <td class="bl-num">${blInt(r.pending_inbound)}</td>
       <td class="bl-num">${blInt(r.overdue_inbound)}</td>
+      ${amCell}
+      ${grCell}
       <td class="bl-num">${blInt(r.target_supply)}</td>
       <td class="bl-num"><b style="color:${q > 0 ? '#1d4ed8' : '#94a3b8'}">${blInt(q)}</b></td>
       ${priceCell}
@@ -223,7 +373,7 @@ function blRender(){
   }).join('');
 
   const totalsRow = `<tr class="bl-totals-row">
-    <td colspan="8" style="text-align:right">線小計(只算建議進量 &gt; 0 的品):</td>
+    <td colspan="10" style="text-align:right">小計(只算建議進量 &gt; 0 的品):</td>
     <td class="bl-num">${blInt(sumQty)}</td>
     <td class="bl-num">—</td>
     <td class="bl-num" style="color:#1d4ed8">${blMoney(sumAmt)}${pendingPrice?` <small style="color:#92400e">+待補 ${pendingPrice} 品</small>`:''}</td>

@@ -59,9 +59,19 @@ let CM_SORT = '';
 function renderFilters() {
   const box = document.getElementById('cm-filters');
   if (!box || !CM.filters) return;
-  const pills = CM.filters.map(f =>
-    `<button class="qm-pill ${CM_FILTER === f.key ? 'active' : ''}" onclick="cmSetFilter('${f.key}')">${f.label}</button>`
-  ).join('');
+  // filtersStyle:'select' → 下拉(整合按鈕,省版面);預設仍 pills 維持其他頁兼容
+  let pills;
+  if (CM.filtersStyle === 'select') {
+    pills = `<label style="font-size:13px">狀態:
+      <select class="rc-text-input" style="width:auto;padding:6px 10px"
+        onchange="cmSetFilter(this.value)">
+        ${CM.filters.map(f => `<option value="${f.key}"${CM_FILTER===f.key?' selected':''}>${cmEsc(f.label)}</option>`).join('')}
+      </select></label>`;
+  } else {
+    pills = CM.filters.map(f =>
+      `<button class="qm-pill ${CM_FILTER === f.key ? 'active' : ''}" onclick="cmSetFilter('${f.key}')">${f.label}</button>`
+    ).join('');
+  }
   let cat = '';
   if (CM.categoryFilter) {
     const vals = [...new Set(CM_DATA
@@ -133,6 +143,8 @@ function renderRows() {
     const t = CM.trendFilter.find(x => x.key === CM_TREND);
     if (t && t.match) rows = rows.filter(t.match);
   }
+  // 外掛過濾(讓 inventory 頁加產品線/預警卡篩選,不污染 framework cfg)
+  if (typeof window.CM_EXTRA_MATCH === 'function') rows = rows.filter(window.CM_EXTRA_MATCH);
   if (CM.sortModes && CM.sortModes.length) {
     const sm = CM.sortModes.find(x => x.key === CM_SORT) || CM.sortModes[0];
     if (sm && sm.cmp) rows = rows.slice().sort(sm.cmp);

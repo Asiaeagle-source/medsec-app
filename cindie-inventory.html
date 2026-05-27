@@ -11,6 +11,28 @@
   #cm-dropzone { border:2px dashed #cbd5e1; border-radius:8px; padding:18px;
     text-align:center; color:#64748b; font-size:13px; cursor:pointer; }
   #cm-dropzone.dz-over { border-color:#6366f1; background:#eef2ff; }
+  /* 預警卡(對齊一鍵買清單樣式)*/
+  .cm-alerts { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:10px; margin:14px 0 }
+  .cm-alert-card { border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px;
+    cursor:pointer; background:#fff; transition:transform .1s, box-shadow .1s }
+  .cm-alert-card:hover { transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.06) }
+  .cm-alert-card.active { border-width:2px; box-shadow:0 0 0 2px #c7d2fe inset }
+  .cm-alert-card.empty { opacity:.45; cursor:default }
+  .cm-alert-card.empty:hover { transform:none; box-shadow:none }
+  .cm-alert-card .icon { font-size:22px; line-height:1 }
+  .cm-alert-card .title { font-size:13px; font-weight:600; margin-top:4px }
+  .cm-alert-card .desc { font-size:11px; color:#94a3b8; margin-top:2px; line-height:1.4 }
+  .cm-alert-card .count { font-size:24px; font-weight:700; line-height:1.1; margin-top:4px }
+  .cm-card-stockout { border-left:4px solid #dc2626 } .cm-card-stockout .count { color:#dc2626 }
+  .cm-card-growth   { border-left:4px solid #ea580c } .cm-card-growth   .count { color:#ea580c }
+  .cm-card-overdue  { border-left:4px solid #ca8a04 } .cm-card-overdue  .count { color:#ca8a04 }
+  .cm-card-highfreq { border-left:4px solid #4f46e5 } .cm-card-highfreq .count { color:#4f46e5 }
+  .cm-active-filter-bar { background:#eef2ff; border:1px solid #c7d2fe; border-radius:6px;
+    padding:6px 12px; margin:6px 0; font-size:12px; color:#3730a3;
+    display:flex; align-items:center; gap:10px }
+  .cm-active-filter-bar button { background:#fff; border:1px solid #c7d2fe; color:#4f46e5;
+    padding:2px 10px; border-radius:4px; font-size:11px; cursor:pointer }
 </style>
 </head>
 <body>
@@ -40,6 +62,14 @@
       <input id="cm-search" class="rc-text-input" style="width:200px;padding:7px" placeholder="🔍 搜尋品號…" oninput="loadRows()">
       <span id="cm-count" style="font-size:13px;color:var(--text-muted)">—</span>
     </div>
+    <!-- ★ 預警卡(從 v_purchase_plan 旗標撈,點卡 → 篩出該批品)-->
+    <div id="cm-alerts" class="cm-alerts" hidden></div>
+
+    <!-- 上方下拉列(產品線是新加,從 v_purchase_plan distinct line 撈)-->
+    <div id="cm-prefilters" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0 4px;font-size:13px"></div>
+    <!-- 預警卡 active 提示 -->
+    <div id="cm-active-filter" hidden></div>
+    <!-- framework 控制的 filters/sort/category dropdowns -->
     <div id="cm-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
 
     <table class="case-list">
@@ -142,6 +172,8 @@ const CINDIE_CFG = {
   title: '產品採購庫存',
   breadcrumb: 'MedSec Hub / 採購 / 產品採購庫存',
   uploadStamp: 'last_excel_update',
+  // 5 個狀態 pill 整合成下拉(brief v2):省版面、互斥單選
+  filtersStyle: 'select',
   // 全欄(解析 + 單筆編輯用;label 短、aliases 對 Cindie 真實 Excel 中文表頭)
   columns: [
     { key:'product_category', label:'分類', aliases:['產品分類'] },
@@ -348,10 +380,146 @@ async function loadSeasonBanner() {
 
 initCindieMaintain(CINDIE_CFG).then(() => {
   cmBindDrop(); loadSeasonBanner();
-  const f = new URLSearchParams(location.search).get('f');
+  const params = new URLSearchParams(location.search);
+  const f = params.get('f');
   const ok = (CINDIE_CFG.filters || []).some(x => x.key === f);
   if (ok) { CM_FILTER = f; renderFilters(); renderRows(); }
+  // 預警卡 + 產品線下拉(來源 v_purchase_plan)
+  loadPurchasePlanOverlay(params.get('alert'));
 });
+
+/* ============================================================
+   ★ 預警卡 + 產品線下拉(來源 v_purchase_plan,brief v2)
+   - 此頁主表為 v_inventory_intelligence;v_purchase_plan 提供旗標 + line 對應
+   - 點預警卡 → 用 window.CM_EXTRA_MATCH 把 framework rows 過濾到該批 product_code
+   - 產品線下拉 → 同樣用 EXTRA_MATCH 篩
+   ============================================================ */
+let PP_BY_CODE = new Map();   // product_code → { line_code, line_name, flags }
+let PP_LINES   = new Map();   // line_code → line_name
+let CW_LINE    = '';
+let CW_ALERT   = null;
+
+const CW_ALERT_DEFS = [
+  { flag:'flag_stockout_soon', icon:'🔴', cls:'cm-card-stockout',
+    title:'即將缺貨', desc:'可用月數 < 1,最急' },
+  { flag:'flag_fast_growth',   icon:'📈', cls:'cm-card-growth',
+    title:'成長超過訂貨', desc:'需求加速,易被忽略' },
+  { flag:'flag_overdue_risk',  icon:'⚠️', cls:'cm-card-overdue',
+    title:'在途逾期風險', desc:'帳面夠但廠商欠交' },
+  { flag:'flag_highfreq_low',  icon:'⭐', cls:'cm-card-highfreq',
+    title:'高頻品觸底', desc:'高頻品庫存低於安全線' },
+];
+
+async function loadPurchasePlanOverlay(presetAlert){
+  const { data, error } = await supa.from('v_purchase_plan')
+    .select('product_code, line_code, line_name,'
+          + ' flag_stockout_soon, flag_fast_growth, flag_overdue_risk, flag_highfreq_low')
+    .limit(5000);
+  if (error){
+    console.warn('[cm overlay] v_purchase_plan 載入失敗(預警卡/產品線下拉不顯):', error.message);
+    return;
+  }
+  PP_BY_CODE.clear(); PP_LINES.clear();
+  (data || []).forEach(r => {
+    if (r.product_code) PP_BY_CODE.set(String(r.product_code).trim(), r);
+    if (r.line_code) PP_LINES.set(r.line_code, r.line_name || r.line_code);
+  });
+  renderPrefilters();
+  renderAlertCards();
+  if (presetAlert && CW_ALERT_DEFS.some(a => a.flag === presetAlert)) {
+    cwSelectAlert(presetAlert);
+  }
+}
+
+function renderPrefilters(){
+  const box = document.getElementById('cm-prefilters');
+  if (!box) return;
+  const lineOpts = [...PP_LINES.entries()].sort((a,b) => String(a[0]).localeCompare(String(b[0])))
+    .map(([c,n]) => `<option value="${cmEsc(c)}"${CW_LINE===c?' selected':''}>${cmEsc(c)} ${cmEsc(n)}</option>`).join('');
+  box.innerHTML = `<label>產品線(美敦力):
+    <select class="rc-text-input" style="width:auto;padding:6px 10px"
+      onchange="cwSelectLine(this.value)">
+      <option value=""${CW_LINE===''?' selected':''}>全部產品線</option>
+      ${lineOpts}
+    </select></label>
+    <span style="color:#94a3b8;font-size:12px">— 來源 v_purchase_plan(限美敦力品)</span>`;
+}
+
+function renderAlertCards(){
+  const box = document.getElementById('cm-alerts');
+  if (!box) return;
+  const counts = {};
+  CW_ALERT_DEFS.forEach(a => counts[a.flag] = 0);
+  PP_BY_CODE.forEach(r => {
+    CW_ALERT_DEFS.forEach(a => { if (r[a.flag]) counts[a.flag]++; });
+  });
+  // 全 0(view 沒料 / 旗標還沒填)→ 不顯整區
+  const total = Object.values(counts).reduce((a,b)=>a+b, 0);
+  if (total === 0){ box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = CW_ALERT_DEFS.map(a => {
+    const n = counts[a.flag];
+    const isActive = CW_ALERT === a.flag;
+    const isEmpty  = n === 0;
+    const onClick  = isEmpty ? '' : `onclick="cwSelectAlert('${a.flag}')"`;
+    return `<div class="cm-alert-card ${a.cls} ${isActive?'active':''} ${isEmpty?'empty':''}" ${onClick}>
+      <div class="icon">${a.icon}</div>
+      <div class="title">${cmEsc(a.title)}</div>
+      <div class="desc">${cmEsc(a.desc)}</div>
+      <div class="count">${n}</div>
+    </div>`;
+  }).join('');
+}
+
+function cwSelectLine(code){
+  CW_LINE = code;
+  applyOverlayFilter();
+}
+function cwSelectAlert(flag){
+  CW_ALERT = (CW_ALERT === flag) ? null : flag;
+  renderAlertCards();
+  applyOverlayFilter();
+}
+function cwClearOverlay(){
+  CW_ALERT = null; CW_LINE = '';
+  renderAlertCards(); renderPrefilters();
+  applyOverlayFilter();
+}
+
+function applyOverlayFilter(){
+  // 沒套任何 overlay → 清掉 EXTRA_MATCH;有套 → 設成 product_code 集合判斷
+  if (!CW_LINE && !CW_ALERT){
+    window.CM_EXTRA_MATCH = null;
+  } else {
+    window.CM_EXTRA_MATCH = (r) => {
+      const code = String(r.product_code || '').trim();
+      const pp = PP_BY_CODE.get(code);
+      if (CW_LINE) {
+        if (!pp || pp.line_code !== CW_LINE) return false;
+      }
+      if (CW_ALERT) {
+        if (!pp || !pp[CW_ALERT]) return false;
+      }
+      return true;
+    };
+  }
+  // active filter 提示條
+  const fb = document.getElementById('cm-active-filter');
+  const tags = [];
+  if (CW_ALERT) {
+    const a = CW_ALERT_DEFS.find(x => x.flag === CW_ALERT);
+    if (a) tags.push(`${a.icon} 預警「<b>${cmEsc(a.title)}</b>」`);
+  }
+  if (CW_LINE) tags.push(`產品線「<b>${cmEsc(CW_LINE)} ${cmEsc(PP_LINES.get(CW_LINE)||'')}</b>」`);
+  if (tags.length){
+    fb.hidden = false;
+    fb.className = 'cm-active-filter-bar';
+    fb.innerHTML = `已套用:${tags.join(' · ')} <button onclick="cwClearOverlay()">清除</button>`;
+  } else {
+    fb.hidden = true;
+  }
+  if (typeof renderRows === 'function') renderRows();
+}
 </script>
 </body>
 </html>
