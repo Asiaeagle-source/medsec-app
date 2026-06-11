@@ -1126,6 +1126,20 @@ function cbSrcLabel(src){
   return `<span class="${cls}" title="${cmEscPt(src)}">${cmEscPt(map[src] || src)}</span>`;
 }
 
+// RPC 沒資料時的 fallback:price_summary 用醫院全稱 ilike 模糊比對。
+// 欄名是中文,select/eq/ilike 都得用雙引號字串包(PostgREST 規則)。
+async function cbFetchSummary(hid, pcode){
+  const full = (HOSP[hid] && HOSP[hid].name_full) || '';
+  if (!full || !pcode) return null;
+  const { data, error } = await supa.from('price_summary')
+    .select('"醫院","品號","上次報價","上次成交","折數","報價筆數","成交筆數","上次報價日","上次成交日"')
+    .ilike('"醫院"', '%' + full + '%')
+    .eq('"品號"', pcode)
+    .limit(1);
+  if (error || !data || !data.length) return null;
+  return data[0];
+}
+
 async function cbQuery(){
   const hid   = document.getElementById('cb-hospital').value.trim();
   const pcode = (document.getElementById('cb-product').value || '').trim();
@@ -1146,7 +1160,8 @@ async function cbQuery(){
     if (floorRes.error) throw new Error('floors: ' + floorRes.error.message);
     const sug = (sugRes.data && sugRes.data[0]) || null;
     const flr = (floorRes.data && floorRes.data[0]) || null;
-    cbRender(hid, pcode, tx, sug, flr);
+    const summary = await cbFetchSummary(hid, pcode);
+    cbRender(hid, pcode, tx, sug, flr, summary);
     st.textContent = '查詢完成 ' + new Date().toLocaleTimeString();
     st.style.color = '#16a34a';
   }catch(e){
@@ -1156,14 +1171,19 @@ async function cbQuery(){
   }
 }
 
-function cbRender(hid, pcode, tx, sug, flr){
+function cbRender(hid, pcode, tx, sug, flr, summary){
   const out = document.getElementById('cb-result');
-  if (!sug){
+  if (!sug && !summary){
     out.innerHTML = `<div class="cb-card" style="color:#94a3b8">無建議資料(此醫院 × 品號 無報價/折數歷史)</div>`;
     return;
   }
   const hname = (HOSP[hid] && (HOSP[hid].name_short || HOSP[hid].name_full)) || hid;
   const pname = PRODS[pcode] || (PCAT[pcode] && PCAT[pcode].name) || '—';
+  // RPC 有值就用 RPC,null 才退到 price_summary
+  const lastQuote     = (sug && sug.last_quote_price != null) ? sug.last_quote_price : (summary ? summary['上次報價'] : null);
+  const lastSale      = (sug && sug.last_sale_price  != null) ? sug.last_sale_price  : (summary ? summary['上次成交'] : null);
+  const lastQuoteDate = (sug && sug.last_quote_date) || (summary ? summary['上次報價日'] : null);
+  const lastSaleDate  = (sug && sug.last_sale_date)  || (summary ? summary['上次成交日'] : null);
 
   // 守價判斷:目前還沒有 user 輸入價,先顯示 yellow/red 兩條折數值,Lynn 自己對
   let floorBlock = '';
@@ -1187,23 +1207,23 @@ function cbRender(hid, pcode, tx, sug, flr){
       <div class="cb-grid">
         <div class="cb-kpi">
           <div class="l">建議價</div>
-          <div class="b">${sug.suggested_price != null ? cbFmtNum(sug.suggested_price) : '—'}</div>
+          <div class="b">${sug && sug.suggested_price != null ? cbFmtNum(sug.suggested_price) : '—'}</div>
           <div class="sub">= 上次報價 × min(折數中位, 1.0)</div>
         </div>
         <div class="cb-kpi">
-          <div class="l">折數(中位)${cbSrcLabel(sug.discount_source)}</div>
-          <div class="b">${cbFmtPct(sug.discount_used)}</div>
-          <div class="sub"><code>${cmEscPt(sug.discount_source || '—')}</code></div>
+          <div class="l">折數(中位)${cbSrcLabel(sug ? sug.discount_source : null)}</div>
+          <div class="b">${cbFmtPct(sug ? sug.discount_used : null)}</div>
+          <div class="sub"><code>${cmEscPt((sug && sug.discount_source) || '—')}</code></div>
         </div>
         <div class="cb-kpi">
           <div class="l">本院上次報價</div>
-          <div class="b">${cbFmtNum(sug.last_quote_price)}</div>
-          <div class="sub">${sug.last_quote_date || '—'}</div>
+          <div class="b">${cbFmtNum(lastQuote)}</div>
+          <div class="sub">${lastQuoteDate || '—'}</div>
         </div>
         <div class="cb-kpi">
           <div class="l">本院上次成交</div>
-          <div class="b">${cbFmtNum(sug.last_sale_price)}</div>
-          <div class="sub">${sug.last_sale_date || '—'}</div>
+          <div class="b">${cbFmtNum(lastSale)}</div>
+          <div class="sub">${lastSaleDate || '—'}</div>
         </div>
       </div>
       <div style="margin-top:10px;padding:8px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e;line-height:1.6">
