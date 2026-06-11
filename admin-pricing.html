@@ -216,7 +216,14 @@
 
       <!-- 查詢列 -->
       <div class="cb-row">
-        <select id="cb-hospital" class="rc-text-input" style="width:auto;padding:6px"></select>
+        <div style="position:relative;display:inline-block">
+          <input type="text" id="cb-hospital-search" class="rc-text-input"
+            style="width:240px;padding:6px" autocomplete="off"
+            placeholder="搜尋醫院(中文/院碼/簡稱)">
+          <input type="hidden" id="cb-hospital">
+          <div id="cb-hospital-list" hidden
+            style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:6px;max-height:280px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.08);margin-top:2px"></div>
+        </div>
         <input  id="cb-product"  class="rc-text-input" style="width:140px;padding:6px" placeholder="品號"
           onkeydown="if(event.key==='Enter')cbQuery()">
         <select id="cb-tx" class="rc-text-input" style="width:auto;padding:6px">
@@ -1097,11 +1104,53 @@ async function cbInit(){
   if (CB_INIT) return;
   CB_INIT = true;
   await ensureSystems();
-  const hsel = document.getElementById('cb-hospital');
-  hsel.innerHTML = '<option value="">選擇醫院…</option>' + Object.values(HOSP)
-    .sort((a,b)=>String(a.id).localeCompare(String(b.id)))
-    .map(h=>`<option value="${cmEscPt(h.id)}">${cmEscPt(h.id)} ${cmEscPt(h.name_short||h.name_full||'')}</option>`).join('');
+  cbInitHospitalSearch();
   cbLoadPending();
+}
+
+// 搜尋框打字 → 用 HOSP 即時篩(id / name_short / name_full,任一 includes,
+// 最多 20 筆)→ 點選把院碼寫進 hidden #cb-hospital,cbQuery 那邊不用改。
+// blur 延遲 150ms 收清單,讓 click 先觸發。
+function cbInitHospitalSearch(){
+  const input = document.getElementById('cb-hospital-search');
+  const list  = document.getElementById('cb-hospital-list');
+  const hid   = document.getElementById('cb-hospital');
+  const render = () => {
+    // 防呆:HOSP 還沒載入完就顯示 placeholder 列
+    if (!Object.keys(HOSP).length){
+      list.innerHTML = `<div style="padding:6px 10px;font-size:13px;color:#94a3b8">醫院資料載入中…</div>`;
+      list.hidden = false;
+      return;
+    }
+    const q = (input.value || '').trim().toLowerCase();
+    // 空字串時顯示前 20 家當預設清單,有字才篩
+    const matches = !q
+      ? Object.values(HOSP).slice(0, 20)
+      : Object.values(HOSP).filter(h => {
+          const id = String(h.id||'').toLowerCase();
+          const ns = String(h.name_short||'').toLowerCase();
+          const nf = String(h.name_full||'').toLowerCase();
+          return id.includes(q) || ns.includes(q) || nf.includes(q);
+        }).slice(0, 20);
+    if (!matches.length){ list.hidden = true; list.innerHTML = ''; return; }
+    list.innerHTML = matches.map(h => `
+      <div class="cb-hsp-item" data-id="${cmEscPt(h.id)}" data-short="${cmEscPt(h.name_short||'')}"
+        style="padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9">
+        <b>${cmEscPt(h.id)}</b> ${cmEscPt(h.name_short||'')}
+        <span style="color:#94a3b8">${cmEscPt(h.name_full||'')}</span>
+      </div>`).join('');
+    list.hidden = false;
+  };
+  input.addEventListener('input', () => { hid.value = ''; render(); });
+  input.addEventListener('focus', render);
+  input.addEventListener('blur',  () => setTimeout(() => { list.hidden = true; }, 150));
+  list.addEventListener('click', e => {
+    const item = e.target.closest('.cb-hsp-item');
+    if (!item) return;
+    hid.value   = item.dataset.id;
+    input.value = item.dataset.id + (item.dataset.short ? ' ' + item.dataset.short : '');
+    list.hidden = true;
+  });
 }
 
 function cbFmtNum(v, frac){
