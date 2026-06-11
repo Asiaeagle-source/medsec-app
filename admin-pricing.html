@@ -1116,13 +1116,22 @@ function cbInitHospitalSearch(){
   const list  = document.getElementById('cb-hospital-list');
   const hid   = document.getElementById('cb-hospital');
   const render = () => {
+    // 防呆:HOSP 還沒載入完就顯示 placeholder 列
+    if (!Object.keys(HOSP).length){
+      list.innerHTML = `<div style="padding:6px 10px;font-size:13px;color:#94a3b8">醫院資料載入中…</div>`;
+      list.hidden = false;
+      return;
+    }
     const q = (input.value || '').trim().toLowerCase();
-    const matches = !q ? [] : Object.values(HOSP).filter(h => {
-      const id = String(h.id||'').toLowerCase();
-      const ns = String(h.name_short||'').toLowerCase();
-      const nf = String(h.name_full||'').toLowerCase();
-      return id.includes(q) || ns.includes(q) || nf.includes(q);
-    }).slice(0, 20);
+    // 空字串時顯示前 20 家當預設清單,有字才篩
+    const matches = !q
+      ? Object.values(HOSP).slice(0, 20)
+      : Object.values(HOSP).filter(h => {
+          const id = String(h.id||'').toLowerCase();
+          const ns = String(h.name_short||'').toLowerCase();
+          const nf = String(h.name_full||'').toLowerCase();
+          return id.includes(q) || ns.includes(q) || nf.includes(q);
+        }).slice(0, 20);
     if (!matches.length){ list.hidden = true; list.innerHTML = ''; return; }
     list.innerHTML = matches.map(h => `
       <div class="cb-hsp-item" data-id="${cmEscPt(h.id)}" data-short="${cmEscPt(h.name_short||'')}"
