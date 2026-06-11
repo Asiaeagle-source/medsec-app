@@ -1255,9 +1255,9 @@ function cbRender(hid, pcode, tx, sug, flr, summary){
       </div>
       <div class="cb-grid">
         <div class="cb-kpi">
-          <div class="l">建議價</div>
+          <div class="l">建議開價</div>
           <div class="b">${sug && sug.suggested_price != null ? cbFmtNum(sug.suggested_price) : '—'}</div>
-          <div class="sub">= 上次報價 × min(折數中位, 1.0)</div>
+          <div class="sub">預期成交 ${sug && sug.expected_deal != null ? cbFmtNum(sug.expected_deal) : '—'}(= 上次報價 × 折數)</div>
         </div>
         <div class="cb-kpi">
           <div class="l">折數(中位)${cbSrcLabel(sug ? sug.discount_source : null)}</div>
