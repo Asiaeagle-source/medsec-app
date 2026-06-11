@@ -75,6 +75,7 @@
       <div class="pt-tab"        data-tab="strat" onclick="ptTab('strat')">④ 醫院慣用折數</div>
       <div class="pt-tab"        data-tab="nhi"  onclick="ptTab('nhi')">⑤ 上傳健保價</div>
       <div class="pt-tab"        data-tab="cardB" onclick="ptTab('cardB')">⑥ 報價建議</div>
+      <div class="pt-tab"        data-tab="batch" onclick="ptTab('batch')">⑦ 整套詢價</div>
     </div>
 
     <!-- ① CRM -->
@@ -254,6 +255,38 @@
         </div>
       </div>
     </section>
+
+    <!-- ⑦ 整套詢價(batch quote) -->
+    <section id="tab-batch" hidden>
+      <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
+        貼整套詢價清單,一行一項,格式「型號*數量」(省略數量視為 1)。
+        系統呼叫 <code>fn_cardb_batch</code> 一次回完整套件的<b>建議開價/預期成交</b>,
+        各列小計加總後,輸入<b>總折</b>即時算「整套最終總價」。
+        型號原文不拆(<code>MR8-</code> 是不同產品)。
+      </div>
+
+      <div class="cb-row">
+        <div style="position:relative;display:inline-block">
+          <input type="text" id="qb-hospital-search" class="rc-text-input"
+            style="width:240px;padding:6px" autocomplete="off"
+            placeholder="搜尋醫院(中文/院碼/簡稱)">
+          <input type="hidden" id="qb-hospital">
+          <div id="qb-hospital-list" hidden
+            style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:6px;max-height:280px;overflow-y:auto;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.08);margin-top:2px"></div>
+        </div>
+      </div>
+
+      <textarea id="qb-input" class="rc-text-input"
+        placeholder="EC300*1&#10;MR8-AD03*2&#10;…"
+        style="width:100%;min-height:140px;padding:8px;margin-top:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px"></textarea>
+
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <button class="btn-primary" style="width:auto;padding:6px 14px" onclick="qbQuery()">產生報價</button>
+        <span id="qb-status" style="font-size:13px;color:#64748b"></span>
+      </div>
+
+      <div id="qb-result"></div>
+    </section>
   </main>
 </div>
 
@@ -396,12 +429,13 @@ function enrich(code, xlsName, xlsCat){
 
 function ptTab(t){
   document.querySelectorAll('.pt-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
-  ['crm','erp','list','strat','nhi','cardB'].forEach(x=>{
+  ['crm','erp','list','strat','nhi','cardB','batch'].forEach(x=>{
     document.getElementById('tab-'+x).hidden = (x!==t);
   });
   if (t==='list'  && !LIST_INIT) initList();
   if (t==='strat' && !CA_INIT)   caInit();
   if (t==='cardB' && !CB_INIT)   cbInit();
+  if (t==='batch' && !QB_INIT)   qbInit();
 }
 
 /* ---------- 共用 ---------- */
@@ -1111,10 +1145,11 @@ async function cbInit(){
 // 搜尋框打字 → 用 HOSP 即時篩(id / name_short / name_full,任一 includes,
 // 最多 20 筆)→ 點選把院碼寫進 hidden #cb-hospital,cbQuery 那邊不用改。
 // blur 延遲 150ms 收清單,讓 click 先觸發。
-function cbInitHospitalSearch(){
-  const input = document.getElementById('cb-hospital-search');
-  const list  = document.getElementById('cb-hospital-list');
-  const hid   = document.getElementById('cb-hospital');
+function cbInitHospitalSearch(opts){
+  const o = opts || {};
+  const input = document.getElementById(o.inputId  || 'cb-hospital-search');
+  const list  = document.getElementById(o.listId   || 'cb-hospital-list');
+  const hid   = document.getElementById(o.hiddenId || 'cb-hospital');
   const render = () => {
     // 防呆:HOSP 還沒載入完就顯示 placeholder 列
     if (!Object.keys(HOSP).length){
@@ -1361,6 +1396,150 @@ async function cbDeleteRef(qtype, qno, pcode, invNo, btn){
     alert('撤回失敗:' + (e.message || e));
     btn.disabled = false; btn.textContent = '撤回';
   }
+}
+
+/* ============================================================
+   ⑦ 整套詢價(batch quote)
+   ============================================================ */
+let QB_INIT = false;
+let QB_ROWS = [];  // 保留 RPC 回傳,總折變動時不用重打 RPC
+
+async function qbInit(){
+  if (QB_INIT) return;
+  QB_INIT = true;
+  await ensureSystems();
+  // 重用 Card B 的醫院搜尋元件,只是換 element id
+  cbInitHospitalSearch({
+    inputId:  'qb-hospital-search',
+    listId:   'qb-hospital-list',
+    hiddenId: 'qb-hospital',
+  });
+}
+
+// 一行一項,「型號*數量」,省略數量視為 1。型號原文不動(MR8- 是不同產品,
+// 不要拆前綴),只 trim 前後空白。
+function qbParseInput(){
+  const raw = (document.getElementById('qb-input').value || '');
+  const items = [];
+  for (const line of raw.split(/\r?\n/)){
+    const s = line.trim();
+    if (!s) continue;
+    const idx = s.indexOf('*');
+    let code, qty;
+    if (idx < 0){ code = s; qty = 1; }
+    else {
+      code = s.slice(0, idx).trim();
+      const q = parseInt(s.slice(idx+1).trim(), 10);
+      qty = Number.isFinite(q) && q > 0 ? q : 1;
+    }
+    if (code) items.push({ code, qty });
+  }
+  return items;
+}
+
+async function qbQuery(){
+  const hid = document.getElementById('qb-hospital').value.trim();
+  const st  = document.getElementById('qb-status');
+  const out = document.getElementById('qb-result');
+  if (!hid){ st.textContent = '請選擇醫院'; st.style.color = '#dc2626'; return; }
+  const items = qbParseInput();
+  if (!items.length){ st.textContent = '請至少輸入一行詢價'; st.style.color = '#dc2626'; return; }
+  st.textContent = `查詢中… ${items.length} 項`; st.style.color = '#64748b';
+  out.innerHTML = '';
+  try{
+    const { data, error } = await supa.rpc('fn_cardb_batch', {
+      p_hospital_id: hid, p_items: items,
+    });
+    if (error) throw error;
+    QB_ROWS = (data || []).slice().sort((a,b) => (a.seq||0) - (b.seq||0));
+    qbRender();
+    st.textContent = `完成 ${QB_ROWS.length} 列 · ${new Date().toLocaleTimeString()}`;
+    st.style.color = '#16a34a';
+  }catch(e){
+    out.innerHTML = `<div class="cb-card" style="color:#dc2626">查詢失敗:${cmEscPt(e.message||e)}</div>`;
+    st.textContent = '失敗'; st.style.color = '#dc2626';
+  }
+}
+
+// 可信度:成交筆數 ≥10 🟢 / 1~9 🟡 / 0 🔴
+function qbConfBadge(n){
+  if (n == null) return '<span title="無成交筆數">—</span>';
+  if (n >= 10)  return `<span title="${n} 筆成交">🟢 ${n}</span>`;
+  if (n >= 1)   return `<span title="${n} 筆成交">🟡 ${n}</span>`;
+  return '<span title="0 筆成交">🔴 0</span>';
+}
+
+function qbRender(){
+  const out = document.getElementById('qb-result');
+  if (!QB_ROWS.length){ out.innerHTML = ''; return; }
+  let openSum = 0, expSum = 0;
+  const rows = QB_ROWS.map(r => {
+    const noHist  = r.suggested_price == null;
+    const lineOp  = r.line_open_total;
+    const lineEx  = r.line_expected_total;
+    if (lineOp != null) openSum += Number(lineOp);
+    if (lineEx != null) expSum  += Number(lineEx);
+    const codeCell = `<code>${cmEscPt(r.code||'')}</code>` +
+      (noHist ? ' <span style="color:#dc2626;font-size:11px">無歷史價,另估</span>' : '');
+    return `<tr>
+      <td>${codeCell}</td>
+      <td style="text-align:right">${r.qty ?? '—'}</td>
+      <td style="text-align:right">${r.suggested_price != null ? cbFmtNum(r.suggested_price) : '—'}${
+        lineOp != null ? `<br><span style="color:#94a3b8;font-size:11px">小計 ${cbFmtNum(lineOp)}</span>` : ''}</td>
+      <td style="text-align:right">${r.expected_deal != null ? cbFmtNum(r.expected_deal) : '—'}${
+        lineEx != null ? `<br><span style="color:#94a3b8;font-size:11px">小計 ${cbFmtNum(lineEx)}</span>` : ''}</td>
+      <td>${cbSrcLabel(r.discount_source)}</td>
+      <td style="text-align:right">${r.sale_count ?? '—'}</td>
+      <td>${qbConfBadge(r.sale_count)}</td>
+    </tr>`;
+  }).join('');
+  out.innerHTML = `
+    <table class="case-list" style="margin-top:12px">
+      <thead><tr>
+        <th>型號</th><th style="width:60px">數量</th>
+        <th style="width:140px">建議開價</th>
+        <th style="width:140px">預期成交</th>
+        <th style="width:170px">折數來源</th>
+        <th style="width:80px">成交筆數</th>
+        <th style="width:80px">可信度</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px">
+      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+        <div>
+          <div style="color:#64748b;font-size:12px">建議開價總額</div>
+          <b id="qb-open-sum" style="font-size:18px">${cbFmtNum(openSum)}</b>
+        </div>
+        <div>
+          <div style="color:#64748b;font-size:12px">預期成交總額</div>
+          <b style="font-size:18px">${cbFmtNum(expSum)}</b>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <span style="font-size:13px">總折:</span>
+          <input type="text" id="qb-discount" class="rc-text-input"
+            style="width:90px;padding:6px" placeholder="0.9 或 90"
+            oninput="qbUpdateFinal()">
+          <span style="font-size:13px;color:#64748b">→ 整套最終總價</span>
+          <b id="qb-final" style="font-size:20px;color:#0f172a">—</b>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// 總折支援兩種寫法:0.9(比例)或 90(百分比,自動 /100)
+function qbUpdateFinal(){
+  const v = (document.getElementById('qb-discount').value || '').trim();
+  const f = parseFloat(v);
+  const el = document.getElementById('qb-final');
+  if (!Number.isFinite(f) || f <= 0){ el.textContent = '—'; return; }
+  const ratio = f > 1 ? f / 100 : f;
+  let openSum = 0;
+  for (const r of QB_ROWS){
+    if (r.line_open_total != null) openSum += Number(r.line_open_total);
+  }
+  el.textContent = cbFmtNum(openSum * ratio);
 }
 </script>
 </body>
