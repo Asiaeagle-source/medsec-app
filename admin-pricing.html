@@ -75,7 +75,7 @@
       <div class="pt-tab"        data-tab="strat" onclick="ptTab('strat')">④ 醫院慣用折數</div>
       <div class="pt-tab"        data-tab="nhi"  onclick="ptTab('nhi')">⑤ 上傳健保價</div>
       <div class="pt-tab"        data-tab="cardB" onclick="ptTab('cardB')">⑥ 報價建議</div>
-      <div class="pt-tab"        data-tab="batch" onclick="ptTab('batch')">⑦ 整套詢價</div>
+      <div class="pt-tab"        data-tab="batch" onclick="ptTab('batch')">⑦ 整套比價</div>
     </div>
 
     <!-- ① CRM -->
@@ -256,12 +256,13 @@
       </div>
     </section>
 
-    <!-- ⑦ 整套詢價(batch quote) -->
+    <!-- ⑦ 整套比價(batch compare) -->
     <section id="tab-batch" hidden>
       <div class="rc-question-help" style="margin:8px 0;font-size:13px;line-height:1.7">
-        貼整套詢價清單,一行一項,格式「型號*數量」(省略數量視為 1)。
-        系統呼叫 <code>fn_cardb_batch</code> 一次回完整套件的<b>建議開價/預期成交</b>,
-        各列小計加總後,輸入<b>總折</b>即時算「整套最終總價」。
+        貼整套品項(一行一項,「型號*數量」,省略數量視為 1)。系統從清單裡找出
+        <b>主機型號</b>(EM 或 PM 開頭,排除 <code>PM200FIX</code>),呼叫
+        <code>fn_batch_compare</code> 回三個區段:<b>🟢 同院同代</b> /
+        <b>🔵 同院跨代</b> / <b>⚪ 他院同代</b>,看真實成交的整套總價。
         型號原文不拆(<code>MR8-</code> 是不同產品)。
       </div>
 
@@ -281,7 +282,7 @@
         style="width:100%;min-height:140px;padding:8px;margin-top:8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px"></textarea>
 
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-        <button class="btn-primary" style="width:auto;padding:6px 14px" onclick="qbQuery()">產生報價</button>
+        <button class="btn-primary" style="width:auto;padding:6px 14px" onclick="qbQuery()">整套比價</button>
         <span id="qb-status" style="font-size:13px;color:#64748b"></span>
       </div>
 
@@ -1399,10 +1400,10 @@ async function cbDeleteRef(qtype, qno, pcode, invNo, btn){
 }
 
 /* ============================================================
-   ⑦ 整套詢價(batch quote)
+   ⑦ 整套比價(batch compare)
    ============================================================ */
 let QB_INIT = false;
-let QB_ROWS = [];  // 保留 RPC 回傳,總折變動時不用重打 RPC
+let QB_ROWS = [];  // 保留 RPC 回傳
 
 async function qbInit(){
   if (QB_INIT) return;
@@ -1437,23 +1438,41 @@ function qbParseInput(){
   return items;
 }
 
+// 從清單找主機:EM 或 PM 開頭,排除 PM200FIX,取第一個符合(保留原始大小寫)
+function qbFindMotor(items){
+  for (const it of items){
+    const c = String(it.code || '').trim();
+    const u = c.toUpperCase();
+    if (u === 'PM200FIX') continue;
+    if (/^(EM|PM)/.test(u)) return c;
+  }
+  return null;
+}
+
 async function qbQuery(){
   const hid = document.getElementById('qb-hospital').value.trim();
   const st  = document.getElementById('qb-status');
   const out = document.getElementById('qb-result');
   if (!hid){ st.textContent = '請選擇醫院'; st.style.color = '#dc2626'; return; }
   const items = qbParseInput();
-  if (!items.length){ st.textContent = '請至少輸入一行詢價'; st.style.color = '#dc2626'; return; }
-  st.textContent = `查詢中… ${items.length} 項`; st.style.color = '#64748b';
+  if (!items.length){ st.textContent = '請至少輸入一行品項'; st.style.color = '#dc2626'; return; }
+  const motor = qbFindMotor(items);
+  if (!motor){
+    out.innerHTML = `<div class="cb-card" style="color:#dc2626">這套沒有 EM/PM 主機,無法整套比價</div>`;
+    st.textContent = '失敗'; st.style.color = '#dc2626';
+    QB_ROWS = [];
+    return;
+  }
+  st.textContent = `查詢中… 主機 ${motor}`; st.style.color = '#64748b';
   out.innerHTML = '';
   try{
-    const { data, error } = await supa.rpc('fn_cardb_batch', {
-      p_hospital_id: hid, p_items: items,
+    const { data, error } = await supa.rpc('fn_batch_compare', {
+      p_hospital_id: hid, p_motor_code: motor,
     });
     if (error) throw error;
-    QB_ROWS = (data || []).slice().sort((a,b) => (a.seq||0) - (b.seq||0));
-    qbRender();
-    st.textContent = `完成 ${QB_ROWS.length} 列 · ${new Date().toLocaleTimeString()}`;
+    QB_ROWS = data || [];
+    qbRender(motor);
+    st.textContent = `完成 · 主機 ${motor} · ${new Date().toLocaleTimeString()}`;
     st.style.color = '#16a34a';
   }catch(e){
     out.innerHTML = `<div class="cb-card" style="color:#dc2626">查詢失敗:${cmEscPt(e.message||e)}</div>`;
@@ -1461,85 +1480,69 @@ async function qbQuery(){
   }
 }
 
-// 可信度:成交筆數 ≥10 🟢 / 1~9 🟡 / 0 🔴
-function qbConfBadge(n){
-  if (n == null) return '<span title="無成交筆數">—</span>';
-  if (n >= 10)  return `<span title="${n} 筆成交">🟢 ${n}</span>`;
-  if (n >= 1)   return `<span title="${n} 筆成交">🟡 ${n}</span>`;
-  return '<span title="0 筆成交">🔴 0</span>';
+const QB_ZONES = [
+  { key: 'same_hosp_same_gen',  title: '🟢 同院同代' },
+  { key: 'same_hosp_cross_gen', title: '🔵 同院跨代(看預算/折數)' },
+  { key: 'other_hosp_same_gen', title: '⚪ 他院同代(行情)' },
+];
+
+function qbGenLabel(g){
+  if (g === 'new') return '新代';
+  if (g === 'old') return '舊代';
+  return cmEscPt(g == null ? '—' : String(g));
 }
 
-function qbRender(){
+function qbRender(motor){
   const out = document.getElementById('qb-result');
-  if (!QB_ROWS.length){ out.innerHTML = ''; return; }
-  let openSum = 0, expSum = 0;
-  const rows = QB_ROWS.map(r => {
-    const noHist  = r.suggested_price == null;
-    const lineOp  = r.line_open_total;
-    const lineEx  = r.line_expected_total;
-    if (lineOp != null) openSum += Number(lineOp);
-    if (lineEx != null) expSum  += Number(lineEx);
-    const codeCell = `<code>${cmEscPt(r.code||'')}</code>` +
-      (noHist ? ' <span style="color:#dc2626;font-size:11px">無歷史價,另估</span>' : '');
-    return `<tr>
-      <td>${codeCell}</td>
-      <td style="text-align:right">${r.qty ?? '—'}</td>
-      <td style="text-align:right">${r.suggested_price != null ? cbFmtNum(r.suggested_price) : '—'}${
-        lineOp != null ? `<br><span style="color:#94a3b8;font-size:11px">小計 ${cbFmtNum(lineOp)}</span>` : ''}</td>
-      <td style="text-align:right">${r.expected_deal != null ? cbFmtNum(r.expected_deal) : '—'}${
-        lineEx != null ? `<br><span style="color:#94a3b8;font-size:11px">小計 ${cbFmtNum(lineEx)}</span>` : ''}</td>
-      <td>${cbSrcLabel(r.discount_source)}</td>
-      <td style="text-align:right">${r.sale_count ?? '—'}</td>
-      <td>${qbConfBadge(r.sale_count)}</td>
-    </tr>`;
+  // 依 zone 分桶(展開明細 next sprint 再做)
+  const byZone = {};
+  for (const r of QB_ROWS){
+    const z = r.zone || '_unknown';
+    (byZone[z] = byZone[z] || []).push(r);
+  }
+  const blocks = QB_ZONES.map(z => {
+    const rows = byZone[z.key] || [];
+    if (!rows.length){
+      return `<div class="cb-card">
+        <div style="font-weight:600;margin-bottom:6px">${z.title}</div>
+        <div style="color:#94a3b8;font-size:13px">無資料</div>
+      </div>`;
+    }
+    const body = rows.map(r => `
+      <tr>
+        <td>${cmEscPt(r.hospital_name || '未知醫院')}</td>
+        <td>${r.sales_date || '—'}</td>
+        <td><code>${cmEscPt(r.motor_code || motor)}</code></td>
+        <td>${qbGenLabel(r.motor_gen)}</td>
+        <td>${r.item_count ?? '—'}${
+          Number(r.item_count) === 1
+            ? ' <span style="color:#dc2626;font-size:11px">單主機</span>' : ''}</td>
+        <td style="text-align:right">${r.set_total != null ? cbFmtNum(r.set_total) : '—'}</td>
+      </tr>`).join('');
+    return `<div class="cb-card">
+      <div style="font-weight:600;margin-bottom:8px">${z.title}(${rows.length} 筆)</div>
+      <table class="case-list" style="font-size:13px">
+        <thead><tr>
+          <th>醫院</th>
+          <th style="width:110px">日期</th>
+          <th style="width:130px">主機型號</th>
+          <th style="width:70px">代別</th>
+          <th style="width:90px">項數</th>
+          <th style="width:140px">整套總價</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
   }).join('');
   out.innerHTML = `
-    <table class="case-list" style="margin-top:12px">
-      <thead><tr>
-        <th>型號</th><th style="width:60px">數量</th>
-        <th style="width:140px">建議開價</th>
-        <th style="width:140px">預期成交</th>
-        <th style="width:170px">折數來源</th>
-        <th style="width:80px">成交筆數</th>
-        <th style="width:80px">可信度</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div style="margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px">
-      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
-        <div>
-          <div style="color:#64748b;font-size:12px">建議開價總額</div>
-          <b id="qb-open-sum" style="font-size:18px">${cbFmtNum(openSum)}</b>
-        </div>
-        <div>
-          <div style="color:#64748b;font-size:12px">預期成交總額</div>
-          <b style="font-size:18px">${cbFmtNum(expSum)}</b>
-        </div>
-        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-          <span style="font-size:13px">總折:</span>
-          <input type="text" id="qb-discount" class="rc-text-input"
-            style="width:90px;padding:6px" placeholder="0.9 或 90"
-            oninput="qbUpdateFinal()">
-          <span style="font-size:13px;color:#64748b">→ 整套最終總價</span>
-          <b id="qb-final" style="font-size:20px;color:#0f172a">—</b>
-        </div>
+    <div style="margin-top:12px">
+      <div style="font-size:13px;color:#475569;margin-bottom:8px">
+        主機:<code>${cmEscPt(motor)}</code>
+        <span style="color:#94a3b8">· 點列展開逐項攤提的功能下個 sprint 再加</span>
       </div>
+      ${blocks}
     </div>
   `;
-}
-
-// 總折支援兩種寫法:0.9(比例)或 90(百分比,自動 /100)
-function qbUpdateFinal(){
-  const v = (document.getElementById('qb-discount').value || '').trim();
-  const f = parseFloat(v);
-  const el = document.getElementById('qb-final');
-  if (!Number.isFinite(f) || f <= 0){ el.textContent = '—'; return; }
-  const ratio = f > 1 ? f / 100 : f;
-  let openSum = 0;
-  for (const r of QB_ROWS){
-    if (r.line_open_total != null) openSum += Number(r.line_open_total);
-  }
-  el.textContent = cbFmtNum(openSum * ratio);
 }
 </script>
 </body>
