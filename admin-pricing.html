@@ -1471,7 +1471,7 @@ async function qbQuery(){
     });
     if (error) throw error;
     QB_ROWS = data || [];
-    qbRender(motor);
+    qbRender(motor, items);
     st.textContent = `完成 · 主機 ${motor} · ${new Date().toLocaleTimeString()}`;
     st.style.color = '#16a34a';
   }catch(e){
@@ -1492,7 +1492,63 @@ function qbGenLabel(g){
   return cmEscPt(g == null ? '—' : String(g));
 }
 
-function qbRender(motor){
+// 分類規則(優先序避免重疊):
+//   ASMC 子字串 → 破壞鑽(另計);EC300 → Console;EF200/PC700 → 腳踏板;
+//   EM/PM 開頭排除 PM200FIX → Motor(EM 標電,PM 標氣);
+//   MR8- 開頭其餘 → ATT;其他 → 其他(內部記但不顯示,維持規格行格式)。
+function qbSummarize(items){
+  const g = {
+    console: { qty:0 },
+    motor:   { qty:0, code:null, kind:null },
+    pedal:   { qty:0 },
+    att:     { qty:0 },
+    drill:   { qty:0 },
+    other:   { qty:0 },
+  };
+  for (const it of items){
+    const raw = String(it.code || '').trim();
+    const c   = raw.toUpperCase();
+    const q   = Number(it.qty) || 0;
+    if (!raw) continue;
+    if (c.includes('ASMC')){
+      g.drill.qty += q;
+    } else if (c === 'EC300'){
+      g.console.qty += q;
+    } else if (c === 'EF200' || c === 'PC700'){
+      g.pedal.qty += q;
+    } else if (c !== 'PM200FIX' && /^(EM|PM)/.test(c)){
+      g.motor.qty += q;
+      if (!g.motor.code){
+        g.motor.code = raw;
+        g.motor.kind = c.startsWith('EM') ? '電' : '氣';
+      }
+    } else if (/^MR8-/.test(c)){
+      g.att.qty += q;
+    } else {
+      g.other.qty += q;
+    }
+  }
+  return g;
+}
+
+function qbSummaryHTML(items){
+  const g = qbSummarize(items);
+  const parts = [];
+  if (g.console.qty) parts.push(`Console ×${g.console.qty}`);
+  if (g.motor.qty){
+    const tail = g.motor.code ? `(${cmEscPt(g.motor.code)}・${g.motor.kind})` : '';
+    parts.push(`Motor ×${g.motor.qty}${tail}`);
+  }
+  if (g.pedal.qty) parts.push(`腳踏板 ×${g.pedal.qty}`);
+  if (g.att.qty)   parts.push(`ATT ×${g.att.qty}`);
+  if (g.drill.qty) parts.push(`破壞鑽 ×${g.drill.qty}(另計)`);
+  if (!parts.length) return '';
+  return `<div style="margin-bottom:10px;padding:10px 12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;font-size:13px">
+    <b>本套組成:</b>${parts.join('｜')}
+  </div>`;
+}
+
+function qbRender(motor, items){
   const out = document.getElementById('qb-result');
   // 依 zone 分桶(展開明細 next sprint 再做)
   const byZone = {};
@@ -1536,6 +1592,7 @@ function qbRender(motor){
   }).join('');
   out.innerHTML = `
     <div style="margin-top:12px">
+      ${qbSummaryHTML(items || [])}
       <div style="font-size:13px;color:#475569;margin-bottom:8px">
         主機:<code>${cmEscPt(motor)}</code>
         <span style="color:#94a3b8">· 點列展開逐項攤提的功能下個 sprint 再加</span>
