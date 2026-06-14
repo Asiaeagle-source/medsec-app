@@ -1511,9 +1511,9 @@ function qbRender(motor){
     const body = rows.map(r => `
       <tr>
         <td>${cmEscPt(r.hospital_name || '未知醫院')}</td>
-        <td>${r.sale_date || '—'}</td>
+        <td>${r.sales_date || '—'}</td>
         <td><code>${cmEscPt(r.motor_code || motor)}</code></td>
-        <td>${qbGenLabel(r.generation)}</td>
+        <td>${qbGenLabel(r.motor_gen)}</td>
         <td>${r.item_count ?? '—'}${
           Number(r.item_count) === 1
             ? ' <span style="color:#dc2626;font-size:11px">單主機</span>' : ''}</td>
