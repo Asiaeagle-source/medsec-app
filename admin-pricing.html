@@ -1566,6 +1566,38 @@ function qbSummaryHTML(items){
   </div>`;
 }
 
+// 三區「組成」欄:從 fn_batch_compare 多帶的 n_motor/n_console/n_pedal/n_att/
+// n_drill/n_cv 拼字串。格式對齊上方 qbSummaryHTML(Console / 腳踏板 不帶 ×N;
+// 其餘 ×N;某類為 0 省略;分隔 、)。
+// Motor 的 E/P 由該列 motor_code 推:EM*=E、PM*=P。
+// 注意:RPC 目前沒回傳 n_burrs → Burrs 那項先省略。
+// 全部 0 → fallback 顯示 item_count(=1 標紅「單主機」)。
+function qbComposeFromRow(r){
+  const m = Number(r.n_motor)   || 0;
+  const cn= Number(r.n_console) || 0;
+  const p = Number(r.n_pedal)   || 0;
+  const a = Number(r.n_att)     || 0;
+  const v = Number(r.n_cv)      || 0;
+  const d = Number(r.n_drill)   || 0;
+  if (m + cn + p + a + v + d === 0){
+    return `${r.item_count ?? '—'}${
+      Number(r.item_count) === 1
+        ? ' <span style="color:#dc2626;font-size:11px">單主機</span>' : ''}`;
+  }
+  const parts = [];
+  if (m){
+    const mc   = String(r.motor_code || '').trim().toUpperCase();
+    const kind = mc.startsWith('EM') ? 'E' : mc.startsWith('PM') ? 'P' : '';
+    parts.push(`Motor×${m}${kind ? `(${kind})` : ''}`);
+  }
+  if (cn) parts.push('Console');
+  if (p)  parts.push('腳踏板');
+  if (a)  parts.push(`Att×${a}`);
+  if (v)  parts.push(`CV×${v}`);
+  if (d)  parts.push(`破壞鑽×${d}`);
+  return parts.join('、');
+}
+
 function qbRender(motor, items){
   const out = document.getElementById('qb-result');
   // 依 zone 分桶(展開明細 next sprint 再做)
@@ -1596,9 +1628,7 @@ function qbRender(motor, items){
         <td>${r.sales_date || '—'}</td>
         <td><code>${cmEscPt(r.motor_code || motor)}</code></td>
         <td>${qbGenLabel(r.motor_gen)}</td>
-        <td>${r.item_count ?? '—'}${
-          Number(r.item_count) === 1
-            ? ' <span style="color:#dc2626;font-size:11px">單主機</span>' : ''}</td>
+        <td>${qbComposeFromRow(r)}</td>
         <td style="text-align:right">${r.set_total != null ? cbFmtNum(r.set_total) : '—'}</td>
       </tr>`;
     }).join('');
@@ -1610,7 +1640,7 @@ function qbRender(motor, items){
           <th style="width:110px">日期</th>
           <th style="width:130px">主機型號</th>
           <th style="width:70px">代別</th>
-          <th style="width:90px">項數</th>
+          <th style="width:200px">組成</th>
           <th style="width:140px">整套總價</th>
         </tr></thead>
         <tbody>${body}</tbody>
