@@ -1404,6 +1404,7 @@ async function cbDeleteRef(qtype, qno, pcode, invNo, btn){
    ============================================================ */
 let QB_INIT = false;
 let QB_ROWS = [];  // 保留 RPC 回傳
+let QB_INV_CACHE = {};  // invoice_no → fn_batch_invoice_detail rows;同 inv 不重打 RPC
 
 async function qbInit(){
   if (QB_INIT) return;
@@ -1471,7 +1472,7 @@ async function qbQuery(){
     });
     if (error) throw error;
     QB_ROWS = data || [];
-    qbRender(motor);
+    qbRender(motor, items);
     st.textContent = `完成 · 主機 ${motor} · ${new Date().toLocaleTimeString()}`;
     st.style.color = '#16a34a';
   }catch(e){
@@ -1492,7 +1493,112 @@ function qbGenLabel(g){
   return cmEscPt(g == null ? '—' : String(g));
 }
 
-function qbRender(motor){
+// 分類規則(由上而下,先 match 先歸,後面不再判;比對大小寫不敏感):
+//   1. 含 ASMC                                        → 破壞鑽
+//   2. SP* / MR8-ND* / MR8-SD*                        → ClearView (CV)
+//   3. EM* / PM*(排除 PM200FIX)                       → Motor(EM=E、PM=P,記第一個型號)
+//   4. EC300                                          → Console
+//   5. EF200 / PC700                                  → 腳踏板
+//   6. MR8-A*(扣掉前面已歸的)                         → Att
+//   7. 其餘 MR8-*                                     → Burrs 鑽頭
+//   8. 其他                                           → 其他(內部記但不顯示)
+// 數量 × qty 累加(不只數種類)。
+function qbSummarize(items){
+  const g = {
+    motor:   { qty:0, code:null, kind:null },  // E / P
+    console: { qty:0 },
+    pedal:   { qty:0 },
+    att:     { qty:0 },
+    burrs:   { qty:0 },
+    cv:      { qty:0 },
+    drill:   { qty:0 },
+    other:   { qty:0 },
+  };
+  for (const it of items){
+    const raw = String(it.code || '').trim();
+    if (!raw) continue;
+    const c = raw.toUpperCase();
+    const q = Number(it.qty) || 0;
+    if (c.includes('ASMC')){
+      g.drill.qty += q;
+    } else if (c.startsWith('SP') || c.startsWith('MR8-ND') || c.startsWith('MR8-SD')){
+      g.cv.qty += q;
+    } else if (c !== 'PM200FIX' && /^(EM|PM)/.test(c)){
+      g.motor.qty += q;
+      if (!g.motor.code){
+        g.motor.code = raw;
+        g.motor.kind = c.startsWith('EM') ? 'E' : 'P';
+      }
+    } else if (c === 'EC300'){
+      g.console.qty += q;
+    } else if (c === 'EF200' || c === 'PC700'){
+      g.pedal.qty += q;
+    } else if (c.startsWith('MR8-A')){
+      g.att.qty += q;
+    } else if (c.startsWith('MR8-')){
+      g.burrs.qty += q;
+    } else {
+      g.other.qty += q;
+    }
+  }
+  return g;
+}
+
+// 顯示順序與格式(某類為 0 省略):
+//   Motor×N(E/P)、Console、腳踏板、Att×N、Burrs×N、CV×N、破壞鑽×N
+//   Console / 腳踏板 不帶 ×N(通常各 1);其他類不顯示。
+function qbSummaryHTML(items){
+  const g = qbSummarize(items);
+  const parts = [];
+  if (g.motor.qty){
+    const tail = g.motor.kind ? `(${g.motor.kind})` : '';
+    parts.push(`Motor×${g.motor.qty}${tail}`);
+  }
+  if (g.console.qty) parts.push('Console');
+  if (g.pedal.qty)   parts.push('腳踏板');
+  if (g.att.qty)     parts.push(`Att×${g.att.qty}`);
+  if (g.burrs.qty)   parts.push(`Burrs×${g.burrs.qty}`);
+  if (g.cv.qty)      parts.push(`CV×${g.cv.qty}`);
+  if (g.drill.qty)   parts.push(`破壞鑽×${g.drill.qty}`);
+  if (!parts.length) return '';
+  return `<div style="margin-bottom:10px;padding:10px 12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;font-size:13px">
+    <b>本套組成:</b>${parts.join('、')}
+  </div>`;
+}
+
+// 三區「組成」欄:從 fn_batch_compare 多帶的 n_motor/n_console/n_pedal/n_att/
+// n_drill/n_cv 拼字串。格式對齊上方 qbSummaryHTML(Console / 腳踏板 不帶 ×N;
+// 其餘 ×N;某類為 0 省略;分隔 、)。
+// Motor 的 E/P 由該列 motor_code 推:EM*=E、PM*=P。
+// 注意:RPC 目前沒回傳 n_burrs → Burrs 那項先省略。
+// 全部 0 → fallback 顯示 item_count(=1 標紅「單主機」)。
+function qbComposeFromRow(r){
+  const m = Number(r.n_motor)   || 0;
+  const cn= Number(r.n_console) || 0;
+  const p = Number(r.n_pedal)   || 0;
+  const a = Number(r.n_att)     || 0;
+  const v = Number(r.n_cv)      || 0;
+  const d = Number(r.n_drill)   || 0;
+  if (m + cn + p + a + v + d === 0){
+    return `${r.item_count ?? '—'}${
+      Number(r.item_count) === 1
+        ? ' <span style="color:#dc2626;font-size:11px">單主機</span>' : ''}`;
+  }
+  const parts = [];
+  if (m){
+    const mc   = String(r.motor_code || '').trim().toUpperCase();
+    const kind = mc.startsWith('EM') ? 'E' : mc.startsWith('PM') ? 'P' : '';
+    parts.push(`Motor×${m}${kind ? `(${kind})` : ''}`);
+  }
+  if (cn) parts.push('Console');
+  if (p)  parts.push('腳踏板');
+  if (a)  parts.push(`Att×${a}`);
+  if (v)  parts.push(`CV×${v}`);
+  if (d)  parts.push(`破壞鑽×${d}`);
+  return parts.join('、');
+}
+
+function qbRender(motor, items){
   const out = document.getElementById('qb-result');
   // 依 zone 分桶(展開明細 next sprint 再做)
   const byZone = {};
@@ -1508,17 +1614,24 @@ function qbRender(motor){
         <div style="color:#94a3b8;font-size:13px">無資料</div>
       </div>`;
     }
-    const body = rows.map(r => `
-      <tr>
-        <td>${cmEscPt(r.hospital_name || '未知醫院')}</td>
+    const body = rows.map(r => {
+      const inv = String(r.invoice_no || '').trim();
+      const click = inv
+        ? ` class="qb-row" data-inv="${cmEscPt(inv)}" onclick="qbToggleDetail(this)" style="cursor:pointer"`
+        : '';
+      const tog = inv
+        ? '<span class="qb-toggle" style="display:inline-block;width:12px;color:#64748b;margin-right:4px">▸</span>'
+        : '';
+      return `
+      <tr${click}>
+        <td>${tog}${cmEscPt(r.hospital_name || '未知醫院')}</td>
         <td>${r.sales_date || '—'}</td>
         <td><code>${cmEscPt(r.motor_code || motor)}</code></td>
         <td>${qbGenLabel(r.motor_gen)}</td>
-        <td>${r.item_count ?? '—'}${
-          Number(r.item_count) === 1
-            ? ' <span style="color:#dc2626;font-size:11px">單主機</span>' : ''}</td>
+        <td>${qbComposeFromRow(r)}</td>
         <td style="text-align:right">${r.set_total != null ? cbFmtNum(r.set_total) : '—'}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     return `<div class="cb-card">
       <div style="font-weight:600;margin-bottom:8px">${z.title}(${rows.length} 筆)</div>
       <table class="case-list" style="font-size:13px">
@@ -1527,7 +1640,7 @@ function qbRender(motor){
           <th style="width:110px">日期</th>
           <th style="width:130px">主機型號</th>
           <th style="width:70px">代別</th>
-          <th style="width:90px">項數</th>
+          <th style="width:200px">組成</th>
           <th style="width:140px">整套總價</th>
         </tr></thead>
         <tbody>${body}</tbody>
@@ -1536,13 +1649,79 @@ function qbRender(motor){
   }).join('');
   out.innerHTML = `
     <div style="margin-top:12px">
+      ${qbSummaryHTML(items || [])}
       <div style="font-size:13px;color:#475569;margin-bottom:8px">
         主機:<code>${cmEscPt(motor)}</code>
-        <span style="color:#94a3b8">· 點列展開逐項攤提的功能下個 sprint 再加</span>
+        <span style="color:#94a3b8">· 點任一列展開該發票的逐項攤提</span>
       </div>
       ${blocks}
     </div>
   `;
+}
+
+// 點列展開:呼叫 fn_batch_invoice_detail 抓逐項;同 invoice_no 命中 QB_INV_CACHE
+// 不重打 RPC。再點同列收合。unit_price=0 標灰字「搭售」。
+async function qbToggleDetail(tr){
+  const inv = tr.dataset.inv;
+  if (!inv) return;
+  const tbody = tr.parentElement;
+  const next = tr.nextElementSibling;
+  const tog = tr.querySelector('.qb-toggle');
+  // 已展開 → 收合
+  if (next && next.classList.contains('qb-sub') && next.dataset.inv === inv){
+    next.remove();
+    if (tog) tog.textContent = '▸';
+    return;
+  }
+  if (tog) tog.textContent = '▾';
+  const sub = document.createElement('tr');
+  sub.className = 'qb-sub';
+  sub.dataset.inv = inv;
+  sub.innerHTML = `<td colspan="6" style="background:#fafafa;padding:8px 12px">
+    <span style="color:#94a3b8;font-size:12px">載入明細…</span></td>`;
+  tbody.insertBefore(sub, tr.nextSibling);
+  try{
+    let data = QB_INV_CACHE[inv];
+    if (!data){
+      const { data: rows, error } = await supa.rpc('fn_batch_invoice_detail', { p_invoice_no: inv });
+      if (error) throw error;
+      data = rows || [];
+      QB_INV_CACHE[inv] = data;
+    }
+    if (!data.length){
+      sub.innerHTML = `<td colspan="6" style="background:#fafafa;padding:8px 12px">
+        <span style="color:#94a3b8;font-size:12px">此發票無明細</span></td>`;
+      return;
+    }
+    const body = data.map(d => {
+      const free = Number(d.unit_price) === 0;
+      return `<tr>
+        <td><code>${cmEscPt(d.product_code || '')}</code></td>
+        <td>${cmEscPt(d.product_name || '—')}</td>
+        <td style="text-align:right">${d.qty ?? '—'}</td>
+        <td style="text-align:right">${d.unit_price != null ? cbFmtNum(d.unit_price) : '—'}${
+          free ? ' <span style="color:#94a3b8;font-size:11px">搭售</span>' : ''}</td>
+        <td style="text-align:right">${d.total != null ? cbFmtNum(d.total) : '—'}</td>
+      </tr>`;
+    }).join('');
+    sub.innerHTML = `<td colspan="6" style="background:#fafafa;padding:8px 12px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:4px">
+        發票 <code>${cmEscPt(inv)}</code> 逐項明細
+      </div>
+      <table class="case-list" style="font-size:12px">
+        <thead><tr>
+          <th>品號</th><th>品名</th>
+          <th style="width:70px">數量</th>
+          <th style="width:130px">攤提單價</th>
+          <th style="width:130px">小計</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </td>`;
+  }catch(e){
+    sub.innerHTML = `<td colspan="6" style="background:#fef2f2;padding:8px 12px;color:#dc2626;font-size:12px">
+      明細查詢失敗:${cmEscPt(e.message||e)}</td>`;
+  }
 }
 </script>
 </body>
