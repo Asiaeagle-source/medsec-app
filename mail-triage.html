@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE MED Hub · 信件分流</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+  <style>
+    :root{
+      --red:#dc2626; --red-bg:#fdecec; --amber:#c2790b; --amber-bg:#fdf3df; --gray-dot:#b6bac4;
+      --pink:#e0457b; --blue:#2563eb;
+    }
+    .mt-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;color:#475569;margin-bottom:18px}
+    .mt-bar b{color:#1d2330}
+    .mt-bar .hot{color:var(--red);font-weight:600}
+    .mt-tabs{display:flex;gap:22px;border-bottom:1px solid #e8e9ef;margin-bottom:22px}
+    .mt-tab{font-size:15px;color:#475569;padding:0 2px 12px;cursor:pointer;border:0;background:none;border-bottom:2px solid transparent;font-family:inherit}
+    .mt-tab.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+    .group-h{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin:8px 0 10px}
+    .group-h .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+    .group-h.red{color:var(--red)} .group-h.red .dot{background:var(--red)}
+    .group-h.amber{color:var(--amber)} .group-h.amber .dot{background:var(--amber)}
+    .group-h.gray{color:#475569} .group-h.gray .dot{background:var(--gray-dot)}
+    .mt-list{display:flex;flex-direction:column;gap:10px;margin-bottom:26px}
+    .mt-card{background:#fff;border:1px solid #e8e9ef;border-radius:12px;padding:14px 16px}
+    .mt-card.red{border-left:3px solid var(--red)}
+    .badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+    .badges .b{font-size:11.5px;padding:2px 9px;border-radius:7px}
+    .badges .b.red{background:var(--red-bg);color:var(--red)}
+    .badges .b.amber{background:var(--amber-bg);color:var(--amber)}
+    .subj{font-size:14.5px;font-weight:600;margin-bottom:3px}
+    .from{font-size:12.5px;color:#9aa0ab;margin-bottom:6px}
+    .sum{font-size:13px;color:#475569;line-height:1.6}
+    .foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px;padding-top:11px;border-top:1px solid #e8e9ef;flex-wrap:wrap}
+    .owner{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#475569}
+    .who{background:var(--pink);color:#fff;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:7px}
+    .who.none{background:#eef0f4;color:#8b94a3}
+    .st{font-size:12px;color:#9aa0ab}
+    .acts{display:flex;gap:8px}
+    .act{font-size:12.5px;color:var(--blue);background:none;border:0;cursor:pointer;font-family:inherit}
+    .compact{display:flex;justify-content:space-between;align-items:center}
+    .compact .who{margin-left:8px}
+    .gridcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+    .mini{background:#fff;border:1px solid #e8e9ef;border-radius:12px;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#475569}
+    .mini b{color:#1d2330;font-size:15px}
+  </style>
+</head>
+<body>
+
+<div id="loading-mask" class="loading-mask"><div class="spinner"></div></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">AE MED Hub</div>
+      <span class="role-tag manager">管理者</span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item" onclick="location.href='manager.html'">
+        <span class="icon">📊</span><span>儀表板</span>
+      </div>
+      <div class="nav-item active">
+        <span class="icon">✉️</span><span>信件分流</span>
+      </div>
+      <div class="nav-item" onclick="location.href='admin-pricing.html'">
+        <span class="icon">💰</span><span>歷史價管理</span>
+      </div>
+      <div class="nav-item" onclick="location.href='admin-seasonal-calendar.html'">
+        <span class="icon">📅</span><span>季節月曆設定</span>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-name" id="user-name">—</div>
+      <div class="user-id" id="user-id">—</div>
+      <button class="btn-logout" onclick="handleLogout()">登出</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="breadcrumb">MedSec Hub / 信件分流</div>
+        <h1>信件分流</h1>
+      </div>
+    </div>
+
+    <div class="mt-bar">
+      掃描 <b id="mt-total">—</b> 封 ·
+      <span class="hot"><b id="mt-redn">—</b> 封今日必處理</span> · 其餘已歸類 ·
+      更新 <b id="mt-upd">—</b>
+    </div>
+
+    <div class="mt-tabs">
+      <button class="mt-tab on" data-f="all">全部</button>
+      <button class="mt-tab"     data-f="red">今日必處理</button>
+      <button class="mt-tab"     data-f="unassigned">待認領</button>
+    </div>
+
+    <div id="mt-view"></div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+// ============================================================
+// 信件分流前端
+//  - 守門:manager(對齊 SQL RLS 的 manager_all + secretary_own;
+//    本頁先給 manager 看全部,業祕端等階段三再加分頁)
+//  - 資料:v_mail_digest_assigned(view 已 join 業祕分區 + 醫院顯示名)
+//  - 沒資料時用 MOCK,讓樣子先看得到(SQL 未跑時也能 demo)
+// ============================================================
+
+let STATE = { all: [], gray: [], filter: 'all' };
+
+const MOCK = [
+  { priority:'red', category:'招標 / 投標', flag_reason:'招標截止', deadline:'今日 17:00 前',
+    subject:'台大醫院 · 神經外科高速磨鑽系統公開招標', sender_name:'台大採購科', sender_email:'buy@ntuh.gov.tw',
+    ai_summary:'投標文件今日下午 5 點截止上傳,MR8 規格書需確認版本。', hospital_display:'台大', owner_name:'小飛', status:'pending' },
+  { priority:'red', category:'客訴', flag_reason:'器械異常', deadline:null,
+    subject:'高榮 · 器械異常通報', sender_name:'高榮手術室', sender_email:'or@vghks.gov.tw',
+    ai_summary:'反映一批磨鑽手感異常,要求今日回覆,涉及不良品通報時效。', hospital_display:'高榮', owner_name:'映晨', status:'pending' },
+  { priority:'red', category:'程序委員會', flag_reason:'明日開會', deadline:'明日 09:00 審議',
+    subject:'北榮 · 衛材委員會補件通知', sender_name:'北榮醫工室', sender_email:'mt@vghtpe.gov.tw',
+    ai_summary:'CENTERPIECE 2 建碼案要求補仿單與材質資料,明日審議前回傳。', hospital_display:'北榮', owner_name:null, status:'pending' },
+  { priority:'amber', category:'報價請求', flag_reason:null, deadline:null,
+    subject:'成大 · MR8 耗材報價請求', sender_name:'成大採購', sender_email:'px@mail.ncku.edu.tw',
+    ai_summary:'詢問 MR8 耗材報價,無明確期限。', hospital_display:'成大', owner_name:'雅婷', status:'pending' },
+  { priority:'amber', category:'合約 / 續約', flag_reason:null, deadline:null,
+    subject:'林口長庚 · 合約續約洽詢', sender_name:'長庚採購', sender_email:'buy@cgmh.org.tw',
+    ai_summary:'洽詢年度合約續約事宜。', hospital_display:'長庚', owner_name:'小飛', status:'pending' },
+];
+const MOCK_GRAY = [
+  { label:'各醫院往來', n:41 }, { label:'原廠 / 供應商', n:23 },
+  { label:'帳務 / 請款', n:18 }, { label:'電子報 / 通知', n:31 },
+];
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// view 一列 → 卡片用的扁平結構
+function mapRow(x){
+  const deadline = x.deadline ? new Date(x.deadline).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
+  const hospital_display = x.hospital_name_short || x.hospital_name_full || x.hospital_id || null;
+  return {
+    id: x.id,
+    priority: x.priority,
+    category: x.category,
+    flag_reason: x.flag_reason,
+    deadline,
+    subject: x.subject,
+    sender_name: x.sender_name,
+    sender_email: x.sender_email,
+    ai_summary: x.ai_summary,
+    hospital_display,
+    owner_name: x.effective_secretary_name || null,
+    status: x.status,
+  };
+}
+
+async function loadFromSupabase(){
+  const today = new Date().toISOString().slice(0,10);
+  const { data, error } = await supa
+    .from('v_mail_digest_assigned')
+    .select('*')
+    .eq('digest_date', today)
+    .order('priority', { ascending: true })
+    .order('received_at', { ascending: false });
+  if (error){
+    console.warn('[mail-triage] view 讀取失敗,使用 MOCK 樣本', error);
+    return null;
+  }
+  return (data || []).map(mapRow);
+}
+
+function cardRed(m){
+  const ds = [
+    m.flag_reason && `<span class="b red">${esc(m.flag_reason)}</span>`,
+    m.deadline && `<span class="b red">${esc(m.deadline)}</span>`,
+  ].filter(Boolean).join('');
+  return `<div class="mt-card red">
+    <div class="badges">${ds}</div>
+    <div class="subj">${esc(m.subject)}</div>
+    <div class="from">${esc(m.sender_name)} &lt;${esc(m.sender_email)}&gt;${m.hospital_display ? ` · ${esc(m.hospital_display)}` : ''}</div>
+    <div class="sum">${esc(m.ai_summary)}</div>
+    <div class="foot">
+      <div class="owner">承辦
+        ${m.owner_name ? `<span class="who">${esc(m.owner_name)}</span>` : `<span class="who none">待認領</span>`}
+        <span class="st">· ${esc(statusLabel(m.status))}</span>
+      </div>
+      <div class="acts">
+        <button class="act" disabled title="階段三接 Graph 回原信">原信</button>
+        <button class="act" disabled title="階段三接 Claude 起草回覆">AI 起草回覆</button>
+      </div>
+    </div>
+  </div>`;
+}
+function cardAmber(m){
+  return `<div class="mt-card"><div class="compact">
+    <div>
+      <span class="subj">${esc(m.subject)}</span>
+      <span class="st">· ${esc(m.category || '')}</span>
+      <div class="sum" style="margin-top:4px">${esc(m.ai_summary)}</div>
+    </div>
+    ${m.owner_name ? `<span class="who">${esc(m.owner_name)}</span>` : `<span class="who none">待認領</span>`}
+  </div></div>`;
+}
+function statusLabel(s){
+  return ({ pending:'待處理', replied:'已回覆', forwarded:'已轉發', done:'結案' }[s]) || (s || '—');
+}
+
+function render(){
+  const { all, gray, filter } = STATE;
+  const grayTotal = gray.reduce((a,b) => a + (b.n || 0), 0);
+  document.getElementById('mt-total').textContent = all.length + grayTotal;
+  document.getElementById('mt-redn').textContent  = all.filter(m => m.priority === 'red').length;
+  document.getElementById('mt-upd').textContent   = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit' });
+
+  let rows = all;
+  if (filter === 'red')        rows = all.filter(m => m.priority === 'red');
+  if (filter === 'unassigned') rows = all.filter(m => !m.owner_name);
+
+  const red   = rows.filter(m => m.priority === 'red');
+  const amber = rows.filter(m => m.priority === 'amber');
+
+  let html = '';
+  if (red.length){
+    html += `<div class="group-h red"><span class="dot"></span>今日必處理</div>
+             <div class="mt-list">${red.map(cardRed).join('')}</div>`;
+  }
+  if (amber.length){
+    html += `<div class="group-h amber"><span class="dot"></span>本週注意</div>
+             <div class="mt-list">${amber.map(cardAmber).join('')}</div>`;
+  }
+  if (filter === 'all' && gray.length){
+    html += `<div class="group-h gray"><span class="dot"></span>其餘 ${grayTotal} 封已歸類</div>
+             <div class="gridcards">${gray.map(g => `<div class="mini">${esc(g.label)}<b>${g.n}</b></div>`).join('')}</div>`;
+  }
+  if (!html) html = `<div class="mt-card"><div class="sum">這個分頁目前沒有信件。</div></div>`;
+  document.getElementById('mt-view').innerHTML = html;
+}
+
+(async function init(){
+  const profile = await guardRole('manager');
+  if (!profile) return;
+  renderUserInfo(profile);
+  hideLoading();
+
+  document.querySelectorAll('.mt-tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.mt-tab').forEach(x => x.classList.remove('on'));
+    t.classList.add('on');
+    STATE.filter = t.dataset.f;
+    render();
+  }));
+
+  const real = await loadFromSupabase();
+  if (real && real.length){
+    STATE.all  = real;
+    STATE.gray = [];   // gray bucket 統計階段二做(分類完寫進 mail_digest 才算得出)
+  } else {
+    // 沒資料 / 表還沒建 → 用 MOCK 顯示樣子
+    STATE.all  = MOCK;
+    STATE.gray = MOCK_GRAY;
+  }
+  render();
+})();
+</script>
+</body>
+</html>
