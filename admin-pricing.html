@@ -1493,38 +1493,50 @@ function qbGenLabel(g){
   return cmEscPt(g == null ? '—' : String(g));
 }
 
-// 分類規則(優先序避免重疊):
-//   ASMC 子字串 → 破壞鑽(另計);EC300 → Console;EF200/PC700 → 腳踏板;
-//   EM/PM 開頭排除 PM200FIX → Motor(EM 標電,PM 標氣);
-//   MR8- 開頭其餘 → ATT;其他 → 其他(內部記但不顯示,維持規格行格式)。
+// 分類規則(由上而下,先 match 先歸,後面不再判;比對大小寫不敏感):
+//   1. 含 ASMC                                        → 破壞鑽
+//   2. SP* / MR8-ND* / MR8-SD*                        → ClearView (CV)
+//   3. EM* / PM*(排除 PM200FIX)                       → Motor(EM=E、PM=P,記第一個型號)
+//   4. EC300                                          → Console
+//   5. EF200 / PC700                                  → 腳踏板
+//   6. MR8-A*(扣掉前面已歸的)                         → Att
+//   7. 其餘 MR8-*                                     → Burrs 鑽頭
+//   8. 其他                                           → 其他(內部記但不顯示)
+// 數量 × qty 累加(不只數種類)。
 function qbSummarize(items){
   const g = {
+    motor:   { qty:0, code:null, kind:null },  // E / P
     console: { qty:0 },
-    motor:   { qty:0, code:null, kind:null },
     pedal:   { qty:0 },
     att:     { qty:0 },
+    burrs:   { qty:0 },
+    cv:      { qty:0 },
     drill:   { qty:0 },
     other:   { qty:0 },
   };
   for (const it of items){
     const raw = String(it.code || '').trim();
-    const c   = raw.toUpperCase();
-    const q   = Number(it.qty) || 0;
     if (!raw) continue;
+    const c = raw.toUpperCase();
+    const q = Number(it.qty) || 0;
     if (c.includes('ASMC')){
       g.drill.qty += q;
-    } else if (c === 'EC300'){
-      g.console.qty += q;
-    } else if (c === 'EF200' || c === 'PC700'){
-      g.pedal.qty += q;
+    } else if (c.startsWith('SP') || c.startsWith('MR8-ND') || c.startsWith('MR8-SD')){
+      g.cv.qty += q;
     } else if (c !== 'PM200FIX' && /^(EM|PM)/.test(c)){
       g.motor.qty += q;
       if (!g.motor.code){
         g.motor.code = raw;
-        g.motor.kind = c.startsWith('EM') ? '電' : '氣';
+        g.motor.kind = c.startsWith('EM') ? 'E' : 'P';
       }
-    } else if (/^MR8-/.test(c)){
+    } else if (c === 'EC300'){
+      g.console.qty += q;
+    } else if (c === 'EF200' || c === 'PC700'){
+      g.pedal.qty += q;
+    } else if (c.startsWith('MR8-A')){
       g.att.qty += q;
+    } else if (c.startsWith('MR8-')){
+      g.burrs.qty += q;
     } else {
       g.other.qty += q;
     }
@@ -1532,20 +1544,25 @@ function qbSummarize(items){
   return g;
 }
 
+// 顯示順序與格式(某類為 0 省略):
+//   Motor×N(E/P)、Console、腳踏板、Att×N、Burrs×N、CV×N、破壞鑽×N
+//   Console / 腳踏板 不帶 ×N(通常各 1);其他類不顯示。
 function qbSummaryHTML(items){
   const g = qbSummarize(items);
   const parts = [];
-  if (g.console.qty) parts.push(`Console ×${g.console.qty}`);
   if (g.motor.qty){
-    const tail = g.motor.code ? `(${cmEscPt(g.motor.code)}・${g.motor.kind})` : '';
-    parts.push(`Motor ×${g.motor.qty}${tail}`);
+    const tail = g.motor.kind ? `(${g.motor.kind})` : '';
+    parts.push(`Motor×${g.motor.qty}${tail}`);
   }
-  if (g.pedal.qty) parts.push(`腳踏板 ×${g.pedal.qty}`);
-  if (g.att.qty)   parts.push(`ATT ×${g.att.qty}`);
-  if (g.drill.qty) parts.push(`破壞鑽 ×${g.drill.qty}(另計)`);
+  if (g.console.qty) parts.push('Console');
+  if (g.pedal.qty)   parts.push('腳踏板');
+  if (g.att.qty)     parts.push(`Att×${g.att.qty}`);
+  if (g.burrs.qty)   parts.push(`Burrs×${g.burrs.qty}`);
+  if (g.cv.qty)      parts.push(`CV×${g.cv.qty}`);
+  if (g.drill.qty)   parts.push(`破壞鑽×${g.drill.qty}`);
   if (!parts.length) return '';
   return `<div style="margin-bottom:10px;padding:10px 12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;font-size:13px">
-    <b>本套組成:</b>${parts.join('｜')}
+    <b>本套組成:</b>${parts.join('、')}
   </div>`;
 }
 
