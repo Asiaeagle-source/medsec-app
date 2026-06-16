@@ -1,0 +1,105 @@
+// api/cron/mail-triage.js
+// MedSec 信件分流 — 排程抓信 (Vercel Cron Function)
+// 流程: Graph 抓當日新信 → classifyMail() 分流 → upsert 進 mail_digest
+
+import { classifyMail } from "../../supabase/functions/mail-triage/rules.js";
+// ↑ 路徑對齊 repo 裡 rules.js (classifyMail) 的實際位置, 不對就改這行
+
+// ---- 1. 拿 Graph access token (client credentials) ----
+async function getGraphToken() {
+  const res = await fetch(
+    `https://login.microsoftonline.com/${process.env.GRAPH_TENANT_ID}/oauth2/v2.0/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.GRAPH_CLIENT_ID,
+        client_secret: process.env.GRAPH_CLIENT_SECRET,
+        scope: "https://graph.microsoft.com/.default",
+        grant_type: "client_credentials",
+      }),
+    }
+  );
+  const data = await res.json();
+  if (!data.access_token) throw new Error("Graph token 失敗: " + JSON.stringify(data));
+  return data.access_token;
+}
+
+// ---- 2. 抓「上次掃描之後」的新信 ----
+// 只取 寄件者/主旨/收到時間/內文前段, 不抓全文
+async function fetchNewMail(token, sinceISO) {
+  const mailbox = process.env.GRAPH_MAILBOX;
+  const url =
+    `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/inbox/messages` +
+    `?$filter=receivedDateTime ge ${sinceISO}` +
+    `&$select=id,subject,from,receivedDateTime,bodyPreview` +
+    `&$top=100&$orderby=receivedDateTime desc`;
+
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  if (!data.value) throw new Error("Graph 抓信失敗: " + JSON.stringify(data));
+
+  return data.value.map((m) => ({
+    graphMessageId: m.id,
+    receivedAt: m.receivedDateTime,
+    subject: m.subject || "",
+    senderName: m.from?.emailAddress?.name || "",
+    senderEmail: m.from?.emailAddress?.address || "",
+    snippet: (m.bodyPreview || "").slice(0, 400),
+  }));
+}
+
+// ---- 3. upsert 進 Supabase (graph_message_id 唯一, 重跑不重複) ----
+// 注意: 新版 sb_secret_ 格式 key, apikey 與 Bearer 都帶同一把
+async function upsertDigest(rows) {
+  if (!rows.length) return 0;
+  const res = await fetch(
+    `${process.env.SUPABASE_URL}/rest/v1/mail_digest?on_conflict=graph_message_id`,
+    {
+      method: "POST",
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(rows),
+    }
+  );
+  if (!res.ok) throw new Error("寫入 Supabase 失敗: " + (await res.text()));
+  return rows.length;
+}
+
+// ---- 主入口 ----
+export default async function handler(req, res) {
+  if (req.headers["authorization"] !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  try {
+    const token = await getGraphToken();
+    const since = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
+    const mails = await fetchNewMail(token, since);
+
+    const rows = [];
+    for (const mail of mails) {
+      try {
+        rows.push(await classifyMail(mail));
+      } catch (e) {
+        rows.push({
+          graph_message_id: mail.graphMessageId,
+          received_at: mail.receivedAt,
+          sender_email: mail.senderEmail,
+          sender_name: mail.senderName,
+          subject: mail.subject,
+          ai_summary: "(分類失敗, 請人工確認)",
+          priority: "amber",
+          category: "其他",
+        });
+      }
+    }
+    const n = await upsertDigest(rows);
+    return res.status(200).json({ scanned: mails.length, written: n, since });
+  } catch (e) {
+    return res.status(500).json({ error: String(e) });
+  }
+}
