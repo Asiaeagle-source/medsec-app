@@ -1,0 +1,5 @@
+{
+  "name": "medsec-app",
+  "private": true,
+  "type": "module"
+}
