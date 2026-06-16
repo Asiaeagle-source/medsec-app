@@ -1458,26 +1458,39 @@ async function qbQuery(){
   const items = qbParseInput();
   if (!items.length){ st.textContent = '請至少輸入一行品項'; st.style.color = '#dc2626'; return; }
   const motor = qbFindMotor(items);
-  if (!motor){
-    out.innerHTML = `<div class="cb-card" style="color:#dc2626">這套沒有 EM/PM 主機,無法整套比價</div>`;
-    st.textContent = '失敗'; st.style.color = '#dc2626';
-    QB_ROWS = [];
-    return;
-  }
-  st.textContent = `查詢中… 主機 ${motor}`; st.style.color = '#64748b';
   out.innerHTML = '';
-  try{
-    const { data, error } = await supa.rpc('fn_batch_compare', {
-      p_hospital_id: hid, p_motor_code: motor,
-    });
-    if (error) throw error;
-    QB_ROWS = data || [];
-    qbRender(motor, items);
-    st.textContent = `完成 · 主機 ${motor} · ${new Date().toLocaleTimeString()}`;
-    st.style.color = '#16a34a';
-  }catch(e){
-    out.innerHTML = `<div class="cb-card" style="color:#dc2626">查詢失敗:${cmEscPt(e.message||e)}</div>`;
-    st.textContent = '失敗'; st.style.color = '#dc2626';
+  // 有主機 → 整套比價(fn_batch_compare);無主機 → 逐項建議(fn_cardb_batch)
+  if (motor){
+    st.textContent = `查詢中… 主機 ${motor}`; st.style.color = '#64748b';
+    try{
+      const { data, error } = await supa.rpc('fn_batch_compare', {
+        p_hospital_id: hid, p_motor_code: motor,
+      });
+      if (error) throw error;
+      QB_ROWS = data || [];
+      qbRender(motor, items);
+      st.textContent = `完成 · 主機 ${motor} · ${new Date().toLocaleTimeString()}`;
+      st.style.color = '#16a34a';
+    }catch(e){
+      out.innerHTML = `<div class="cb-card" style="color:#dc2626">查詢失敗:${cmEscPt(e.message||e)}</div>`;
+      st.textContent = '失敗'; st.style.color = '#dc2626';
+    }
+  } else {
+    st.textContent = `查詢中… 無主機,改逐項建議 ${items.length} 項`; st.style.color = '#64748b';
+    try{
+      const { data, error } = await supa.rpc('fn_cardb_batch', {
+        p_hospital_id: hid, p_items: items,
+      });
+      if (error) throw error;
+      QB_ROWS = [];   // 整套比價的快取不混
+      const rows = (data || []).slice().sort((a,b) => (a.seq||0) - (b.seq||0));
+      qbRenderItemized(items, rows);
+      st.textContent = `完成 · 逐項建議 ${rows.length} 列 · ${new Date().toLocaleTimeString()}`;
+      st.style.color = '#16a34a';
+    }catch(e){
+      out.innerHTML = `<div class="cb-card" style="color:#dc2626">查詢失敗:${cmEscPt(e.message||e)}</div>`;
+      st.textContent = '失敗'; st.style.color = '#dc2626';
+    }
   }
 }
 
@@ -1655,6 +1668,79 @@ function qbRender(motor, items){
         <span style="color:#94a3b8">· 點任一列展開該發票的逐項攤提</span>
       </div>
       ${blocks}
+    </div>
+  `;
+}
+
+// 無主機 fallback:fn_cardb_batch 逐項建議。
+// 每列:型號 / 數量 / 建議開價(suggested_price)/ 預期成交(expected_deal)/
+//       折數來源(cbSrcLabel)/ 成交筆數(sale_count)。小計用 line_open_total /
+// line_expected_total;suggested_price 為 null 的列標「無歷史價,另估」,
+// 小計算 0、不計入加總(null/未提供 也視作 0)。
+function qbRenderItemized(items, rows){
+  const out = document.getElementById('qb-result');
+  // 把 RPC 回傳依 code 對到原輸入(保住順序與數量;同 code 多行先取第一筆)
+  const byCode = {};
+  for (const r of rows){
+    const k = String(r.code || '').trim();
+    if (k && !byCode[k]) byCode[k] = r;
+  }
+  let openSum = 0, expSum = 0;
+  const body = items.map((it, i) => {
+    const code = String(it.code || '').trim();
+    const r    = byCode[code] || {};
+    const noHist = r.suggested_price == null;
+    const lineOp = noHist ? 0 : (Number(r.line_open_total)     || 0);
+    const lineEx = noHist ? 0 : (Number(r.line_expected_total) || 0);
+    openSum += lineOp;
+    expSum  += lineEx;
+    const codeCell = `<code>${cmEscPt(code)}</code>${
+      noHist ? ' <span style="color:#dc2626;font-size:11px">無歷史價,另估</span>' : ''}`;
+    return `<tr>
+      <td>${codeCell}</td>
+      <td style="text-align:right">${it.qty ?? '—'}</td>
+      <td style="text-align:right">${r.suggested_price != null ? cbFmtNum(r.suggested_price) : '—'}${
+        noHist ? '' : `<br><span style="color:#94a3b8;font-size:11px">小計 ${cbFmtNum(lineOp)}</span>`}</td>
+      <td style="text-align:right">${r.expected_deal != null ? cbFmtNum(r.expected_deal) : '—'}${
+        noHist ? '' : `<br><span style="color:#94a3b8;font-size:11px">小計 ${cbFmtNum(lineEx)}</span>`}</td>
+      <td>${cbSrcLabel(r.discount_source)}</td>
+      <td style="text-align:right">${r.sale_count ?? '—'}</td>
+    </tr>`;
+  }).join('');
+  out.innerHTML = `
+    <div style="margin-top:12px">
+      ${qbSummaryHTML(items || [])}
+      <div class="cb-card" style="background:#fff7ed;border-color:#fed7aa">
+        <div style="font-weight:600;color:#9a3412;margin-bottom:4px">📒 逐項建議</div>
+        <div style="font-size:12px;color:#9a3412;line-height:1.6">
+          這套沒有 EM/PM 主機,改走 <code>fn_cardb_batch</code> 查本院歷史價,
+          每項各自出建議開價 / 預期成交。<b>套餐折讓不適用</b>,加總只是參考。
+        </div>
+      </div>
+      <table class="case-list" style="margin-top:10px;font-size:13px">
+        <thead><tr>
+          <th>型號</th>
+          <th style="width:60px">數量</th>
+          <th style="width:150px">建議開價</th>
+          <th style="width:150px">預期成交</th>
+          <th style="width:170px">折數來源</th>
+          <th style="width:80px">成交筆數</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      <div style="margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+        <div>
+          <div style="color:#64748b;font-size:12px">建議開價總額</div>
+          <b style="font-size:18px">${cbFmtNum(openSum)}</b>
+        </div>
+        <div>
+          <div style="color:#64748b;font-size:12px">預期成交總額</div>
+          <b style="font-size:18px">${cbFmtNum(expSum)}</b>
+        </div>
+        <div style="margin-left:auto;color:#94a3b8;font-size:11px">
+          0 元 / 無歷史價的列已從加總排除
+        </div>
+      </div>
     </div>
   `;
 }
