@@ -26,11 +26,12 @@ async function getGraphToken() {
 }
 
 // ---- 2. 抓「上次掃描之後」的新信 ----
-// 只取 寄件者/主旨/收到時間/內文前段, 不抓全文
-async function fetchNewMail(token, sinceISO) {
+// 只取 寄件者/主旨/收到時間/內文前段, 不抓全文。
+// folderId 可以是 well-known 名稱 (例如 'inbox') 或 Graph 回傳的 folder id。
+async function fetchNewMail(token, folderId, sinceISO) {
   const mailbox = process.env.GRAPH_MAILBOX;
   const url =
-    `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/inbox/messages` +
+    `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/${folderId}/messages` +
     `?$filter=receivedDateTime ge ${sinceISO}` +
     `&$select=id,subject,from,receivedDateTime,bodyPreview` +
     `&$top=100&$orderby=receivedDateTime desc`;
@@ -47,6 +48,23 @@ async function fetchNewMail(token, sinceISO) {
     senderEmail: m.from?.emailAddress?.address || "",
     snippet: (m.bodyPreview || "").slice(0, 400),
   }));
+}
+
+// 用 displayName 查 inbox 底下的子資料夾 id;查不到回 null。
+// OData 字串裡 ' 用 '' 脫逸;URL 整段交給 URL constructor 編碼。
+async function getInboxChildFolderId(token, displayName) {
+  const mailbox = process.env.GRAPH_MAILBOX;
+  const safe = displayName.replace(/'/g, "''");
+  const url = new URL(
+    `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/inbox/childFolders`
+  );
+  url.searchParams.set("$filter", `displayName eq '${safe}'`);
+  url.searchParams.set("$select", "id,displayName");
+  url.searchParams.set("$top", "1");
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  if (!res.ok || !data.value || !data.value.length) return null;
+  return data.value[0].id;
 }
 
 // ---- 3. upsert 進 Supabase (graph_message_id 唯一, 重跑不重複) ----
@@ -82,7 +100,32 @@ export default async function handler(req, res) {
     const daysRaw = Number(req.query?.days);
     const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(daysRaw, 90) : 1;
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const mails = await fetchNewMail(token, since);
+
+    // 三個資料夾:inbox + inbox/子資料夾 Lynn.lai + inbox/子資料夾 service。
+    // 每個都帶 $filter=receivedDateTime ge since,絕對不要無時間 filter
+    // 全抓 —— service 有六萬多封歷史信。
+    const [lynnId, serviceId] = await Promise.all([
+      getInboxChildFolderId(token, "Lynn.lai"),
+      getInboxChildFolderId(token, "service"),
+    ]);
+    const targets = [
+      { name: "inbox",    id: "inbox" },
+      { name: "Lynn.lai", id: lynnId },
+      { name: "service",  id: serviceId },
+    ];
+    const folderStats = {};
+    const merged = new Map();   // graphMessageId → mail (defensive dedup)
+    for (const t of targets) {
+      if (!t.id) { folderStats[t.name] = "folder not found"; continue; }
+      try {
+        const arr = await fetchNewMail(token, t.id, since);
+        folderStats[t.name] = arr.length;
+        for (const m of arr) merged.set(m.graphMessageId, m);
+      } catch (e) {
+        folderStats[t.name] = `error: ${e.message || e}`;
+      }
+    }
+    const mails = [...merged.values()];
 
     const rows = [];
     for (const mail of mails) {
@@ -102,7 +145,7 @@ export default async function handler(req, res) {
       }
     }
     const n = await upsertDigest(rows);
-    return res.status(200).json({ scanned: mails.length, written: n, since, days });
+    return res.status(200).json({ scanned: mails.length, written: n, since, days, folders: folderStats });
   } catch (e) {
     return res.status(500).json({ error: String(e) });
   }
