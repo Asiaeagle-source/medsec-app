@@ -69,6 +69,27 @@ async function getInboxChildFolderId(token, displayName) {
 
 // ---- 3. upsert 進 Supabase (graph_message_id 唯一, 重跑不重複) ----
 // 注意: 新版 sb_secret_ 格式 key, apikey 與 Bearer 都帶同一把
+// PostgREST 批次 upsert 要求每筆物件 key 集合完全一致 (否則 PGRST102
+// 「All object keys must match」),所以寫入前統一 normalize 一次。
+const DIGEST_KEYS = [
+  "graph_message_id",
+  "received_at",
+  "sender_email",
+  "sender_name",
+  "subject",
+  "ai_summary",
+  "priority",
+  "category",
+  "flag_reason",
+  "deadline",
+  "hospital_id",
+];
+function normalizeDigest(row) {
+  const out = {};
+  for (const k of DIGEST_KEYS) out[k] = row[k] !== undefined ? row[k] : null;
+  return out;
+}
+
 async function upsertDigest(rows) {
   if (!rows.length) return 0;
   const res = await fetch(
@@ -130,9 +151,11 @@ export default async function handler(req, res) {
     const rows = [];
     for (const mail of mails) {
       try {
-        rows.push(await classifyMail(mail));
+        rows.push(normalizeDigest(await classifyMail(mail)));
       } catch (e) {
-        rows.push({
+        // 分類失敗 → 落到 fallback,仍然走 normalizeDigest 補齊空欄,
+        // 確保跟成功路徑 key 集合一致(避免 PGRST102)。
+        rows.push(normalizeDigest({
           graph_message_id: mail.graphMessageId,
           received_at: mail.receivedAt,
           sender_email: mail.senderEmail,
@@ -141,7 +164,8 @@ export default async function handler(req, res) {
           ai_summary: "(分類失敗, 請人工確認)",
           priority: "amber",
           category: "其他",
-        });
+          // flag_reason / deadline / hospital_id 由 normalizeDigest 補 null
+        }));
       }
     }
     const n = await upsertDigest(rows);
