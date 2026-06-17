@@ -77,7 +77,11 @@ export default async function handler(req, res) {
   }
   try {
     const token = await getGraphToken();
-    const since = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
+    // 預設回看 24 小時(Hobby 一天跑一次,避免漏信);
+    // 帶 ?days=7 可加大視窗(首次回填、補跑用)。
+    const daysRaw = Number(req.query?.days);
+    const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(daysRaw, 90) : 1;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const mails = await fetchNewMail(token, since);
 
     const rows = [];
@@ -98,7 +102,7 @@ export default async function handler(req, res) {
       }
     }
     const n = await upsertDigest(rows);
-    return res.status(200).json({ scanned: mails.length, written: n, since });
+    return res.status(200).json({ scanned: mails.length, written: n, since, days });
   } catch (e) {
     return res.status(500).json({ error: String(e) });
   }
