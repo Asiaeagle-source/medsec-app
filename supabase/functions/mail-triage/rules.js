@@ -163,7 +163,8 @@ export async function classifyMail(mail) {
     category: ruled?.category || ai.category || "其他",
     flag_reason: ruled?.flag_reason || ai.flag_reason || null,
     deadline: ai.deadline || null,
-    hospital_code: hosp?.hospital_code || null,            // 認不出 → null → 待主管指派
+    hospital_id: hosp?.hospital_code || null,              // 認不出 → null → 待主管指派
+                                                           // (mail_digest.hospital_id 是 text,對齊 medsec_hospitals.id 的 COPI01 院碼)
     // assigned_to / status 由 DB 預設與 view 處理
   };
 }
