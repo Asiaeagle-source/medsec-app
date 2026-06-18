@@ -1,156 +1,138 @@
 // ============================================================
-// MedSec 信件分流 — 規則設定 + AI 分類邏輯
+// MedSec 信件分流 — 規則 v3 (AI 認分院 + 客戶/廠商分流)
 // ------------------------------------------------------------
-// 這支跑在排程後端 (Vercel Cron function)，每天早午各一次:
-//   1. 用 Microsoft Graph 抓當日未讀/新信 (寄件者、主旨、前段內文)
-//   2. 跑 classifyMail() 分流 → 紅黃灰、歸類、認醫院、出摘要
-//   3. 寫進 Supabase mail_digest
+// 與 v2 差異: 院碼不再靠網域查表 (多院區分不出), 改由 AI 從內文認出
+// 「哪一家分院」, 程式再去 medsec_hospitals 模糊比對拿院碼。
+// 網域只用來判「是不是醫院系統(客戶)」。
 //
-// 安全: 只把「寄件者 + 主旨 + 內文前段」送進判斷，不存全文。
-// 原則: AI 出料，人決斷 — 這裡只分類，不回信、不外送。
+// 流程: routeMail 判性質+客戶/廠商 → AI 出摘要+認醫院名 →
+//        resolveHospitalCode 名稱轉院碼 → 落到該分院業秘
+//
+// priority: red / amber / order / billing / gray
+// 第一批: 單一主辦 (assignees[0])。原廠請款的會計副辦(0176)留到第二批 assigned_cc。
 // ============================================================
 
-// ---- 標紅規則 (可調) -------------------------------------------------
-// 命中任一 redTriggers → 紅 (今日必處理)
-// 否則命中 amberTriggers → 黃 (本週注意)
-// 都沒中 → 灰 (批次瀏覽)
-export const TRIAGE_RULES = {
-
-  red: {
-    // 主旨/內文關鍵詞 → 標紅 + 對應原因標籤
-    keywords: [
-      { match: ["招標", "投標", "決標", "比價"], reason: "招標 / 投標" },
-      { match: ["程序委員會", "衛materials委員會", "衛材委員會", "醫材會", "審議"], reason: "程序委員會" },
-      { match: ["客訴", "申訴", "抱怨"], reason: "客訴" },
-      { match: ["退貨", "退回", "換貨"], reason: "退貨" },
-      { match: ["不良品", "器械異常", "故障", "瑕疵", "MDR"], reason: "器械異常" },
-      { match: ["召回", "回收", "recall"], reason: "召回" },
-      { match: ["缺貨", "斷貨", "供貨延遲", "交期延後", "backorder"], reason: "缺貨" },
-      { match: ["採購單", "訂單", "PO", "purchase order"], reason: "正式採購單" },
-    ],
-    // 主旨含這些「急迫詞」也直接標紅
-    urgencyWords: ["急", "緊急", "今日", "本日", "限今", "截止", "deadline", "ASAP", "盡快"],
-  },
-
-  amber: {
-    keywords: [
-      { match: ["報價", "詢價", "估價"], reason: "報價請求" },
-      { match: ["續約", "合約", "契約"], reason: "合約 / 續約" },
-      { match: ["詢問", "洽詢", "請問"], reason: "一般詢問" },
-      { match: ["請款", "對帳", "發票", "付款"], reason: "帳務" },
-    ],
-  },
-
-  // 灰: 電子報、系統自動信、原廠 newsletter — 不必逐封看
-  gray: {
-    senderHints: ["newsletter", "no-reply", "noreply", "notification", "donotreply", "mailer"],
-    keywords: [{ match: ["電子報", "週報", "活動通知", "研討會"], reason: "電子報 / 通知" }],
-  },
+export const ROLE_ASSIGNEE = {
+  purchasing: "0003",  // 採購 — 廠商訂貨/原廠
+  service:    "0015",  // 客服 — 維修/設備警報
+  bidding:    "0132",  // 鄭欣菱 — 標案
+  accounting: "0176",  // 會計 — 匯款/請款/非醫材供應商
 };
 
-// ---- 醫院辨識: 寄件網域 → 院碼 -------------------------------------
-// 認出寄件醫院後，前端再對「業祕分區」帶出負責業祕。
-// 院碼對齊 medsec_hospitals.id(COPI01)，取自 sql/04_seed_medsec_hospitals.sql。
-// 這份對照先放常用大院，其餘交給 AI 從署名/內文判斷 (hospital_hint)。
-export const HOSPITAL_DOMAINS = {
-  "ntuh.gov.tw":     { name: "台大醫院",  hospital_code: "NTUN" },
-  "vghtpe.gov.tw":   { name: "台北榮總",  hospital_code: "VGTN" },
-  "vghks.gov.tw":    { name: "高雄榮總",  hospital_code: "VGKS" },
-  "vghtc.gov.tw":    { name: "台中榮總",  hospital_code: "VGTM" },
-  "cgmh.org.tw":     { name: "林口長庚",  hospital_code: "CGLN" },  // 預設林口長庚;子網域可細分基/桃/嘉/高
-  "mmh.org.tw":      { name: "台北馬偕",  hospital_code: "MMTN" },
-  "cmuh.cmu.edu.tw": { name: "中國附醫",  hospital_code: "CMUM" },
-  "kmuh.org.tw":     { name: "高醫",      hospital_code: "KCUS" },
-  // … 之後可從醫院主檔批次匯入完整對照
+// 灰名單 (廣告/電子報/自動信 直接歸灰)
+export const GRAY_SENDERS = ["news@epaperwt.smda.tw", "fpgcs@lm.tradevan.com.tw"];
+export const GRAY_HINTS = ["newsletter","no-reply","noreply","notification","donotreply","mailer","epaper","熱訊","電子報"];
+
+// 醫院系統網域 (只判「是不是客戶」, 不決定院碼; 院碼由 AI 認分院)
+export const CUSTOMER_DOMAINS = [
+  "ntuh.gov.tw","vghtpe.gov.tw","vghks.gov.tw","vhyk.gov.tw","vghtc.gov.tw",
+  "cgmh.org.tw","mmh.org.tw","show.org.tw","chimei.org.tw","cych.org.tw",
+  "cch.org.tw","tzuchi.com.tw","femh.org.tw","ncku.edu.tw","hosp.ncku.edu.tw",
+  "tpech.gov.tw","pohai.org.tw","ktgh.com.tw","hch.gov.tw","ylh.gov.tw",
+  "sinlau.org.tw","mail.vhyk.gov.tw",
+  // 之後補其餘醫院網域; 不在表內也可能是客戶 — AI 認出醫院名也算客戶
+];
+
+const KW = {
+  repair:    ["維修","報修","故障","保固","送修","檢修","校正"],
+  alarm:     ["溫控","溫度異常","saveris","system warning","alarm","警報"],
+  bidding:   ["招標","投標","決標","比價","議價","標案","採購公告","開標","廢標"],
+  remit:     ["匯款","匯入","入帳","已付款","付款通知","轉帳"],
+  urge:      ["催交","催貨","催單","儘速","速辦","逾期","未出貨","急出","催出","限期"],
+  order:     ["訂貨單","訂購單","訂單","採購單","採購通知","出貨","補貨","履約","交貨","訂貨通知","寄銷","寄賣","消耗檔"],
+  complaint: ["客訴","申訴","抱怨","退貨","退回","不良品","器械異常","瑕疵","MDR","召回","回收","缺貨","斷貨"],
+  quote:     ["報價","詢價","估價","詢問","洽詢"],
+  invoice:   ["發票","折讓","請款","催款","對帳","應收","應付","帳單","收款"],
+  oem:       ["原廠","medtronic"],
 };
+const hit = (text, list) => list.some(w => text.toLowerCase().includes(w.toLowerCase()));
+const domainOf = (e="") => (e.split("@")[1] || "").toLowerCase();
+const isCustomerDomain = (e="") => { const d = domainOf(e); return CUSTOMER_DOMAINS.some(x => d.endsWith(x)); };
 
-// ============================================================
-// 規則先跑 (零成本)，規則模糊或要摘要時才呼叫 Claude。
-// ============================================================
-
-function ruleScan(subject = "", snippet = "", senderEmail = "") {
+// ---- 性質分派 (不含院碼; 院碼後面 AI 認) ----
+function routeMail({ subject="", snippet="", senderEmail="" }, aiSaysHospital) {
   const text = `${subject} ${snippet}`;
-  const lowerSender = senderEmail.toLowerCase();
+  const sender = senderEmail.toLowerCase();
+  const A = ROLE_ASSIGNEE;
+  // 客戶 = 網域命中醫院系統, 或 AI 認出是某醫院
+  const isCustomer = isCustomerDomain(senderEmail) || !!aiSaysHospital;
 
-  // 灰: 自動信寄件者
-  if (TRIAGE_RULES.gray.senderHints.some(h => lowerSender.includes(h))) {
-    return { priority: "gray", category: "電子報 / 通知", flag_reason: null };
+  // 0) 灰名單
+  if (GRAY_SENDERS.includes(sender) || GRAY_HINTS.some(h => sender.includes(h) || subject.includes(h)))
+    return { priority:"gray", category:"電子報/通知", flag_reason:null, assignee:null };
+
+  // 1) 特殊性質 — 不分客戶廠商
+  if (hit(text, KW.alarm))   return { priority:"red",     category:"設備警報", flag_reason:"設備警報", assignee:A.service };
+  if (hit(text, KW.repair))  return { priority:"amber",   category:"維修",     flag_reason:null,       assignee:A.service };
+  if (hit(text, KW.bidding)) return { priority:"red",     category:"標案",     flag_reason:"標案",     assignee:A.bidding };
+  if (hit(text, KW.remit))   return { priority:"billing", category:"匯款通知", flag_reason:null,       assignee:A.accounting };
+
+  // 2) 客戶(醫院) — 派該院業秘 (assignee=null, 由 hospital_id 帶業秘)
+  if (isCustomer) {
+    if (hit(text, KW.urge))      return { priority:"red",   category:"催貨",     flag_reason:"催貨/催交", assignee:null };
+    if (hit(text, KW.complaint)) return { priority:"red",   category:"客訴/異常", flag_reason:"客訴/異常", assignee:null };
+    if (hit(text, KW.order))     return { priority:"order", category:"訂單",     flag_reason:null,        assignee:null };
+    if (hit(text, KW.invoice))   return { priority:"amber", category:"發票/折讓", flag_reason:null,        assignee:null };
+    if (hit(text, KW.quote))     return { priority:"amber", category:"報價詢問", flag_reason:null,        assignee:null };
+    return { priority:"amber", category:"醫院往來", flag_reason:null, assignee:null };
   }
-  // 紅: 關鍵詞
-  for (const k of TRIAGE_RULES.red.keywords) {
-    if (k.match.some(w => text.includes(w))) return { priority: "red", category: k.reason, flag_reason: k.reason };
+
+  // 3) 廠商
+  if (hit(text, KW.invoice)) {
+    // 原廠請款 → 採購主辦 (會計副辦 0176 留待第二批 assigned_cc)
+    return { priority:"billing", category: hit(text,KW.oem) ? "原廠請款" : "廠商請款",
+             flag_reason:null, assignee: hit(text,KW.oem) ? A.purchasing : A.accounting };
   }
-  // 紅: 急迫詞
-  if (TRIAGE_RULES.red.urgencyWords.some(w => text.includes(w))) {
-    return { priority: "red", category: "急件", flag_reason: "標示急件" };
-  }
-  // 黃
-  for (const k of TRIAGE_RULES.amber.keywords) {
-    if (k.match.some(w => text.includes(w))) return { priority: "amber", category: k.reason, flag_reason: k.reason };
-  }
-  return null; // 規則沒判定 → 交給 AI
+  if (hit(text, KW.order) || hit(text, KW.oem))
+    return { priority:"order", category:"廠商訂貨", flag_reason:null, assignee:A.purchasing };
+
+  // 4) 其他非醫材供應商 → 會計
+  return { priority:"amber", category:"廠商其他", flag_reason:null, assignee:A.accounting };
 }
 
-function hospitalFromDomain(senderEmail = "") {
-  const domain = senderEmail.split("@")[1]?.toLowerCase() || "";
-  const hit = Object.keys(HOSPITAL_DOMAINS).find(d => domain.endsWith(d));
-  return hit ? HOSPITAL_DOMAINS[hit] : null;
-}
-
-// ---- Claude 分類 (補規則沒判到的 + 一律出摘要) -----------------------
-// 用 claude-haiku 跑分類最划算; 要更準可換 sonnet。
-async function aiClassify({ subject, snippet, senderName, senderEmail }) {
-  const prompt = `你是醫材經銷公司的業務祕書助手，幫忙把進來的信件分流。
-只能根據以下資訊判斷，不要臆測沒有的內容。
-
+// ---- AI: 一次呼叫出「摘要 + 認醫院名」----
+async function aiSummaryAndHospital({ subject, snippet, senderName, senderEmail }) {
+  const prompt = `你是醫材經銷公司的助理。讀以下信件, 只輸出 JSON (不要其他文字):
+{"summary":"一句話(35字內)說這封在講什麼、要做什麼",
+ "hospital":"若是某醫院寄來或關於某醫院, 填該醫院全名或短名(如 林口長庚/彰濱秀傳/台北慈濟); 不是醫院或認不出填 null"}
 寄件者: ${senderName} <${senderEmail}>
 主旨: ${subject}
-內文前段: ${snippet}
-
-請輸出 JSON (只輸出 JSON，不要任何其他文字):
-{
-  "priority": "red|amber|gray",   // red=今日必處理, amber=本週注意, gray=批次瀏覽
-  "category": "招標|程序委員會|客訴|退貨|器械異常|召回|缺貨|採購單|報價|合約|帳務|電子報|其他",
-  "flag_reason": "若 red, 用4字內說明原因; 否則 null",
-  "deadline": "若內容有明確截止日期則填 YYYY-MM-DD, 否則 null",
-  "hospital_hint": "若認得出是哪家醫院則填院名, 否則 null",
-  "summary": "用一句話(35字內)說這封在講什麼、要做什麼"
+內文前段: ${snippet}`;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type":"application/json", "x-api-key":process.env.ANTHROPIC_API_KEY, "anthropic-version":"2023-06-01" },
+      body: JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:300, messages:[{role:"user",content:prompt}] }),
+    });
+    const data = await res.json();
+    const txt = data.content?.filter(b=>b.type==="text").map(b=>b.text).join("").replace(/```json|```/g,"").trim();
+    const j = JSON.parse(txt);
+    return { summary: j.summary || null, hospital: j.hospital || null };
+  } catch { return { summary:null, hospital:null }; }
 }
 
-判斷標準:
-- 招標/投標/程序委員會/客訴/退貨/器械異常/召回/缺貨/正式採購單, 或含截止日的急件 → red
-- 報價請求/合約續約/一般詢問/帳務 → amber
-- 電子報/系統自動信/原廠newsletter → gray`;
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1000,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-  const data = await res.json();
-  const text = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-  return JSON.parse(text.replace(/```json|```/g, "").trim());
+// ---- 醫院名稱 → 院碼 (查 medsec_hospitals 模糊比對) ----
+async function resolveHospitalCode(name) {
+  if (!name) return null;
+  try {
+    const url = `${process.env.SUPABASE_URL}/rest/v1/medsec_hospitals?select=id,name_full,name_short`
+      + `&or=(name_short.ilike.*${encodeURIComponent(name)}*,name_full.ilike.*${encodeURIComponent(name)}*)&limit=1`;
+    const res = await fetch(url, { headers:{ apikey:process.env.SUPABASE_SERVICE_KEY, Authorization:`Bearer ${process.env.SUPABASE_SERVICE_KEY}` } });
+    const rows = await res.json();
+    return Array.isArray(rows) && rows[0] ? rows[0].id : null;
+  } catch { return null; }
 }
 
-// ---- 對外主函式 -----------------------------------------------------
-// 排程後端對每封信呼叫這個，回傳可直接寫進 mail_digest 的物件。
+// ---- 對外主函式 ----
 export async function classifyMail(mail) {
-  const { subject = "", snippet = "", senderName = "", senderEmail = "", graphMessageId, receivedAt } = mail;
+  const { subject="", snippet="", senderName="", senderEmail="", graphMessageId, receivedAt } = mail;
 
-  // 1) 規則先跑
-  const ruled = ruleScan(subject, snippet, senderEmail);
-  // 2) 醫院從網域認
-  const hosp = hospitalFromDomain(senderEmail);
-  // 3) AI 補判定 + 出摘要 (規則命中時仍呼叫 AI 拿 summary/deadline)
-  const ai = await aiClassify({ subject, snippet, senderName, senderEmail });
+  // 先 AI 出摘要+認醫院 (一次呼叫)
+  const ai = await aiSummaryAndHospital({ subject, snippet, senderName, senderEmail });
+  // 認出醫院名 → 查院碼
+  const hospitalId = await resolveHospitalCode(ai.hospital);
+  // 性質分派 (AI 認出醫院也算客戶)
+  const r = routeMail({ subject, snippet, senderEmail }, ai.hospital);
 
   return {
     graph_message_id: graphMessageId,
@@ -158,13 +140,12 @@ export async function classifyMail(mail) {
     sender_email: senderEmail,
     sender_name: senderName,
     subject,
-    ai_summary: ai.summary || null,
-    priority: ruled?.priority || ai.priority || "gray",   // 規則優先, AI 補位
-    category: ruled?.category || ai.category || "其他",
-    flag_reason: ruled?.flag_reason || ai.flag_reason || null,
-    deadline: ai.deadline || null,
-    hospital_id: hosp?.hospital_code || null,              // 認不出 → null → 待主管指派
-                                                           // (mail_digest.hospital_id 是 text,對齊 medsec_hospitals.id 的 COPI01 院碼)
-    // assigned_to / status 由 DB 預設與 view 處理
+    ai_summary: ai.summary,
+    priority: r.priority,
+    category: r.category,
+    flag_reason: r.flag_reason,
+    deadline: null,
+    hospital_id: hospitalId,        // AI 認分院 → 院碼; 認不出 = null = 待認領
+    assigned_to: r.assignee,        // 固定角色(採購/客服/會計/標案); null = 由 hospital_id 帶業秘
   };
 }

@@ -83,6 +83,7 @@ const DIGEST_KEYS = [
   "flag_reason",
   "deadline",
   "hospital_id",
+  "assigned_to",   // v3:rules 直接給(廠商→採購/會計/客服/標案 員工編號;客戶→null 由 hospital_id 帶業秘)
 ];
 function normalizeDigest(row) {
   const out = {};
