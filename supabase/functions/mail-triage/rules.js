@@ -21,7 +21,16 @@ export const ROLE_ASSIGNEE = {
 
 // 灰名單 (廣告/電子報/自動信 直接歸灰)
 export const GRAY_SENDERS = ["news@epaperwt.smda.tw", "fpgcs@lm.tradevan.com.tw"];
-export const GRAY_HINTS = ["newsletter","no-reply","noreply","notification","donotreply","mailer","epaper","熱訊","電子報"];
+// sender OR subject 任一含這些 hint 即降為灰。
+// 注意:加新詞前確認不會誤殺正事(例如「課程」太通用,只用「開課/實戰班」較準)。
+export const GRAY_HINTS = [
+  // 寄件人特徵
+  "newsletter","no-reply","noreply","notification","donotreply","mailer","epaper",
+  // 行銷 / 電子報主旨關鍵詞
+  "熱訊","每日熱訊","電子報","屆期提示",
+  // HR / 課程廣告主旨關鍵詞
+  "開課","實戰班","招生簡章","講習會","課程招生",
+];
 
 // 醫院系統網域 (只判「是不是客戶」, 不決定院碼; 院碼由 AI 認分院)
 export const CUSTOMER_DOMAINS = [
@@ -40,7 +49,9 @@ const KW = {
   device:    ["器械異常","設備異常","儀器異常","機台異常","不良品","瑕疵","MDR","召回","回收"],
   bidding:   ["招標","投標","決標","比價","議價","標案","採購公告","開標","廢標"],
   remit:     ["匯款","匯入","入帳","已付款","付款通知","轉帳"],
-  urge:      ["催交","催貨","催單","儘速","速辦","逾期","未出貨","急出","催出","限期"],
+  // 催貨升 red 只比對 SUBJECT(避免內文 footer「請於限期內回覆」誤升)。
+  // 移除原本太寬的 "限期" / "速辦";加 "逾期不候" 確保真正催件被抓。
+  urge:      ["催交","催貨","催單","儘速","逾期","逾期不候","未出貨","急出貨","催出貨"],
   order:     ["訂貨單","訂購單","訂單","採購單","採購通知","出貨","補貨","履約","交貨","訂貨通知","寄銷","寄賣","消耗檔"],
   // 一般客訴 / 退貨 / 缺貨(非技術性 → 派業祕處理)
   complaint: ["客訴","申訴","抱怨","退貨","退回","缺貨","斷貨"],
@@ -78,7 +89,9 @@ function routeMail({ subject="", snippet="", senderEmail="" }, aiSaysHospital) {
 
   // 2) 客戶(醫院) — 派該院業秘 (assignee=null, 由 hospital_id 帶業秘)
   if (isCustomer) {
-    if (hit(text, KW.urge))      return { priority:"red",   category:"催貨",     flag_reason:"催貨/催交", assignee:null };
+    // urge 只比 SUBJECT,讓例行採購單/交貨通知不會因內文 footer「請於限期內回覆」誤升 red。
+    // 真正催件(主旨含「催/逾期/儘速/逾期不候/急出貨」)才升 red,其他走 order/客訴/...
+    if (hit(subject, KW.urge))   return { priority:"red",   category:"催貨",     flag_reason:"催貨/催交", assignee:null };
     if (hit(text, KW.complaint)) return { priority:"red",   category:"客訴",     flag_reason:"客訴",     assignee:null };
     if (hit(text, KW.order))     return { priority:"order", category:"訂單",     flag_reason:null,        assignee:null };
     if (hit(text, KW.invoice))   return { priority:"amber", category:"發票/折讓", flag_reason:null,        assignee:null };
@@ -121,15 +134,85 @@ async function aiSummaryAndHospital({ subject, snippet, senderName, senderEmail 
 }
 
 // ---- 醫院名稱 → 院碼 (查 medsec_hospitals 模糊比對) ----
-async function resolveHospitalCode(name) {
-  if (!name) return null;
+//
+// 處理三類輸入(由嚴格到寬鬆,先 hit 先回):
+//   (A) AI 給的整段名 ilike(原行為,例:長庚 → 林口長庚紀念醫院 ✓)
+//   (B) 拆「主名 + 分院地名」兩 token,AND 命中(分別 ilike 兩段)
+//       例:馬偕淡水分院 → tokens=[馬偕, 淡水],AND match name_full 兩字串
+//       同時帶 alias(成大→成功大學、北榮→臺北榮民、台大→臺灣大學…),
+//       避免 name_full 用全名而 AI 給短名時對不上。
+//   (C) 去掉通用詞(分院/總院/紀念醫院/附設醫院/醫院/大學…)後再 ilike 一次。
+//
+// 注意 PostgREST 巢狀邏輯運算子的格式:and=(or(...),or(...))。
+const HOSPITAL_NAME_ALIASES = {
+  "成大": "成功大學",
+  "臺大": "臺灣大學",
+  "台大": "臺灣大學",
+  "北榮": "臺北榮民",
+  "中榮": "臺中榮民",
+  "高榮": "高雄榮民",
+  "長庚": "長庚紀念",
+  "馬偕": "馬偕紀念",
+  "慈濟": "慈濟",
+  "秀傳": "秀傳",
+  "中山": "中山醫學",
+};
+
+const SVC_HEADERS = {
+  apikey: process.env.SUPABASE_SERVICE_KEY,
+  Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+};
+
+async function lookupOne(query) {
   try {
-    const url = `${process.env.SUPABASE_URL}/rest/v1/medsec_hospitals?select=id,name_full,name_short`
-      + `&or=(name_short.ilike.*${encodeURIComponent(name)}*,name_full.ilike.*${encodeURIComponent(name)}*)&limit=1`;
-    const res = await fetch(url, { headers:{ apikey:process.env.SUPABASE_SERVICE_KEY, Authorization:`Bearer ${process.env.SUPABASE_SERVICE_KEY}` } });
+    const url = `${process.env.SUPABASE_URL}/rest/v1/medsec_hospitals?select=id&${query}&limit=1`;
+    const res = await fetch(url, { headers: SVC_HEADERS });
+    if (!res.ok) return null;
     const rows = await res.json();
     return Array.isArray(rows) && rows[0] ? rows[0].id : null;
   } catch { return null; }
+}
+
+async function resolveHospitalCode(name) {
+  if (!name) return null;
+  const enc = (s) => encodeURIComponent(s);
+
+  // (A) 整段 ilike
+  const idA = await lookupOne(
+    `or=(name_short.ilike.*${enc(name)}*,name_full.ilike.*${enc(name)}*)`
+  );
+  if (idA) return idA;
+
+  // (B) 「分院」拆成「主名 + 地名」兩 token,各自 OR(short, full),AND 串起
+  if (name.includes("分院")) {
+    const idx = name.indexOf("分院");
+    const loc = name.slice(Math.max(0, idx - 2), idx);  // 分院前 2 字當地名(淡水/斗六/桃園/新竹…)
+    const mainRaw = name.slice(0, Math.max(0, idx - 2));
+    if (mainRaw && loc) {
+      // 主名嘗試:原文 + alias(成大→成功大學 之類)
+      const mains = [mainRaw];
+      if (HOSPITAL_NAME_ALIASES[mainRaw]) mains.push(HOSPITAL_NAME_ALIASES[mainRaw]);
+      for (const m of mains) {
+        const idB = await lookupOne(
+          `and=(or(name_full.ilike.*${enc(m)}*,name_short.ilike.*${enc(m)}*),or(name_full.ilike.*${enc(loc)}*,name_short.ilike.*${enc(loc)}*))`
+        );
+        if (idB) return idB;
+      }
+    }
+  }
+
+  // (C) 去通用詞後再 ilike 一次
+  const stripped = name
+    .replace(/分院|總院|紀念醫院|附設醫院|醫學院|醫院|大學/g, "")
+    .trim();
+  if (stripped && stripped !== name && stripped.length >= 2) {
+    const idC = await lookupOne(
+      `or=(name_short.ilike.*${enc(stripped)}*,name_full.ilike.*${enc(stripped)}*)`
+    );
+    if (idC) return idC;
+  }
+
+  return null;
 }
 
 // ---- 對外主函式 ----
