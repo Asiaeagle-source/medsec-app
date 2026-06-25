@@ -35,12 +35,15 @@ export const CUSTOMER_DOMAINS = [
 
 const KW = {
   repair:    ["維修","報修","故障","保固","送修","檢修","校正"],
-  alarm:     ["溫控","溫度異常","saveris","system warning","alarm","警報"],
+  alarm:     ["溫控","溫度異常","saveris","testo","system warning","alarm","警報","warning","alert","temperature out of range"],
+  // 技術性設備異常 → 客服 0015(從 complaint 拆出,避免客戶網域寄來時被當一般客訴落到業祕 null)
+  device:    ["器械異常","設備異常","儀器異常","機台異常","不良品","瑕疵","MDR","召回","回收"],
   bidding:   ["招標","投標","決標","比價","議價","標案","採購公告","開標","廢標"],
   remit:     ["匯款","匯入","入帳","已付款","付款通知","轉帳"],
   urge:      ["催交","催貨","催單","儘速","速辦","逾期","未出貨","急出","催出","限期"],
   order:     ["訂貨單","訂購單","訂單","採購單","採購通知","出貨","補貨","履約","交貨","訂貨通知","寄銷","寄賣","消耗檔"],
-  complaint: ["客訴","申訴","抱怨","退貨","退回","不良品","器械異常","瑕疵","MDR","召回","回收","缺貨","斷貨"],
+  // 一般客訴 / 退貨 / 缺貨(非技術性 → 派業祕處理)
+  complaint: ["客訴","申訴","抱怨","退貨","退回","缺貨","斷貨"],
   quote:     ["報價","詢價","估價","詢問","洽詢"],
   invoice:   ["發票","折讓","請款","催款","對帳","應收","應付","帳單","收款"],
   oem:       ["原廠","medtronic"],
@@ -48,6 +51,9 @@ const KW = {
 const hit = (text, list) => list.some(w => text.toLowerCase().includes(w.toLowerCase()));
 const domainOf = (e="") => (e.split("@")[1] || "").toLowerCase();
 const isCustomerDomain = (e="") => { const d = domainOf(e); return CUSTOMER_DOMAINS.some(x => d.endsWith(x)); };
+// service 寄件人特徵(testo / saveris 設備警報走自己的網域,不是醫院也不是廠商)
+const SERVICE_SENDERS = ["testo", "saveris"];
+const isServiceSender = (e="") => SERVICE_SENDERS.some(k => e.toLowerCase().includes(k));
 
 // ---- 性質分派 (不含院碼; 院碼後面 AI 認) ----
 function routeMail({ subject="", snippet="", senderEmail="" }, aiSaysHospital) {
@@ -61,8 +67,11 @@ function routeMail({ subject="", snippet="", senderEmail="" }, aiSaysHospital) {
   if (GRAY_SENDERS.includes(sender) || GRAY_HINTS.some(h => sender.includes(h) || subject.includes(h)))
     return { priority:"gray", category:"電子報/通知", flag_reason:null, assignee:null };
 
-  // 1) 特殊性質 — 不分客戶廠商
-  if (hit(text, KW.alarm))   return { priority:"red",     category:"設備警報", flag_reason:"設備警報", assignee:A.service };
+  // 1) 特殊性質 — 不分客戶廠商,優先派固定角色(覆蓋 isCustomer 的 null)
+  // 設備警報 / 器械異常 / 維修 都吃客服 0015,確保 testo 警報 + 各院設備異常不漏接
+  if (hit(text, KW.alarm) || isServiceSender(sender))
+                             return { priority:"red",     category:"設備警報", flag_reason:"設備警報", assignee:A.service };
+  if (hit(text, KW.device))  return { priority:"red",     category:"器械異常", flag_reason:"器械異常", assignee:A.service };
   if (hit(text, KW.repair))  return { priority:"amber",   category:"維修",     flag_reason:null,       assignee:A.service };
   if (hit(text, KW.bidding)) return { priority:"red",     category:"標案",     flag_reason:"標案",     assignee:A.bidding };
   if (hit(text, KW.remit))   return { priority:"billing", category:"匯款通知", flag_reason:null,       assignee:A.accounting };
@@ -70,7 +79,7 @@ function routeMail({ subject="", snippet="", senderEmail="" }, aiSaysHospital) {
   // 2) 客戶(醫院) — 派該院業秘 (assignee=null, 由 hospital_id 帶業秘)
   if (isCustomer) {
     if (hit(text, KW.urge))      return { priority:"red",   category:"催貨",     flag_reason:"催貨/催交", assignee:null };
-    if (hit(text, KW.complaint)) return { priority:"red",   category:"客訴/異常", flag_reason:"客訴/異常", assignee:null };
+    if (hit(text, KW.complaint)) return { priority:"red",   category:"客訴",     flag_reason:"客訴",     assignee:null };
     if (hit(text, KW.order))     return { priority:"order", category:"訂單",     flag_reason:null,        assignee:null };
     if (hit(text, KW.invoice))   return { priority:"amber", category:"發票/折讓", flag_reason:null,        assignee:null };
     if (hit(text, KW.quote))     return { priority:"amber", category:"報價詢問", flag_reason:null,        assignee:null };
