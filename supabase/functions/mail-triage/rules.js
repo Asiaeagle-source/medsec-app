@@ -146,6 +146,6 @@ export async function classifyMail(mail) {
     flag_reason: r.flag_reason,
     deadline: null,
     hospital_id: hospitalId,        // AI 認分院 → 院碼; 認不出 = null = 待認領
-    assigned_to: r.assignee,        // 固定角色(採購/客服/會計/標案); null = 由 hospital_id 帶業秘
+    assigned_to: r.assignee,        // 員編字串 (採購/客服/會計/標案); cron handler 會用 employee_id→uuid map 轉成 profiles.id 再寫 DB; null = 由 hospital_id 帶業秘
   };
 }

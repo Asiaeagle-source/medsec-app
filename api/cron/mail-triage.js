@@ -83,12 +83,42 @@ const DIGEST_KEYS = [
   "flag_reason",
   "deadline",
   "hospital_id",
-  "assigned_to",   // v3:rules 直接給(廠商→採購/會計/客服/標案 員工編號;客戶→null 由 hospital_id 帶業秘)
+  "assigned_to",   // v3:rules 給 employee_id 字串 → 寫入前由 employeeIdToUuid map 轉成 profiles.id (uuid);客戶→null 由 hospital_id 帶業秘
 ];
 function normalizeDigest(row) {
   const out = {};
   for (const k of DIGEST_KEYS) out[k] = row[k] !== undefined ? row[k] : null;
   return out;
+}
+
+// ---- profiles 員編 → uuid 對照 ----
+// rules.js classifyMail 回傳的 assigned_to 是員編字串 ("0003"/"0015"/"0132"/"0176"),
+// 但 mail_digest.assigned_to 是 uuid FK→profiles.id,直接寫字串會 22P02。
+// cron 啟動時拉一次 profiles(全公司不多,~60 列),建 employee_id→id map。
+async function loadEmployeeMap() {
+  const res = await fetch(
+    `${process.env.SUPABASE_URL}/rest/v1/profiles?select=id,employee_id&employee_id=not.is.null`,
+    { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` } }
+  );
+  if (!res.ok) throw new Error("loadEmployeeMap 失敗: " + (await res.text()));
+  const rows = await res.json();
+  const map = {};
+  for (const r of (rows || [])) {
+    const k = String(r.employee_id || '').trim();
+    if (k) map[k] = r.id;
+  }
+  return map;
+}
+
+// 把 row.assigned_to 從員編字串轉成 uuid;map 查不到就 null(別硬塞字串)。
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function resolveAssignedTo(row, empMap) {
+  const v = row.assigned_to;
+  if (v == null) return row;            // null / undefined 維持
+  const s = String(v).trim();
+  if (UUID_RE.test(s)) { row.assigned_to = s; return row; }   // 已是 uuid 直接過
+  row.assigned_to = empMap[s] || null;   // 員編 → uuid,查不到落 null
+  return row;
 }
 
 async function upsertDigest(rows) {
@@ -116,7 +146,11 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "unauthorized" });
   }
   try {
-    const token = await getGraphToken();
+    // 啟動時平行拉:Graph token + profiles 員編→uuid map(後面 assigned_to 用)
+    const [token, empMap] = await Promise.all([
+      getGraphToken(),
+      loadEmployeeMap(),
+    ]);
     // 預設回看 24 小時(Hobby 一天跑一次,避免漏信);
     // 帶 ?days=7 可加大視窗(首次回填、補跑用)。
     const daysRaw = Number(req.query?.days);
@@ -152,7 +186,9 @@ export default async function handler(req, res) {
     const rows = [];
     for (const mail of mails) {
       try {
-        rows.push(normalizeDigest(await classifyMail(mail)));
+        const r = await classifyMail(mail);
+        resolveAssignedTo(r, empMap);   // 員編 → uuid;查不到落 null
+        rows.push(normalizeDigest(r));
       } catch (e) {
         // 分類失敗 → 落到 fallback,仍然走 normalizeDigest 補齊空欄,
         // 確保跟成功路徑 key 集合一致(避免 PGRST102)。
@@ -165,7 +201,7 @@ export default async function handler(req, res) {
           ai_summary: "(分類失敗, 請人工確認)",
           priority: "amber",
           category: "其他",
-          // flag_reason / deadline / hospital_id 由 normalizeDigest 補 null
+          // flag_reason / deadline / hospital_id / assigned_to 由 normalizeDigest 補 null
         }));
       }
     }
