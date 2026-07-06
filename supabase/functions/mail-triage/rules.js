@@ -151,12 +151,63 @@ const HOSPITAL_NAME_ALIASES = {
   "北榮": "臺北榮民",
   "中榮": "臺中榮民",
   "高榮": "高雄榮民",
+  // AI 也常給「XX榮總」全稱(如高雄榮總台南分院),補上讓主名對得到 name_full。
+  "臺北榮總": "臺北榮民",
+  "臺中榮總": "臺中榮民",
+  "高雄榮總": "高雄榮民",
   "長庚": "長庚紀念",
   "馬偕": "馬偕紀念",
   "慈濟": "慈濟",
   "秀傳": "秀傳",
   "中山": "中山醫學",
 };
+
+// 已知分院地名(臺灣醫院分院常見地名)。B 段拆「主名 + 地名」時用它定位地名,
+// 不再假設地名固定在「分院」前 2 字 —— 臺大體系把地名放在主名前(新竹臺大分院),
+// 馬偕體系放在「分院」前(淡水分院),位置不固定。需要新地名直接往清單加。
+export const BRANCH_LOCATIONS = [
+  "淡水","斗六","雲林","新竹","台南","臺南","澎湖","汐止","桃園","基隆",
+  "金門","東港","潮州","鳳山","岡山","板橋","土城","永和","中和","蘇澳",
+  "玉里","關山","鳳林","豐原","嘉義","苗栗","員林","埔里","羅東","花蓮",
+];
+
+// 台/臺 常見混用(台南 vs 臺南),查詢時兩種寫法都試一次。
+function tzVariants(s) {
+  const out = new Set([s]);
+  if (s.includes("台")) out.add(s.replace(/台/g, "臺"));
+  if (s.includes("臺")) out.add(s.replace(/臺/g, "台"));
+  return [...out];
+}
+
+// 把「XX分院」名稱拆成 { loc(分院地名), mains(主名候選, 含 alias 全名) }。
+// 純字串解析、不查 DB,方便單元測試;認不出分院地名回 null。
+//
+//   1. 先去掉括號別名:雲林分院(斗六) → 雲林分院(斗六 是別名不是地名)。
+//   2. 取「分院」前字串裡、最靠近「分院」的已知地名當分院地名
+//      —— 高雄榮總台南分院 的 高雄 屬主名,台南 才是分院地名。
+//   3. 主名 = 去掉地名/通用詞後剩下的字,再補命中的系統別名全名。
+export function splitBranchTokens(rawName) {
+  if (!rawName || !rawName.includes("分院")) return null;
+  const cleaned = rawName.replace(/[（(][^）)]*[）)]/g, "");           // 去括號別名
+  const beforeBranch = cleaned.slice(0, cleaned.indexOf("分院"));
+  if (!beforeBranch) return null;
+
+  let loc = null, locPos = -1;
+  for (const p of BRANCH_LOCATIONS) {
+    const pos = beforeBranch.lastIndexOf(p);   // 取最靠近「分院」的地名(rightmost)
+    if (pos > locPos) { locPos = pos; loc = p; }
+  }
+  if (!loc) return null;
+
+  const mains = [];
+  const mainRaw = beforeBranch.split(loc).join("").replace(/醫院|[-－]/g, "").trim();
+  if (mainRaw) mains.push(mainRaw);
+  for (const [short, full] of Object.entries(HOSPITAL_NAME_ALIASES)) {
+    if (beforeBranch.includes(short) && !mains.includes(full)) mains.push(full);
+  }
+  if (!mains.length) return null;
+  return { loc, mains };
+}
 
 const SVC_HEADERS = {
   apikey: process.env.SUPABASE_SERVICE_KEY,
@@ -183,21 +234,20 @@ async function resolveHospitalCode(name) {
   );
   if (idA) return idA;
 
-  // (B) 「分院」拆成「主名 + 地名」兩 token,各自 OR(short, full),AND 串起
-  if (name.includes("分院")) {
-    const idx = name.indexOf("分院");
-    const loc = name.slice(Math.max(0, idx - 2), idx);  // 分院前 2 字當地名(淡水/斗六/桃園/新竹…)
-    const mainRaw = name.slice(0, Math.max(0, idx - 2));
-    if (mainRaw && loc) {
-      // 主名嘗試:原文 + alias(成大→成功大學 之類)
-      const mains = [mainRaw];
-      if (HOSPITAL_NAME_ALIASES[mainRaw]) mains.push(HOSPITAL_NAME_ALIASES[mainRaw]);
-      for (const m of mains) {
-        const idB = await lookupOne(
-          `and=(or(name_full.ilike.*${enc(m)}*,name_short.ilike.*${enc(m)}*),or(name_full.ilike.*${enc(loc)}*,name_short.ilike.*${enc(loc)}*))`
-        );
-        if (idB) return idB;
-      }
+  // (B) 「分院」拆成「主名 + 地名」兩 token,各自 OR(short, full),AND 串起。
+  //     地名改用已知地名清單抓「分院」前最近的地名(不再固定前 2 字),並先去掉括號別名,
+  //     才對得上臺大體系(新竹臺大分院 / 雲林分院(斗六))與 高雄榮總台南分院 這類命名。
+  const tokens = splitBranchTokens(name);
+  if (tokens) {
+    // 把一組候選字串攤成 or(name_full.ilike.*x*,name_short.ilike.*x*,…),含台/臺變體。
+    const orClause = (s) =>
+      tzVariants(s)
+        .flatMap((v) => [`name_full.ilike.*${enc(v)}*`, `name_short.ilike.*${enc(v)}*`])
+        .join(",");
+    const locOr = orClause(tokens.loc);
+    for (const m of tokens.mains) {
+      const idB = await lookupOne(`and=(or(${orClause(m)}),or(${locOr}))`);
+      if (idB) return idB;
     }
   }
 
