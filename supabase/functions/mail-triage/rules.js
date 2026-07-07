@@ -202,7 +202,12 @@ export function splitBranchTokens(rawName) {
   if (!loc) return null;
 
   const raw = [];
-  const mainRaw = beforeBranch.split(loc).join("").replace(/醫院|[-－]/g, "").trim();
+  let mainRaw = beforeBranch.split(loc).join("").replace(/醫院|[-－]/g, "").trim();
+  // 地名夾在主名中間時(臺大新竹臺大 去掉「新竹」→「臺大臺大」),收斂完全重複的疊字。
+  if (mainRaw.length >= 2 && mainRaw.length % 2 === 0) {
+    const half = mainRaw.length / 2;
+    if (mainRaw.slice(0, half) === mainRaw.slice(half)) mainRaw = mainRaw.slice(0, half);
+  }
   if (mainRaw) raw.push(mainRaw);
   // alias 比對做台/臺正規化(台大↔臺大、台北榮總↔臺北榮總 都能命中),再補系統別名全名。
   const beforeNorm = normTz(beforeBranch);
