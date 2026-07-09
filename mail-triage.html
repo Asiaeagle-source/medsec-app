@@ -11,7 +11,7 @@
   <style>
     :root{
       --red:#dc2626; --red-bg:#fdecec; --amber:#c2790b; --amber-bg:#fdf3df; --gray-dot:#b6bac4;
-      --pink:#e0457b; --blue:#2563eb;
+      --pink:#e0457b; --blue:#2563eb; --green:#1a7f45;
     }
     .mt-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;color:#475569;margin-bottom:18px}
     .mt-bar b{color:#1d2330}
@@ -19,6 +19,9 @@
     .mt-tabs{display:flex;gap:22px;border-bottom:1px solid #e8e9ef;margin-bottom:22px}
     .mt-tab{font-size:15px;color:#475569;padding:0 2px 12px;cursor:pointer;border:0;background:none;border-bottom:2px solid transparent;font-family:inherit}
     .mt-tab.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+    .mt-tab .cnt{display:none;min-width:18px;margin-left:5px;padding:0 5px;font-size:11px;line-height:17px;text-align:center;border-radius:9px;background:#eef0f4;color:#6b7280;font-weight:600}
+    .mt-tab .cnt.show{display:inline-block}
+    .mt-tab.on .cnt{background:var(--blue);color:#fff}
     .group-h{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin:8px 0 10px}
     .group-h .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
     .group-h.red{color:var(--red)} .group-h.red .dot{background:var(--red)}
@@ -27,6 +30,7 @@
     .mt-list{display:flex;flex-direction:column;gap:10px;margin-bottom:26px}
     .mt-card{background:#fff;border:1px solid #e8e9ef;border-radius:12px;padding:14px 16px}
     .mt-card.red{border-left:3px solid var(--red)}
+    .mt-card.fading{opacity:0;transform:translateY(-6px);transition:opacity .25s ease,transform .25s ease}
     .badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
     .badges .b{font-size:11.5px;padding:2px 9px;border-radius:7px}
     .badges .b.red{background:var(--red-bg);color:var(--red)}
@@ -38,14 +42,40 @@
     .owner{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#475569}
     .who{background:var(--pink);color:#fff;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:7px}
     .who.none{background:#eef0f4;color:#8b94a3}
-    .st{font-size:12px;color:#9aa0ab}
+    .claiminfo{font-size:12.5px;color:#6b7280}
+    .claiminfo b{color:#334155;font-weight:600}
+    .doneinfo{display:flex;gap:9px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:#475569}
+    .doneinfo .tag{background:#eaf7ee;color:var(--green);padding:2px 9px;border-radius:7px;font-weight:600;font-size:11.5px}
+    .doneinfo .ref{background:#f1f5f9;color:#475569;padding:2px 9px;border-radius:7px;font-size:11.5px}
     .acts{display:flex;gap:8px}
-    .act{font-size:12.5px;color:var(--blue);background:none;border:0;cursor:pointer;font-family:inherit}
-    .compact{display:flex;justify-content:space-between;align-items:center}
-    .compact .who{margin-left:8px}
+    .btn-claim,.btn-done{font-size:12.5px;font-family:inherit;border-radius:8px;padding:6px 13px;cursor:pointer;border:1px solid transparent;font-weight:600}
+    .btn-claim{color:var(--blue);background:#eef4ff;border-color:#d3e0fb}
+    .btn-claim:hover{background:#dfeaff}
+    .btn-done{color:#fff;background:var(--blue);border-color:var(--blue)}
+    .btn-done:hover{filter:brightness(.96)}
+    .btn-claim:disabled,.btn-done:disabled{opacity:.5;cursor:default}
+    .done-search{margin-bottom:14px}
+    .done-search input{width:100%;max-width:440px;box-sizing:border-box;font-family:inherit;font-size:13.5px;padding:9px 13px;border:1px solid #e2e5ec;border-radius:9px;outline:none}
+    .done-search input:focus{border-color:var(--blue)}
     .gridcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
     .mini{background:#fff;border:1px solid #e8e9ef;border-radius:12px;padding:11px 14px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#475569}
     .mini b{color:#1d2330;font-size:15px}
+    /* 完成 modal */
+    .mt-modal-mask{position:fixed;inset:0;background:rgba(15,23,42,.42);display:flex;align-items:center;justify-content:center;z-index:60}
+    .mt-modal{background:#fff;border-radius:14px;padding:22px;width:min(360px,92vw);box-shadow:0 14px 44px rgba(0,0,0,.2)}
+    .mt-modal h3{font-size:16px;margin:0 0 4px}
+    .mt-modal p{font-size:12.5px;color:#8b94a3;margin:0 0 14px}
+    .mt-modal input{width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;padding:10px 12px;border:1px solid #dfe3ea;border-radius:9px;outline:none;margin-bottom:16px}
+    .mt-modal input:focus{border-color:var(--blue)}
+    .mt-modal .row{display:flex;gap:10px;justify-content:flex-end}
+    .mt-modal button{font-family:inherit;font-size:13.5px;padding:8px 16px;border-radius:9px;cursor:pointer;border:1px solid transparent;font-weight:600}
+    .mt-modal .cancel{background:#f1f3f7;color:#475569}
+    .mt-modal .ok{background:var(--blue);color:#fff}
+    /* toast */
+    .mt-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1d2330;color:#fff;font-size:13px;padding:10px 18px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:70;opacity:0;pointer-events:none;transition:opacity .2s}
+    .mt-toast.show{opacity:1}
+    .mt-toast.err{background:#b3261e}
+    .mt-toast.ok{background:var(--green)}
   </style>
 </head>
 <body>
@@ -120,9 +150,10 @@
     </div>
 
     <div class="mt-tabs">
-      <button class="mt-tab on" data-f="all">全部</button>
-      <button class="mt-tab"     data-f="red">今日必處理</button>
-      <button class="mt-tab"     data-f="unassigned">待認領</button>
+      <button class="mt-tab on" data-f="all">全部<span class="cnt"></span></button>
+      <button class="mt-tab"     data-f="red">今日必處理<span class="cnt"></span></button>
+      <button class="mt-tab"     data-f="unassigned">待認領<span class="cnt"></span></button>
+      <button class="mt-tab"     data-f="done">已完成<span class="cnt"></span></button>
     </div>
 
     <div id="mt-view"></div>
@@ -133,31 +164,58 @@
 <script src="medsec-common.js"></script>
 <script>
 // ============================================================
-// 信件分流前端
-//  - 守門:manager(對齊 SQL RLS 的 manager_all + secretary_own;
-//    本頁先給 manager 看全部,業祕端等階段三再加分頁)
-//  - 資料:v_mail_digest_assigned(view 已 join 業祕分區 + 醫院顯示名)
-//  - 沒資料時用 MOCK,讓樣子先看得到(SQL 未跑時也能 demo)
+// 信件分流前端 — 認領/完成狀態閉環(PR C)
+//  - 守門:manager(對齊 SQL RLS 的 manager_all;業祕端存取等後續 PR 再放寬)
+//  - 資料:v_mail_digest_assigned(view = select m.*,已含 status / claimed_* /
+//    completed_* / erp_ref_no + join 業祕分區 + 醫院顯示名)
+//  - 狀態寫入只走兩個既有 RPC(Lynn 已建,不改 cron / 不改後端):
+//      medsec_claim_mail({ p_mail_id })
+//      medsec_complete_mail({ p_mail_id, p_ref_no })   // p_ref_no 可 null
+//  - 樂觀更新:先改前端狀態再打 RPC;RPC 失敗回滾並提示。
+//  - 沒資料 / 表還沒接時用 MOCK,讓四個分頁的樣子先看得到(demo 模式不打 RPC)。
 // ============================================================
 
-let STATE = { all: [], gray: [], filter: 'all' };
+let STATE = {
+  today: [],        // 今日的信(全部 status)
+  done: [],         // 近 14 天已完成
+  gray: [],         // 灰名單統計(gridcards)
+  filter: 'all',
+  doneSearch: '',
+  profileMap: {},   // uuid → profile(認領人 / 完成人顯示名)
+  me: null,
+  mock: false,
+};
 
-const MOCK = [
-  { priority:'red', category:'招標 / 投標', flag_reason:'招標截止', deadline:'今日 17:00 前',
+const DONE_WINDOW_DAYS = 14;
+
+// ---- MOCK(SQL/資料未接時的樣子;demo 模式本地更新,不打 RPC)----
+function isoAgo(days){ return new Date(Date.now() - days*864e5).toISOString(); }
+const MOCK_TODAY = [
+  { id:'mock-1', priority:'red', category:'招標 / 投標', flag_reason:'招標截止', deadline:'今日 17:00 前',
     subject:'台大醫院 · 神經外科高速磨鑽系統公開招標', sender_name:'台大採購科', sender_email:'buy@ntuh.gov.tw',
-    ai_summary:'投標文件今日下午 5 點截止上傳,MR8 規格書需確認版本。', hospital_display:'台大', owner_name:'小飛', status:'pending' },
-  { priority:'red', category:'客訴', flag_reason:'器械異常', deadline:null,
+    ai_summary:'投標文件今日下午 5 點截止上傳,MR8 規格書需確認版本。', hospital_display:'台大', owner_name:'小飛', status:'new' },
+  { id:'mock-2', priority:'red', category:'客訴', flag_reason:'器械異常', deadline:null,
     subject:'高榮 · 器械異常通報', sender_name:'高榮手術室', sender_email:'or@vghks.gov.tw',
-    ai_summary:'反映一批磨鑽手感異常,要求今日回覆,涉及不良品通報時效。', hospital_display:'高榮', owner_name:'映晨', status:'pending' },
-  { priority:'red', category:'程序委員會', flag_reason:'明日開會', deadline:'明日 09:00 審議',
+    ai_summary:'反映一批磨鑽手感異常,要求今日回覆,涉及不良品通報時效。', hospital_display:'高榮',
+    owner_name:'映晨', status:'claimed', claimed_by_name:'映晨', claimed_at:isoAgo(0.1) },
+  { id:'mock-3', priority:'red', category:'程序委員會', flag_reason:'明日開會', deadline:'明日 09:00 審議',
     subject:'北榮 · 衛材委員會補件通知', sender_name:'北榮醫工室', sender_email:'mt@vghtpe.gov.tw',
-    ai_summary:'CENTERPIECE 2 建碼案要求補仿單與材質資料,明日審議前回傳。', hospital_display:'北榮', owner_name:null, status:'pending' },
-  { priority:'amber', category:'報價請求', flag_reason:null, deadline:null,
+    ai_summary:'CENTERPIECE 2 建碼案要求補仿單與材質資料,明日審議前回傳。', hospital_display:'北榮', owner_name:null, status:'new' },
+  { id:'mock-4', priority:'amber', category:'報價請求', flag_reason:null, deadline:null,
     subject:'成大 · MR8 耗材報價請求', sender_name:'成大採購', sender_email:'px@mail.ncku.edu.tw',
-    ai_summary:'詢問 MR8 耗材報價,無明確期限。', hospital_display:'成大', owner_name:'雅婷', status:'pending' },
-  { priority:'amber', category:'合約 / 續約', flag_reason:null, deadline:null,
+    ai_summary:'詢問 MR8 耗材報價,無明確期限。', hospital_display:'成大', owner_name:'雅婷', status:'new' },
+  { id:'mock-5', priority:'amber', category:'合約 / 續約', flag_reason:null, deadline:null,
     subject:'林口長庚 · 合約續約洽詢', sender_name:'長庚採購', sender_email:'buy@cgmh.org.tw',
-    ai_summary:'洽詢年度合約續約事宜。', hospital_display:'長庚', owner_name:'小飛', status:'pending' },
+    ai_summary:'洽詢年度合約續約事宜。', hospital_display:'長庚', owner_name:'小飛', status:'claimed',
+    claimed_by_name:'小飛', claimed_at:isoAgo(0.3) },
+];
+const MOCK_DONE = [
+  { id:'mock-d1', priority:'amber', category:'報價請求', subject:'嘉基 · 骨鑽耗材報價確認', sender_name:'嘉基採購',
+    sender_email:'px@cych.org.tw', ai_summary:'報價已確認,ERP 開單完成。', hospital_display:'嘉基',
+    status:'done', completed_by_name:'雅婷', completed_at:isoAgo(1), erp_ref_no:'2202-00891' },
+  { id:'mock-d2', priority:'red', category:'客訴', subject:'彰基 · 出貨進度查詢', sender_name:'彰基手術室',
+    sender_email:'or@cch.org.tw', ai_summary:'已回覆出貨進度,結案。', hospital_display:'彰基',
+    status:'done', completed_by_name:'小飛', completed_at:isoAgo(3), erp_ref_no:null },
 ];
 const MOCK_GRAY = [
   { label:'各醫院往來', n:41 }, { label:'原廠 / 供應商', n:23 },
@@ -165,28 +223,50 @@ const MOCK_GRAY = [
 ];
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function fmtDT(ts){ try{ return new Date(ts).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+function meName(){ return (STATE.me && (STATE.me.nickname || STATE.me.name)) || '我'; }
+function nameOf(uuid){
+  if (!uuid) return null;
+  const p = STATE.profileMap[uuid];
+  return p ? (p.nickname || p.name || p.employee_id || null) : null;
+}
 
 // view 一列 → 卡片用的扁平結構
 function mapRow(x){
-  const deadline = x.deadline ? new Date(x.deadline).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : null;
   const hospital_display = x.hospital_name_short || x.hospital_name_full || x.hospital_id || null;
   return {
     id: x.id,
     priority: x.priority,
     category: x.category,
     flag_reason: x.flag_reason,
-    deadline,
+    deadline: x.deadline ? fmtDT(x.deadline) : null,
     subject: x.subject,
     sender_name: x.sender_name,
     sender_email: x.sender_email,
     ai_summary: x.ai_summary,
     hospital_display,
-    owner_name: x.effective_secretary_name || null,
-    status: x.status,
+    owner_name: x.effective_secretary_name || null,   // 自動派工帶出的主分區業祕
+    status: x.status || 'new',
+    claimed_by: x.claimed_by || null,
+    claimed_by_name: x.claimed_by_name || nameOf(x.claimed_by),
+    claimed_at: x.claimed_at || null,
+    completed_by: x.completed_by || null,
+    completed_by_name: x.completed_by_name || nameOf(x.completed_by),
+    completed_at: x.completed_at || null,
+    erp_ref_no: x.erp_ref_no || null,
+    received_at: x.received_at || null,
   };
 }
 
-async function loadFromSupabase(){
+// ---- 資料載入 ----
+async function loadProfiles(){
+  const { data, error } = await supa.from('profiles').select('id, name, nickname, employee_id');
+  if (error){ console.warn('[mail-triage] profiles 載入失敗,認領人以編號/空白顯示', error); return {}; }
+  const map = {};
+  for (const p of (data || [])) map[p.id] = p;
+  return map;
+}
+async function loadToday(){
   const today = new Date().toISOString().slice(0,10);
   const { data, error } = await supa
     .from('v_mail_digest_assigned')
@@ -194,83 +274,238 @@ async function loadFromSupabase(){
     .eq('digest_date', today)
     .order('priority', { ascending: true })
     .order('received_at', { ascending: false });
-  if (error){
-    console.warn('[mail-triage] view 讀取失敗,使用 MOCK 樣本', error);
-    return null;
-  }
+  if (error){ console.warn('[mail-triage] today 讀取失敗,使用 MOCK', error); return null; }
+  return (data || []).map(mapRow);
+}
+async function loadDone(){
+  const from = new Date(Date.now() - (DONE_WINDOW_DAYS - 1) * 864e5).toISOString().slice(0,10);
+  const { data, error } = await supa
+    .from('v_mail_digest_assigned')
+    .select('*')
+    .eq('status', 'done')
+    .gte('digest_date', from)
+    .order('completed_at', { ascending: false });
+  if (error){ console.warn('[mail-triage] done 讀取失敗', error); return []; }
   return (data || []).map(mapRow);
 }
 
-function cardRed(m){
-  const ds = [
-    m.flag_reason && `<span class="b red">${esc(m.flag_reason)}</span>`,
-    m.deadline && `<span class="b red">${esc(m.deadline)}</span>`,
-  ].filter(Boolean).join('');
-  return `<div class="mt-card red">
-    <div class="badges">${ds}</div>
+// ---- 卡片 ----
+function footLeft(m){
+  if (m.status === 'done'){
+    return `<div class="doneinfo">
+      <span class="tag">✓ 完成</span>
+      <span>${esc(m.completed_by_name || '—')}${m.completed_at ? ` · ${esc(fmtDT(m.completed_at))}` : ''}</span>
+      <span class="ref">單號 ${m.erp_ref_no ? esc(m.erp_ref_no) : '—'}</span>
+    </div>`;
+  }
+  if (m.status === 'claimed'){
+    return `<div class="claiminfo">認領 <b>${esc(m.claimed_by_name || '—')}</b>${m.claimed_at ? ` · ${esc(fmtDT(m.claimed_at))}` : ''}</div>`;
+  }
+  // new
+  return `<div class="owner">承辦 ${m.owner_name ? `<span class="who">${esc(m.owner_name)}</span>` : `<span class="who none">待認領</span>`}</div>`;
+}
+function footRight(m){
+  if (m.status === 'done') return '';
+  const doneBtn = `<button class="btn-done" onclick="onComplete('${esc(m.id)}')">✓ 完成</button>`;
+  if (m.status === 'claimed') return `<div class="acts">${doneBtn}</div>`;
+  return `<div class="acts"><button class="btn-claim" onclick="onClaim('${esc(m.id)}')">認領</button>${doneBtn}</div>`;
+}
+function card(m){
+  const isRed = m.priority === 'red';
+  const badges = isRed
+    ? [ m.flag_reason && `<span class="b red">${esc(m.flag_reason)}</span>`,
+        m.deadline    && `<span class="b red">${esc(m.deadline)}</span>` ].filter(Boolean).join('')
+    : (m.category ? `<span class="b amber">${esc(m.category)}</span>` : '');
+  return `<div class="mt-card${isRed ? ' red' : ''}" data-card="${esc(m.id)}">
+    ${badges ? `<div class="badges">${badges}</div>` : ''}
     <div class="subj">${esc(m.subject)}</div>
     <div class="from">${esc(m.sender_name)} &lt;${esc(m.sender_email)}&gt;${m.hospital_display ? ` · ${esc(m.hospital_display)}` : ''}</div>
-    <div class="sum">${esc(m.ai_summary)}</div>
-    <div class="foot">
-      <div class="owner">承辦
-        ${m.owner_name ? `<span class="who">${esc(m.owner_name)}</span>` : `<span class="who none">待認領</span>`}
-        <span class="st">· ${esc(statusLabel(m.status))}</span>
-      </div>
-      <div class="acts">
-        <button class="act" disabled title="階段三接 Graph 回原信">原信</button>
-        <button class="act" disabled title="階段三接 Claude 起草回覆">AI 起草回覆</button>
-      </div>
-    </div>
+    ${m.ai_summary ? `<div class="sum">${esc(m.ai_summary)}</div>` : ''}
+    <div class="foot">${footLeft(m)}${footRight(m)}</div>
   </div>`;
 }
-function cardAmber(m){
-  return `<div class="mt-card"><div class="compact">
-    <div>
-      <span class="subj">${esc(m.subject)}</span>
-      <span class="st">· ${esc(m.category || '')}</span>
-      <div class="sum" style="margin-top:4px">${esc(m.ai_summary)}</div>
-    </div>
-    ${m.owner_name ? `<span class="who">${esc(m.owner_name)}</span>` : `<span class="who none">待認領</span>`}
-  </div></div>`;
+
+// ---- render ----
+function setCnt(f, n){
+  const el = document.querySelector(`.mt-tab[data-f="${f}"] .cnt`);
+  if (!el) return;
+  el.textContent = n;
+  el.classList.toggle('show', n > 0);
 }
-function statusLabel(s){
-  return ({ pending:'待處理', replied:'已回覆', forwarded:'已轉發', done:'結案' }[s]) || (s || '—');
-}
+function emptyCard(msg){ return `<div class="mt-card"><div class="sum">${esc(msg)}</div></div>`; }
 
-function render(){
-  const { all, gray, filter } = STATE;
-  const grayTotal = gray.reduce((a,b) => a + (b.n || 0), 0);
-  document.getElementById('mt-total').textContent = all.length + grayTotal;
-  document.getElementById('mt-redn').textContent  = all.filter(m => m.priority === 'red').length;
-  document.getElementById('mt-upd').textContent   = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit' });
-
-  let rows = all;
-  if (filter === 'red')        rows = all.filter(m => m.priority === 'red');
-  if (filter === 'unassigned') rows = all.filter(m => !m.owner_name);
-
+function renderTodayLists(rows, showGray){
   const red   = rows.filter(m => m.priority === 'red');
-  const amber = rows.filter(m => m.priority === 'amber');
-
+  const amber = rows.filter(m => m.priority !== 'red');
+  const grayTotal = STATE.gray.reduce((a,b) => a + (b.n || 0), 0);
   let html = '';
   if (red.length){
     html += `<div class="group-h red"><span class="dot"></span>今日必處理</div>
-             <div class="mt-list">${red.map(cardRed).join('')}</div>`;
+             <div class="mt-list">${red.map(card).join('')}</div>`;
   }
   if (amber.length){
     html += `<div class="group-h amber"><span class="dot"></span>本週注意</div>
-             <div class="mt-list">${amber.map(cardAmber).join('')}</div>`;
+             <div class="mt-list">${amber.map(card).join('')}</div>`;
   }
-  if (filter === 'all' && gray.length){
+  if (showGray && STATE.gray.length){
     html += `<div class="group-h gray"><span class="dot"></span>其餘 ${grayTotal} 封已歸類</div>
-             <div class="gridcards">${gray.map(g => `<div class="mini">${esc(g.label)}<b>${g.n}</b></div>`).join('')}</div>`;
+             <div class="gridcards">${STATE.gray.map(g => `<div class="mini">${esc(g.label)}<b>${g.n}</b></div>`).join('')}</div>`;
   }
-  if (!html) html = `<div class="mt-card"><div class="sum">這個分頁目前沒有信件。</div></div>`;
-  document.getElementById('mt-view').innerHTML = html;
+  if (!html) html = emptyCard('這個分頁目前沒有信件。');
+  return html;
 }
 
+function doneShell(){
+  return `<div class="done-search">
+      <input id="done-q" type="text" placeholder="搜尋 主旨 / 寄件者 / ERP 單號…" value="${esc(STATE.doneSearch)}" autocomplete="off">
+    </div>
+    <div id="done-list"></div>`;
+}
+function renderDoneList(){
+  const el = document.getElementById('done-list');
+  if (!el) return;
+  const q = STATE.doneSearch.trim().toLowerCase();
+  let rows = STATE.done;
+  if (q){
+    rows = rows.filter(m => [m.subject, m.sender_name, m.sender_email, m.erp_ref_no]
+      .some(v => (v || '').toLowerCase().includes(q)));
+  }
+  if (!rows.length){
+    el.innerHTML = emptyCard(q ? '找不到符合的已完成信件。' : `近 ${DONE_WINDOW_DAYS} 天沒有已完成的信件。`);
+    return;
+  }
+  el.innerHTML = `<div class="mt-list">${rows.map(card).join('')}</div>`;
+}
+
+function render(){
+  const grayTotal    = STATE.gray.reduce((a,b) => a + (b.n || 0), 0);
+  const todayActive  = STATE.today.filter(m => m.status !== 'done');   // 未完成
+  const redActive    = todayActive.filter(m => m.priority === 'red');
+  const newRows      = STATE.today.filter(m => m.status === 'new');    // 待認領 = 尚無人認領
+
+  document.getElementById('mt-total').textContent = STATE.today.length + grayTotal;
+  document.getElementById('mt-redn').textContent  = redActive.length;
+  document.getElementById('mt-upd').textContent   = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit' });
+
+  // tab 計數徽章(積壓一眼看到;已完成顯示近 14 天筆數)
+  setCnt('all',        todayActive.length);
+  setCnt('red',        redActive.length);
+  setCnt('unassigned', newRows.length);
+  setCnt('done',       STATE.done.length);
+
+  const view = document.getElementById('mt-view');
+  const f = STATE.filter;
+  if (f === 'done'){
+    view.innerHTML = doneShell();
+    const q = document.getElementById('done-q');
+    if (q) q.addEventListener('input', () => { STATE.doneSearch = q.value; renderDoneList(); });
+    renderDoneList();
+    return;
+  }
+  let rows;
+  if (f === 'red')             rows = redActive;
+  else if (f === 'unassigned') rows = newRows;
+  else                         rows = todayActive;
+  view.innerHTML = renderTodayLists(rows, f === 'all');
+}
+
+// ---- 互動:認領 / 完成(樂觀更新 + RPC + 失敗回滾)----
+function findRow(id){ return STATE.today.find(m => m.id === id) || STATE.done.find(m => m.id === id) || null; }
+function removeFrom(arr, item){ const i = arr.indexOf(item); if (i >= 0){ arr.splice(i,1); return true; } return false; }
+function fadeThenRender(id){
+  return new Promise(res => {
+    const el = document.querySelector(`[data-card="${id}"]`);
+    if (!el){ res(); return; }
+    el.classList.add('fading');
+    setTimeout(res, 260);
+  });
+}
+
+async function onClaim(id){
+  const m = findRow(id);
+  if (!m || m.status !== 'new') return;
+  const snap = { ...m };
+  // 樂觀:標成 claimed + 記認領人
+  m.status = 'claimed'; m.claimed_by = STATE.me && STATE.me.id; m.claimed_by_name = meName(); m.claimed_at = new Date().toISOString();
+  render();
+  if (STATE.mock){ toast('已認領(demo)', 'ok'); return; }
+  const { error } = await supa.rpc('medsec_claim_mail', { p_mail_id: id });
+  if (error){ Object.assign(m, snap); render(); toast('認領失敗:' + (error.message || error), 'err'); }
+  else toast('已認領', 'ok');
+}
+
+async function onComplete(id){
+  const m = findRow(id);
+  if (!m || m.status === 'done') return;
+  const ref = await askErpRef();
+  if (ref === undefined) return;                       // 取消
+  const p_ref_no = ref.trim() ? ref.trim() : null;     // 選填 → 可 null
+
+  const snap = { ...m };
+  // 樂觀:標成 done;若跳過認領(new 直接完成),claimed_by 自動補完成者(對齊 RPC 行為)
+  m.status = 'done';
+  m.completed_by = STATE.me && STATE.me.id; m.completed_by_name = meName();
+  m.completed_at = new Date().toISOString(); m.erp_ref_no = p_ref_no;
+  if (!snap.claimed_by){ m.claimed_by = m.completed_by; m.claimed_by_name = meName(); }
+
+  await fadeThenRender(id);                             // 卡片淡出
+  const movedFromToday = removeFrom(STATE.today, m);    // 離開今日清單,進已完成區
+  if (movedFromToday) STATE.done.unshift(m);
+  render();
+
+  if (STATE.mock){ toast('已完成(demo)', 'ok'); return; }
+  const { error } = await supa.rpc('medsec_complete_mail', { p_mail_id: id, p_ref_no });
+  if (error){
+    Object.assign(m, snap);                            // 回滾狀態
+    if (movedFromToday){ removeFrom(STATE.done, m); STATE.today.push(m); }
+    render();
+    toast('完成失敗:' + (error.message || error), 'err');
+  } else {
+    toast('已完成', 'ok');
+  }
+}
+
+// ERP 單號小輸入框;resolve('' 或值)=確認,resolve(undefined)=取消
+function askErpRef(){
+  return new Promise(resolve => {
+    const mask = document.createElement('div');
+    mask.className = 'mt-modal-mask';
+    mask.innerHTML = `<div class="mt-modal">
+      <h3>完成這封信</h3>
+      <p>ERP 單號(選填,可直接按確認)</p>
+      <input id="erp-input" type="text" placeholder="例:2202-xxxxx" autocomplete="off">
+      <div class="row"><button class="cancel" type="button">取消</button><button class="ok" type="button">確認完成</button></div>
+    </div>`;
+    document.body.appendChild(mask);
+    const input = mask.querySelector('#erp-input');
+    let closed = false;
+    const close = (v) => { if (closed) return; closed = true; document.body.removeChild(mask); resolve(v); };
+    mask.querySelector('.cancel').onclick = () => close(undefined);
+    mask.querySelector('.ok').onclick     = () => close(input.value || '');
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter'){ e.preventDefault(); close(input.value || ''); }
+      if (e.key === 'Escape') close(undefined);
+    });
+    mask.addEventListener('mousedown', e => { if (e.target === mask) close(undefined); });
+    setTimeout(() => input.focus(), 0);
+  });
+}
+
+let _toastTimer = null;
+function toast(msg, kind){
+  let t = document.getElementById('mt-toast');
+  if (!t){ t = document.createElement('div'); t.id = 'mt-toast'; document.body.appendChild(t); }
+  t.className = 'mt-toast ' + (kind || '') + ' show';
+  t.textContent = msg;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { t.className = 'mt-toast ' + (kind || ''); }, 2400);
+}
+
+// ---- init ----
 (async function init(){
   const profile = await guardRole('manager');
   if (!profile) return;
+  STATE.me = profile;
   renderUserInfo(profile);
   hideLoading();
 
@@ -281,14 +516,19 @@ function render(){
     render();
   }));
 
-  const real = await loadFromSupabase();
-  if (real && real.length){
-    STATE.all  = real;
-    STATE.gray = [];   // gray bucket 統計階段二做(分類完寫進 mail_digest 才算得出)
+  STATE.profileMap = await loadProfiles();
+  const today = await loadToday();
+  if (today){
+    STATE.today = today;
+    STATE.done  = await loadDone();
+    STATE.gray  = [];    // gray bucket 統計等分類完寫進 mail_digest 才算得出
+    STATE.mock  = false;
   } else {
-    // 沒資料 / 表還沒建 → 用 MOCK 顯示樣子
-    STATE.all  = MOCK;
-    STATE.gray = MOCK_GRAY;
+    // 沒資料 / view 還沒接 → MOCK demo(本地更新,不打 RPC)
+    STATE.today = MOCK_TODAY;
+    STATE.done  = MOCK_DONE;
+    STATE.gray  = MOCK_GRAY;
+    STATE.mock  = true;
   }
   render();
 })();
