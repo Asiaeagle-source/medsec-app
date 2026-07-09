@@ -46,6 +46,16 @@ test("splitBranchTokens: 臺大主名候選含 台大 + 臺大 + 臺灣大學", 
   }
 });
 
+// 地名夾在主名中間時,去地名不可留疊字(臺大新竹臺大 → 臺大,非臺大臺大)
+test("splitBranchTokens: 主名去地名不疊字 (臺大新竹臺大分院 → 臺大)", () => {
+  const got = splitBranchTokens("臺大新竹臺大分院");
+  assert.ok(got.mains.includes("臺大"), `mains 應含 臺大,實得 [${got.mains.join(", ")}]`);
+  assert.ok(
+    !got.mains.some((m) => /臺大臺大|台大台大/.test(m)),
+    `mains 不該有疊字,實得 [${got.mains.join(", ")}]`
+  );
+});
+
 test("splitBranchTokens: 括號別名不被當地名 (雲林分院(斗六) → 雲林,不是斗六)", () => {
   const got = splitBranchTokens("臺大雲林分院(斗六)");
   assert.equal(got.loc, "雲林");
