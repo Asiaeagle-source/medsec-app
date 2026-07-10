@@ -377,11 +377,15 @@ function renderDoneList(){
   el.innerHTML = `<div class="mt-list">${rows.map(card).join('')}</div>`;
 }
 
+// mail_digest.status 閉環前既存,初值是 'pending'(現有 1963 筆 + cron 持續產生);
+// 'new' 是閉環後可能的新值。兩者都當「未認領 / 待認領」。RPC 已放寬接受 pending。
+const isUnclaimed = (s) => s === 'pending' || s === 'new';
+
 function render(){
   const grayTotal    = STATE.gray.reduce((a,b) => a + (b.n || 0), 0);
   const todayActive  = STATE.today.filter(m => m.status !== 'done');   // 未完成
   const redActive    = todayActive.filter(m => m.priority === 'red');
-  const newRows      = STATE.today.filter(m => m.status === 'new');    // 待認領 = 尚無人認領
+  const newRows      = STATE.today.filter(m => isUnclaimed(m.status)); // 待認領 = pending/new(尚無人認領)
 
   document.getElementById('mt-total').textContent = STATE.today.length + grayTotal;
   document.getElementById('mt-redn').textContent  = redActive.length;
@@ -423,7 +427,7 @@ function fadeThenRender(id){
 
 async function onClaim(id){
   const m = findRow(id);
-  if (!m || m.status !== 'new') return;
+  if (!m || !isUnclaimed(m.status)) return;   // pending/new 皆可認領
   const snap = { ...m };
   // 樂觀:標成 claimed + 記認領人
   m.status = 'claimed'; m.claimed_by = STATE.me && STATE.me.id; m.claimed_by_name = meName(); m.claimed_at = new Date().toISOString();
