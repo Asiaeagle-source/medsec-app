@@ -181,7 +181,6 @@ let STATE = {
   gray: [],         // 灰名單統計(gridcards)
   filter: 'all',
   doneSearch: '',
-  profileMap: {},   // uuid → profile(認領人 / 完成人顯示名)
   me: null,
   mock: false,
 };
@@ -225,11 +224,6 @@ const MOCK_GRAY = [
 function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function fmtDT(ts){ try{ return new Date(ts).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
 function meName(){ return (STATE.me && (STATE.me.nickname || STATE.me.name)) || '我'; }
-function nameOf(uuid){
-  if (!uuid) return null;
-  const p = STATE.profileMap[uuid];
-  return p ? (p.nickname || p.name || p.employee_id || null) : null;
-}
 
 // view 一列 → 卡片用的扁平結構
 function mapRow(x){
@@ -248,24 +242,17 @@ function mapRow(x){
     owner_name: x.effective_secretary_name || null,   // 自動派工帶出的主分區業祕
     status: x.status || 'new',
     claimed_by: x.claimed_by || null,
-    claimed_by_name: x.claimed_by_name || nameOf(x.claimed_by),
+    claimed_by_name: x.claimed_by_name || null,   // view 已附暱稱,免自己 join profiles
     claimed_at: x.claimed_at || null,
-    completed_by: x.completed_by || null,
-    completed_by_name: x.completed_by_name || nameOf(x.completed_by),
-    completed_at: x.completed_at || null,
+    completed_by: x.done_by || null,               // view 欄名為 done_*(非 completed_*)
+    completed_by_name: x.done_by_name || null,
+    completed_at: x.done_at || null,
     erp_ref_no: x.erp_ref_no || null,
     received_at: x.received_at || null,
   };
 }
 
 // ---- 資料載入 ----
-async function loadProfiles(){
-  const { data, error } = await supa.from('profiles').select('id, name, nickname, employee_id');
-  if (error){ console.warn('[mail-triage] profiles 載入失敗,認領人以編號/空白顯示', error); return {}; }
-  const map = {};
-  for (const p of (data || [])) map[p.id] = p;
-  return map;
-}
 async function loadToday(){
   const today = new Date().toISOString().slice(0,10);
   const { data, error } = await supa
@@ -284,7 +271,7 @@ async function loadDone(){
     .select('*')
     .eq('status', 'done')
     .gte('digest_date', from)
-    .order('completed_at', { ascending: false });
+    .order('done_at', { ascending: false });
   if (error){ console.warn('[mail-triage] done 讀取失敗', error); return []; }
   return (data || []).map(mapRow);
 }
@@ -520,7 +507,6 @@ function toast(msg, kind){
     render();
   }));
 
-  STATE.profileMap = await loadProfiles();
   const today = await loadToday();
   if (today){
     STATE.today = today;
