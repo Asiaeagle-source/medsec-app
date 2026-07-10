@@ -140,7 +140,7 @@ const T = {
     id:'id', seq:'seq', category:'category', hospitalId:'hospital_id',
     title:'title', description:'description', status:'status',
     assignee:'assignee_id',      // in_progress 的承辦業祕 uuid
-    requester:'created_by',      // 提單業務 uuid → profiles
+    requester:'requester_id',    // 提單業務 uuid → profiles(勘誤:非 created_by)
     createdAt:'created_at', rating:'rating', ratingComment:'rating_comment',
   },
 };
@@ -194,8 +194,16 @@ async function loadHospitals(){
   const m={}; for(const h of (data||[])) m[h.id]=h.name_short; return m;
 }
 async function loadTickets(){
+  // 讀全部(不下 status where),再在 render() 依 status 分頁過濾。
+  // 注意:能看到哪些列由 medsec_tickets 的 RLS 決定 — 業祕要看得到 status='submitted'
+  // 的未派工單才接得到單;若 RLS 只放行 assignee=self,待接單會永遠空。
   const { data, error } = await supa.from(T.table).select('*').order(T.col.createdAt, { ascending:false });
-  if (error){ console.warn('[tickets] 讀取失敗,使用 MOCK', error); return null; }
+  if (error){
+    // 真正的查詢錯誤(欄名 / 權限)不再默默吞掉改用 MOCK,直接讓人看到原因。
+    console.error('[tickets] 讀取失敗', error);
+    toast('工單讀取失敗:' + (error.message || error), 'err');
+    return null;
+  }
   return (data||[]).map(mapT);
 }
 async function reload(){
