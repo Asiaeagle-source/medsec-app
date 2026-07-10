@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AE MED Hub · 工單接單工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="medsec-common.css">
+  <style>
+    /* 與信件分流頁(mail-triage)同一套視覺語彙 */
+    :root{ --red:#dc2626; --amber:#c2790b; --blue:#2563eb; --green:#1a7f45; }
+    .mt-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;color:#475569;margin-bottom:18px}
+    .mt-bar b{color:#1d2330}
+    .mt-tabs{display:flex;gap:22px;border-bottom:1px solid #e8e9ef;margin-bottom:22px}
+    .mt-tab{font-size:15px;color:#475569;padding:0 2px 12px;cursor:pointer;border:0;background:none;border-bottom:2px solid transparent;font-family:inherit}
+    .mt-tab.on{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+    .mt-tab .cnt{display:none;min-width:18px;margin-left:5px;padding:0 5px;font-size:11px;line-height:17px;text-align:center;border-radius:9px;background:#eef0f4;color:#6b7280;font-weight:600}
+    .mt-tab .cnt.show{display:inline-block}
+    .mt-tab.on .cnt{background:var(--blue);color:#fff}
+    .mt-list{display:flex;flex-direction:column;gap:10px;margin-bottom:26px}
+    .mt-card{background:#fff;border:1px solid #e8e9ef;border-radius:12px;padding:14px 16px}
+    .badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center}
+    .seqtag{font-size:11.5px;padding:2px 9px;border-radius:7px;background:#1d2330;color:#fff;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    .cat{font-size:11.5px;padding:2px 9px;border-radius:7px;font-weight:600}
+    .cat.quote{background:#eef4ff;color:#2563eb}
+    .cat.coding{background:#eef7ee;color:#2f8f3f}
+    .cat.doc{background:#f3f0fb;color:#7c53c9}
+    .cat.shipping{background:#fdf3df;color:#c2790b}
+    .cat.other{background:#eef0f4;color:#6b7280}
+    .subj{font-size:14.5px;font-weight:600;margin-bottom:3px}
+    .from{font-size:12.5px;color:#9aa0ab;margin-bottom:6px}
+    .sum{font-size:13px;color:#475569;line-height:1.6;white-space:pre-wrap}
+    .foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px;padding-top:11px;border-top:1px solid #e8e9ef;flex-wrap:wrap}
+    .claiminfo{font-size:12.5px;color:#6b7280}
+    .claiminfo b{color:#334155;font-weight:600}
+    .wait-note{font-size:12.5px;color:#6b7280}
+    .readonly-note{font-size:12.5px;color:#8b7300;background:#fdf6e3;border-radius:7px;padding:3px 10px}
+    .doneinfo{display:flex;gap:9px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:#475569}
+    .doneinfo .tag{background:#eaf7ee;color:var(--green);padding:2px 9px;border-radius:7px;font-weight:600;font-size:11.5px}
+    .stars{color:#e8a400;font-size:14px;letter-spacing:1px}
+    .acts{display:flex;gap:8px}
+    .btn-claim,.btn-done,.btn-info{font-size:12.5px;font-family:inherit;border-radius:8px;padding:6px 13px;cursor:pointer;border:1px solid transparent;font-weight:600}
+    .btn-claim{color:var(--blue);background:#eef4ff;border-color:#d3e0fb}
+    .btn-claim:hover{background:#dfeaff}
+    .btn-info{color:var(--amber);background:#fdf3df;border-color:#f0dcae}
+    .btn-info:hover{filter:brightness(.97)}
+    .btn-done{color:#fff;background:var(--blue);border-color:var(--blue)}
+    .btn-done:hover{filter:brightness(.96)}
+    .toggle{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#475569;cursor:pointer;user-select:none;margin-bottom:14px}
+    .toggle input{width:15px;height:15px}
+    /* modal(要求補件 / 結案 說明)*/
+    .mt-modal-mask{position:fixed;inset:0;background:rgba(15,23,42,.42);display:flex;align-items:center;justify-content:center;z-index:60}
+    .mt-modal{background:#fff;border-radius:14px;padding:22px;width:min(400px,92vw);box-shadow:0 14px 44px rgba(0,0,0,.2)}
+    .mt-modal h3{font-size:16px;margin:0 0 4px}
+    .mt-modal p{font-size:12.5px;color:#8b94a3;margin:0 0 14px}
+    .mt-modal textarea{width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;padding:10px 12px;border:1px solid #dfe3ea;border-radius:9px;outline:none;margin-bottom:16px;resize:vertical}
+    .mt-modal textarea:focus{border-color:var(--blue)}
+    .mt-modal .row{display:flex;gap:10px;justify-content:flex-end}
+    .mt-modal button{font-family:inherit;font-size:13.5px;padding:8px 16px;border-radius:9px;cursor:pointer;border:1px solid transparent;font-weight:600}
+    .mt-modal .cancel{background:#f1f3f7;color:#475569}
+    .mt-modal .ok{background:var(--blue);color:#fff}
+    .mt-modal .ok:disabled{opacity:.45;cursor:default}
+    /* toast */
+    .mt-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1d2330;color:#fff;font-size:13px;padding:10px 18px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:70;opacity:0;pointer-events:none;transition:opacity .2s}
+    .mt-toast.show{opacity:1}
+    .mt-toast.err{background:#b3261e}
+    .mt-toast.ok{background:var(--green)}
+  </style>
+</head>
+<body>
+
+<div id="loading-mask" class="loading-mask"><div class="spinner"></div></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">AE MED Hub</div>
+      <span class="role-tag secretary">業務祕書</span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item" onclick="location.href='secretary.html'"><span class="icon">📊</span><span>我的儀表板</span></div>
+      <div class="nav-item" onclick="location.href='secretary.html'"><span class="icon">📋</span><span>我的案件</span></div>
+      <div class="nav-item active"><span class="icon">🎫</span><span>工單接單</span></div>
+      <div class="nav-item" onclick="location.href='secretary.html'"><span class="icon">💰</span><span>報價優化</span></div>
+      <div class="nav-item" onclick="location.href='secretary.html'"><span class="icon">📄</span><span>建碼文件協助</span></div>
+      <div class="nav-item" onclick="location.href='secretary.html'"><span class="icon">📚</span><span>CRM 知識庫</span></div>
+      <div class="nav-item" onclick="location.href='secretary.html'"><span class="icon">🏥</span><span>醫院規則查詢</span></div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-name" id="user-name">—</div>
+      <div class="user-id" id="user-id">—</div>
+      <button class="btn-logout" onclick="handleLogout()">登出</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <div class="breadcrumb">MedSec Hub / 業祕 / 工單接單</div>
+        <h1>工單接單工作台</h1>
+      </div>
+    </div>
+
+    <div class="mt-bar">
+      待接單 <b id="t-sub">—</b> · 我處理中 <b id="t-mine">—</b> · 待補件 <b id="t-need">—</b> · 更新 <b id="t-upd">—</b>
+    </div>
+
+    <div class="mt-tabs">
+      <button class="mt-tab on" data-f="submitted">待接單<span class="cnt"></span></button>
+      <button class="mt-tab"     data-f="in_progress">處理中<span class="cnt"></span></button>
+      <button class="mt-tab"     data-f="need_info">待補件<span class="cnt"></span></button>
+      <button class="mt-tab"     data-f="resolved">已結案<span class="cnt"></span></button>
+    </div>
+
+    <div id="mt-view"></div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="medsec-common.js"></script>
+<script>
+// ============================================================
+// 工單接單工作台(MedSec 端)— 業祕接業務從 MedTeam 提的需求單
+//  - 守門:secretary(業祕工作台;manager 端另計)
+//  - 寫入一律走 RPC ticket_action(不直接 update medsec_tickets)
+//  - 業祕動作:claim / need_info / resolve(reply_info/confirm/cancel 是業務端)
+//  - 樂觀更新;RPC raise 錯誤(如 bad status:別人剛接走)→ 回滾 + toast + 重新拉資料
+//
+// ⚠️ 後端契約假設區(medsec_tickets 表 / ticket_action RPC 由 Lynn 建於線上,
+//    不在 repo)。若實際欄名 / RPC 參數不同,只改下面這個 T 物件即可,其餘不用動。
+// ============================================================
+const T = {
+  table:   'medsec_tickets',
+  rpc:     'ticket_action',
+  actions: { claim: 'claim', needInfo: 'need_info', resolve: 'resolve' },
+  P:       { id: 'p_ticket_id', action: 'p_action', note: 'p_note' },   // 對齊 mail RPC 的 p_ 慣例
+  col: {
+    id:'id', seq:'seq', category:'category', hospitalId:'hospital_id',
+    title:'title', description:'description', status:'status',
+    assignee:'assignee_id',      // in_progress 的承辦業祕 uuid
+    requester:'created_by',      // 提單業務 uuid → profiles
+    createdAt:'created_at', rating:'rating', ratingComment:'rating_comment',
+  },
+};
+
+const CAT = { quote:'報價', coding:'建碼', doc:'文件', shipping:'出貨', other:'其他' };
+const CLOSED_WINDOW_DAYS = 14;
+
+let STATE = {
+  tickets: [], filter: 'submitted', showAll: false,
+  profileMap: {}, hospitalMap: {}, me: null, mock: false,
+};
+
+// ---- MOCK(SQL/資料未接時的樣子;demo 模式本地更新,不打 RPC)----
+function isoAgo(d){ return new Date(Date.now() - d*864e5).toISOString(); }
+const MOCK = [
+  { id:'t-1', seq:1042, category:'quote',    hospitalId:'NTUH', hospital:'台大', title:'MR8 磨鑽耗材報價需求', description:'業務要一份 MR8 耗材的正式報價,客戶下週要。', status:'submitted', assignee:null, requester:'張業務', createdAt:isoAgo(0.2) },
+  { id:'t-2', seq:1041, category:'coding',   hospitalId:'VGHKS',hospital:'高榮', title:'CENTERPIECE 2 建碼協助', description:'需要協助整理建碼文件包。', status:'submitted', assignee:null, requester:'李業務', createdAt:isoAgo(0.5) },
+  { id:'t-3', seq:1038, category:'shipping', hospitalId:'CGMH', hospital:'長庚', title:'寄售品補貨進度', description:'客戶問補貨到哪了。', status:'in_progress', assignee:'me', requester:'王業務', createdAt:isoAgo(1) },
+  { id:'t-4', seq:1035, category:'doc',      hospitalId:'NCKU', hospital:'成大', title:'仿單/材質資料補件', description:'委員會要補仿單。', status:'in_progress', assignee:'other', requester:'陳業務', createdAt:isoAgo(1.5) },
+  { id:'t-5', seq:1030, category:'quote',    hospitalId:'MMH',  hospital:'馬偕', title:'折讓後報價確認', description:'原始需求。\n【補充】業務補:客戶接受折讓 8%。', status:'need_info', assignee:'me', requester:'林業務', createdAt:isoAgo(2) },
+  { id:'t-6', seq:1022, category:'other',    hospitalId:'CCH',  hospital:'彰基', title:'器械保養排程', description:'安排保養。', status:'resolved', assignee:'me', requester:'吳業務', createdAt:isoAgo(3) },
+  { id:'t-7', seq:1018, category:'quote',    hospitalId:'CYCH', hospital:'嘉基', title:'骨鑽耗材報價', description:'報價已交付。', status:'confirmed', assignee:'me', requester:'黃業務', createdAt:isoAgo(5), rating:5, ratingComment:'很快,謝謝!' },
+];
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function fmtDT(ts){ try{ return new Date(ts).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+function withinDays(ts,n){ try{ return (Date.now()-new Date(ts).getTime())/864e5 <= n; }catch(e){ return false; } }
+function nameOf(uuid){ if(!uuid) return null; const p=STATE.profileMap[uuid]; return p?(p.nickname||p.name||p.employee_id||null):null; }
+function hospOf(id){ if(!id) return null; return STATE.hospitalMap[id] || id; }
+
+function mapT(x){
+  return {
+    id: x[T.col.id], seq: x[T.col.seq], category: x[T.col.category],
+    hospitalId: x[T.col.hospitalId], hospital: hospOf(x[T.col.hospitalId]),
+    title: x[T.col.title], description: x[T.col.description],
+    status: x[T.col.status], assignee: x[T.col.assignee] || null,
+    requester: nameOf(x[T.col.requester]), createdAt: x[T.col.createdAt],
+    rating: x[T.col.rating] || null, ratingComment: x[T.col.ratingComment] || null,
+  };
+}
+
+// ---- 載入 ----
+async function loadProfiles(){
+  const { data, error } = await supa.from('profiles').select('id, name, nickname, employee_id');
+  if (error){ console.warn('[tickets] profiles 載入失敗', error); return {}; }
+  const m={}; for(const p of (data||[])) m[p.id]=p; return m;
+}
+async function loadHospitals(){
+  const { data, error } = await supa.from('medsec_hospitals').select('id, name_short');
+  if (error){ console.warn('[tickets] hospitals 載入失敗,醫院以院碼顯示', error); return {}; }
+  const m={}; for(const h of (data||[])) m[h.id]=h.name_short; return m;
+}
+async function loadTickets(){
+  const { data, error } = await supa.from(T.table).select('*').order(T.col.createdAt, { ascending:false });
+  if (error){ console.warn('[tickets] 讀取失敗,使用 MOCK', error); return null; }
+  return (data||[]).map(mapT);
+}
+async function reload(){
+  const t = await loadTickets();
+  if (t) STATE.tickets = t;   // RPC 後以 DB 為準(可能別人剛接走)
+  render();
+}
+
+// ---- 卡片 ----
+function ticketLeft(m){
+  const mine = m.assignee === (STATE.me && STATE.me.id);
+  if (m.status === 'submitted')   return `<div class="wait-note">待接單</div>`;
+  if (m.status === 'in_progress') return `<div class="claiminfo">承辦 <b>${esc(nameOf(m.assignee) || (mine?'我':'—'))}</b></div>`;
+  if (m.status === 'need_info')   return `<div class="readonly-note">⏳ 已要求補件,等待業務補充</div>`;
+  if (m.status === 'resolved')    return `<div class="wait-note">✓ 已結案 · 待業務確認</div>`;
+  if (m.status === 'confirmed'){
+    const r = Math.max(0, Math.min(5, m.rating || 0));
+    const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
+    return `<div class="doneinfo"><span class="tag">✓ 已確認</span>${m.rating?`<span class="stars">${stars}</span>`:''}${m.ratingComment?`<span>「${esc(m.ratingComment)}」</span>`:''}</div>`;
+  }
+  return '';
+}
+function ticketActs(m){
+  const mine = m.assignee === (STATE.me && STATE.me.id);
+  if (m.status === 'submitted')
+    return `<div class="acts"><button class="btn-claim" onclick="onClaim('${esc(m.id)}')">接單</button></div>`;
+  if (m.status === 'in_progress' && mine)
+    return `<div class="acts"><button class="btn-info" onclick="onNeedInfo('${esc(m.id)}')">要求補件</button><button class="btn-done" onclick="onResolve('${esc(m.id)}')">結案</button></div>`;
+  return '';
+}
+function card(m){
+  return `<div class="mt-card" data-card="${esc(m.id)}">
+    <div class="badges">
+      <span class="seqtag">#${esc(m.seq)}</span>
+      <span class="cat ${esc(m.category || 'other')}">${esc(CAT[m.category] || m.category || '其他')}</span>
+      ${m.hospital ? `<span class="from" style="margin:0">${esc(m.hospital)}</span>` : ''}
+    </div>
+    <div class="subj">${esc(m.title)}</div>
+    <div class="from">提單 ${esc(m.requester || '—')} · ${esc(fmtDT(m.createdAt))}</div>
+    ${m.description ? `<div class="sum">${esc(m.description)}</div>` : ''}
+    <div class="foot">${ticketLeft(m)}${ticketActs(m)}</div>
+  </div>`;
+}
+
+// ---- render ----
+function setCnt(f, n){
+  const el = document.querySelector(`.mt-tab[data-f="${f}"] .cnt`);
+  if (!el) return;
+  el.textContent = n; el.classList.toggle('show', n > 0);
+}
+function emptyCard(msg){ return `<div class="mt-card"><div class="sum">${esc(msg)}</div></div>`; }
+function listHtml(rows, label){
+  if (!rows.length) return emptyCard(`目前沒有${label}的工單。`);
+  return `<div class="mt-list">${rows.map(card).join('')}</div>`;
+}
+
+function render(){
+  const me = STATE.me && STATE.me.id;
+  const sub      = STATE.tickets.filter(t => t.status === 'submitted');
+  const inprog   = STATE.tickets.filter(t => t.status === 'in_progress');
+  const mineIP   = inprog.filter(t => t.assignee === me);
+  const needinfo = STATE.tickets.filter(t => t.status === 'need_info');
+  const closed   = STATE.tickets.filter(t => (t.status === 'resolved' || t.status === 'confirmed') && withinDays(t.createdAt, CLOSED_WINDOW_DAYS));
+
+  document.getElementById('t-sub').textContent  = sub.length;
+  document.getElementById('t-mine').textContent = mineIP.length;
+  document.getElementById('t-need').textContent = needinfo.length;
+  document.getElementById('t-upd').textContent  = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit' });
+
+  setCnt('submitted',   sub.length);       // 待接單積壓
+  setCnt('in_progress', mineIP.length);    // 自己處理中
+  setCnt('need_info',   needinfo.length);
+  setCnt('resolved',    closed.length);
+
+  const view = document.getElementById('mt-view');
+  const f = STATE.filter;
+
+  if (f === 'in_progress'){
+    const rows = STATE.showAll ? inprog : mineIP;
+    view.innerHTML =
+      `<label class="toggle"><input type="checkbox" id="show-all" ${STATE.showAll?'checked':''}> 看全部(含其他業祕的處理中)</label>`
+      + listHtml(rows, STATE.showAll ? '處理中' : '我處理中');
+    const cb = document.getElementById('show-all');
+    if (cb) cb.addEventListener('change', () => { STATE.showAll = cb.checked; render(); });
+    return;
+  }
+  let rows, label;
+  if (f === 'submitted')      { rows = sub;      label = '待接單'; }
+  else if (f === 'need_info') { rows = needinfo; label = '待補件'; }
+  else                        { rows = closed;   label = '已結案'; }
+  view.innerHTML = listHtml(rows, label);
+}
+
+// ---- 動作(樂觀更新 + RPC + 失敗回滾 + 重新拉資料)----
+function findT(id){ return STATE.tickets.find(t => t.id === id) || null; }
+async function callAction(id, action, note){
+  const args = { [T.P.id]: id, [T.P.action]: action };
+  if (note !== undefined) args[T.P.note] = note;
+  return supa.rpc(T.rpc, args);
+}
+
+async function onClaim(id){
+  const m = findT(id);
+  if (!m || m.status !== 'submitted') return;
+  const snap = { ...m };
+  m.status = 'in_progress'; m.assignee = STATE.me && STATE.me.id;   // 樂觀
+  render();
+  if (STATE.mock){ toast('已接單(demo)', 'ok'); return; }
+  const { error } = await callAction(id, T.actions.claim);
+  if (error){ Object.assign(m, snap); toast('接單失敗:' + (error.message || error) + '(可能已被接走,已重新整理)', 'err'); await reload(); }
+  else toast('已接單', 'ok');
+}
+async function onNeedInfo(id){
+  const m = findT(id);
+  if (!m || m.status !== 'in_progress') return;
+  const note = await askNote({ title:'要求補件', placeholder:'請說明需要業務補充什麼…', required:true });
+  if (note === undefined) return;                       // 取消
+  const snap = { ...m };
+  m.status = 'need_info'; render();
+  if (STATE.mock){ toast('已要求補件(demo)', 'ok'); return; }
+  const { error } = await callAction(id, T.actions.needInfo, note);
+  if (error){ Object.assign(m, snap); toast('要求補件失敗:' + (error.message || error), 'err'); await reload(); }
+  else toast('已要求補件', 'ok');
+}
+async function onResolve(id){
+  const m = findT(id);
+  if (!m || m.status !== 'in_progress') return;
+  const note = await askNote({ title:'結案', placeholder:'結案說明(選填)…', required:false });
+  if (note === undefined) return;
+  const p_note = note.trim() ? note.trim() : null;      // 選填 → 可 null
+  const snap = { ...m };
+  m.status = 'resolved'; render();
+  if (STATE.mock){ toast('已結案(demo)', 'ok'); return; }
+  const { error } = await callAction(id, T.actions.resolve, p_note);
+  if (error){ Object.assign(m, snap); toast('結案失敗:' + (error.message || error), 'err'); await reload(); }
+  else toast('已結案,待業務確認', 'ok');
+}
+
+// 說明輸入 modal;resolve(字串)=確認,resolve(undefined)=取消。required 時空白不能送。
+function askNote(opts){
+  return new Promise(resolve => {
+    const mask = document.createElement('div');
+    mask.className = 'mt-modal-mask';
+    mask.innerHTML = `<div class="mt-modal">
+      <h3>${esc(opts.title)}</h3>
+      <p>${opts.required ? '請填寫說明(必填)' : '可留空直接確認'}</p>
+      <textarea id="note-input" rows="3" placeholder="${esc(opts.placeholder || '')}"></textarea>
+      <div class="row"><button class="cancel" type="button">取消</button><button class="ok" type="button"${opts.required ? ' disabled' : ''}>確認</button></div>
+    </div>`;
+    document.body.appendChild(mask);
+    const ta = mask.querySelector('#note-input');
+    const okB = mask.querySelector('.ok');
+    let closed = false;
+    const close = (v) => { if (closed) return; closed = true; document.body.removeChild(mask); resolve(v); };
+    if (opts.required) ta.addEventListener('input', () => { okB.disabled = !ta.value.trim(); });
+    mask.querySelector('.cancel').onclick = () => close(undefined);
+    okB.onclick = () => { if (opts.required && !ta.value.trim()) return; close(ta.value.trim() ? ta.value.trim() : ''); };
+    ta.addEventListener('keydown', e => { if (e.key === 'Escape') close(undefined); });
+    mask.addEventListener('mousedown', e => { if (e.target === mask) close(undefined); });
+    setTimeout(() => ta.focus(), 0);
+  });
+}
+
+let _toastTimer = null;
+function toast(msg, kind){
+  let t = document.getElementById('mt-toast');
+  if (!t){ t = document.createElement('div'); t.id = 'mt-toast'; document.body.appendChild(t); }
+  t.className = 'mt-toast ' + (kind || '') + ' show';
+  t.textContent = msg;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { t.className = 'mt-toast ' + (kind || ''); }, 2600);
+}
+
+// ---- init ----
+(async function init(){
+  const profile = await guardRole('secretary');
+  if (!profile) return;
+  STATE.me = profile;
+  renderUserInfo(profile);
+  hideLoading();
+
+  document.querySelectorAll('.mt-tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.mt-tab').forEach(x => x.classList.remove('on'));
+    t.classList.add('on');
+    STATE.filter = t.dataset.f;
+    render();
+  }));
+
+  [STATE.profileMap, STATE.hospitalMap] = await Promise.all([loadProfiles(), loadHospitals()]);
+  const t = await loadTickets();
+  if (t){ STATE.tickets = t; STATE.mock = false; }
+  else  {
+    // MOCK:把 assignee 佔位符換成實際登入者 id,「我處理中」才對得上
+    STATE.tickets = MOCK.map(m => ({ ...m, assignee: m.assignee === 'me' ? STATE.me.id : (m.assignee === 'other' ? 'other-user' : m.assignee) }));
+    STATE.mock = true;
+  }
+  render();
+})();
+</script>
+</body>
+</html>
