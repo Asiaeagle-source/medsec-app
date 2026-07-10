@@ -401,6 +401,21 @@ function toast(msg, kind){
     STATE.mock = true;
   }
   render();
+
+  // ── 診斷(非 MOCK 時):抓「有錯誤 toast 抓不到」的兩種前端↔DB 空清單 ──
+  // RLS 已確認任何 medsec 可讀全部,所以空清單只剩兩種可能,這裡直接點名:
+  if (!STATE.mock){
+    const KNOWN = ['submitted','in_progress','need_info','resolved','confirmed'];
+    const statuses = [...new Set(STATE.tickets.map(x => x.status))];
+    console.info(`[tickets] loaded ${STATE.tickets.length} 列;登入者=${STATE.me.employee_id}/${STATE.me.medsec_role};status 值=`, statuses);
+    if (STATE.tickets.length === 0){
+      // 查詢成功但 0 列:REST 請求多半沒帶到本人 JWT(PostgREST 當 anon)→ RLS 濾光。
+      toast(`讀到 0 列(登入 ${STATE.me.employee_id})。REST 端可能沒帶 JWT / schema cache 未刷新`, 'err');
+    } else if (!STATE.tickets.some(x => KNOWN.includes(x.status))){
+      // 有列但 status 值全不吻合:多半 status 欄名或值集合跟 const T 假設不同。
+      toast(`讀到 ${STATE.tickets.length} 列但 status 值不吻合(${statuses.join('/')});核對 status 欄名/值`, 'err');
+    }
+  }
 })();
 </script>
 </body>
