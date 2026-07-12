@@ -151,8 +151,8 @@
 // 工單接單工作台(MedSec 端)V2.1 — 自動預派 / 期限 / 附件 / 修改流
 //  - 守門:secretary。狀態寫入一律走 RPC ticket_action(claim/need_info/resolve)。
 //  - V2.1 讀:due_date、files(jsonb)、revision_count/note/items;days_waiting 讀 view。
-//  - ⚠️ 交付檔上傳要 append files jsonb,但前端 update medsec_tickets 未開放 —
-//    等 Lynn 的 ticket_attach_file RPC/放行後再接,本頁上傳鈕先提示未啟用(不自行加 policy)。
+//  - 交付檔上傳:storage.upload('{ticket_id}/{檔名}') → ticket_attach_file 記錄
+//    (kind='deliverable';by/at 由 RPC 補)。同名 409 → 檔名前加時間戳重試一次。
 //
 // ⚠️ 後端契約假設區(medsec_tickets / RPC / view 由 Lynn 建於線上,不在 repo)。
 //    欄名/RPC/view/bucket 不同只改這個 T 物件。
@@ -162,6 +162,7 @@ const T = {
   pendingView: 'v_tickets_pending_sales',   // need_info/resolved + days_waiting
   bucket:  'ticket-files',
   rpc:     'ticket_action',
+  rpcAttach: 'ticket_attach_file',
   actions: { claim: 'claim', needInfo: 'need_info', resolve: 'resolve' },
   P:       { id: 'p_ticket_id', action: 'p_action', note: 'p_note' },
   col: {
@@ -458,9 +459,48 @@ async function onOpenFile(path){
     window.open(data.signedUrl, '_blank');
   }catch(e){ toast('開啟失敗:' + e.message, 'err'); }
 }
-// 上傳交付檔:BLOCKED — files jsonb 需 ticket_attach_file RPC / RLS 放行,不自行加 policy。
+// 檔名 sanitize:去路徑字元 / \ 與控制字元(bucket 內用 {ticket_id}/{檔名})
+function sanitizeName(name){
+  return (String(name||'').replace(/[\/\\]/g,'_').replace(/^\.+/,'').trim()) || 'file';
+}
+// 上傳交付檔:選檔 → storage.upload → ticket_attach_file 記錄。in_progress 且承辦=自己才給上傳。
 async function onUploadDeliverable(id){
-  toast('上傳交付檔待後端 ticket_attach_file RPC / Storage 放行(已回報 Lynn),暫未啟用', 'err');
+  const m = findT(id);
+  if (!m || m.status !== 'in_progress' || m.assignee !== (STATE.me && STATE.me.id)) return;
+  const input = document.createElement('input');
+  input.type = 'file'; input.style.display = 'none';
+  document.body.appendChild(input);
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    if (input.parentNode) document.body.removeChild(input);
+    if (file) await doUploadDeliverable(m, file);
+  });
+  input.click();
+}
+async function doUploadDeliverable(m, file){
+  if (STATE.mock){ toast('demo 模式不上傳', 'ok'); return; }
+  const clean = sanitizeName(file.name);
+  const bucket = supa.storage.from(T.bucket);
+  toast('上傳中…', 'ok');
+  // 1) 上傳到 {ticket_id}/{檔名};同名 409 → 檔名前加時間戳重試一次
+  let path = `${m.id}/${clean}`;
+  let up = await bucket.upload(path, file);
+  if (up.error){
+    const st = String(up.error.statusCode || up.error.status || '');
+    const dup = st === '409' || /exist|conflict|duplicate/i.test(up.error.message || '');
+    if (dup){
+      path = `${m.id}/${Date.now()}-${clean}`;
+      up = await bucket.upload(path, file);
+    }
+  }
+  if (up.error){ toast('上傳失敗:' + (up.error.message || up.error), 'err'); return; }
+  // 2) 記錄進 files jsonb(by/at 由 RPC 補);p_name 用原始顯示名,p_path 不含 bucket 前綴
+  const { error } = await supa.rpc(T.rpcAttach, {
+    p_ticket_id: m.id, p_name: file.name, p_path: path, p_kind: 'deliverable',
+  });
+  if (error){ toast('登錄失敗:' + (error.message || error), 'err'); return; }
+  toast('交付檔已上傳', 'ok');
+  await reload();
 }
 
 // ---- modal / toast ----
