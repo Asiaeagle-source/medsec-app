@@ -11,8 +11,9 @@
 //  §6 完成動線:純 schedule 直寫 is_done;工單條目 C1 今日進度 / C3 結案
 //  §3 @類型 6 選存 activities[0].type(中文字串)
 //
-// ⚠️ 後端契約假設集中在 STD;工單分支(source='ticket')於 view v2 上線後
-//    才會有資料,v1 休眠(不影響)。樣式自帶(stodo-*),PR-Sec-3 可沿用。
+// ⚠️ 後端契約假設集中在 STD。工單分支(source='ticket')view 已升 v2 上 production
+//    (assignee=業祕本人、status in in_progress/need_info 的活單),C1/C3 實際會觸發。
+//    工單條目不走 is_done 直寫(那是 schedule 專用)。樣式自帶(stodo-*),PR-Sec-3 可沿用。
 // ============================================================
 const STD = {
   view: 'secretary_todos_v',
@@ -271,7 +272,8 @@ async function todoTicketProgress(ticketId){
 async function todoTicketResolve(ticketId, seq){
   const note = await sAskText({ title:`結案工單${seq?' #'+seq:''}`, label:'結案說明 ＊(業務會看到)', placeholder:'例:已提供健保報價單,價格如附…', required:true });
   if (note === undefined) return;
-  const { error } = await supa.rpc(STD.ticketRpc, { p_ticket_id: ticketId, p_action: 'resolve', p_note: note, p_rating: null });
+  // 合約 = ticket_action({p_ticket_id, p_action:'resolve', p_note});不帶 p_rating(RPC 簽名沒有,多帶會被 PostgREST 拒)
+  const { error } = await supa.rpc(STD.ticketRpc, { p_ticket_id: ticketId, p_action: 'resolve', p_note: note });
   if (error){ sToast('結案失敗:' + (error.message||error), 'err'); return; }
   sToast('已結案,待業務確認', 'ok'); await todoRefresh();
 }
