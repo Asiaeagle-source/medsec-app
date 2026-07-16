@@ -60,6 +60,16 @@ const KW = {
   oem:       ["原廠","medtronic"],
 };
 const hit = (text, list) => list.some(w => text.toLowerCase().includes(w.toLowerCase()));
+
+// ---- needs_reply 判定(PR A)----
+// 主旨/摘要含以下 hint → 需回覆;行銷/系統通知(gray / 電子報 / 通知)永遠 false。
+export const NEEDS_REPLY_HINTS = ["詢價","報價","請回覆","請確認","煩請","是否","能否","？","?"];
+export function needsReply({ subject="", summary="", priority="", category="" }) {
+  if (priority === "gray") return false;                 // 灰名單(行銷/自動信)不回
+  if (/電子報|通知/.test(category)) return false;        // 系統通知類不回
+  const text = `${subject} ${summary || ""}`;
+  return NEEDS_REPLY_HINTS.some(h => text.includes(h));
+}
 const domainOf = (e="") => (e.split("@")[1] || "").toLowerCase();
 const isCustomerDomain = (e="") => { const d = domainOf(e); return CUSTOMER_DOMAINS.some(x => d.endsWith(x)); };
 // service 寄件人特徵(testo / saveris 設備警報走自己的網域,不是醫院也不是廠商)
@@ -308,7 +318,8 @@ async function resolveHospitalCode(name) {
 
 // ---- 對外主函式 ----
 export async function classifyMail(mail) {
-  const { subject="", snippet="", senderName="", senderEmail="", graphMessageId, receivedAt } = mail;
+  const { subject="", snippet="", senderName="", senderEmail="", graphMessageId, receivedAt,
+          bodyText=null, webLink=null } = mail;
 
   // 先 AI 出摘要+認醫院 (一次呼叫)
   const ai = await aiSummaryAndHospital({ subject, snippet, senderName, senderEmail });
@@ -316,6 +327,8 @@ export async function classifyMail(mail) {
   const hospitalId = await resolveHospitalCode(ai.hospital);
   // 性質分派 (AI 認出醫院也算客戶)
   const r = routeMail({ subject, snippet, senderEmail }, ai.hospital);
+  // needs_reply:主旨/摘要判定(PR A)
+  const needs_reply = needsReply({ subject, summary: ai.summary, priority: r.priority, category: r.category });
 
   return {
     graph_message_id: graphMessageId,
@@ -330,5 +343,9 @@ export async function classifyMail(mail) {
     deadline: null,
     hospital_id: hospitalId,        // AI 認分院 → 院碼; 認不出 = null = 待認領
     assigned_to: r.assignee,        // 員編字串 (採購/客服/會計/標案); cron handler 會用 employee_id→uuid map 轉成 profiles.id 再寫 DB; null = 由 hospital_id 帶業秘
+    // ---- PR A 新欄 ----
+    body_text: bodyText != null ? String(bodyText).slice(0, 10000) : null,   // 純文字全文(截 10000)
+    web_link: webLink || null,                                               // Outlook/OWA 開信連結
+    needs_reply,
   };
 }
