@@ -21,12 +21,51 @@ const STD = {
   carryRpc: 'secretary_carry_over_todos',
   ticketRpc: 'ticket_action',
   categories: ['出貨', '報價', '月結請款', '文件行政', '庶務支援', '其他'],
+  // v1.1 追加依賴
+  routineTable: 'medsec_secretary_routines',        // 個人例行模板(SQL 待 Lynn 建;缺表則 UI 自動隱藏)
+  opRulesTable: 'medsec_hospital_operation_rules',   // 月結日/備註來源(既有)
+  assignTable:  'medsec_secretary_assignments',      // 我負責的醫院(既有)
+  hospTable:    'medsec_hospitals',                  // 醫院短名(既有)
 };
 
 let TSTATE = { rows: [], me: null };
 let _todoInitPromise = null;
+let routineReady = false;   // medsec_secretary_routines 是否可用(Lynn 建表後為 true)
 
 function sToday(){ return new Date().toISOString().slice(0, 10); }
+function _todayDate(){ const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+// 讀期限:activities[0].deadline(jsonb 搭便車)為主,退回 r.deadline
+function todoDeadline(r){
+  if (!r) return null;
+  let a = r.activities;
+  if (typeof a === 'string'){ try { a = JSON.parse(a); } catch(_){ a = null; } }
+  if (Array.isArray(a) && a[0] && a[0].deadline) return String(a[0].deadline).slice(0, 10);
+  if (r.deadline) return String(r.deadline).slice(0, 10);
+  return null;
+}
+// 距今天數(本地日,不含時分);逾期為負
+function _daysUntil(s){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); if (!m) return null;
+  const dl = new Date(+m[1], +m[2]-1, +m[3]);
+  return Math.round((dl - _todayDate()) / 86400000);
+}
+function deadlineBadge(r){
+  const dl = todoDeadline(r); if (!dl) return '';
+  const n = _daysUntil(dl); if (n === null) return '';
+  if (n < 0)  return `<span class="stodo-badge due-over">逾期 ${-n} 天</span>`;
+  if (n === 0) return `<span class="stodo-badge due-soon">今天到期</span>`;
+  return `<span class="stodo-badge ${n <= 3 ? 'due-soon' : 'due-far'}">剩 ${n} 天</span>`;
+}
+// 月結日觸發判斷:當日相符;設 31 但當月是小月 → 當月最後一天觸發
+function monthlyMatches(day, now){
+  const d = parseInt(day, 10); if (!(d >= 1 && d <= 31)) return false;
+  now = now || _todayDate();
+  const dim = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();  // 當月天數
+  const today = now.getDate();
+  if (d === today) return true;
+  if (d > dim && today === dim) return true;       // 31 設定者在小月最後一天觸發
+  return false;
+}
 function sEsc(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function sMe(){ return TSTATE.me || (typeof currentProfile !== 'undefined' ? currentProfile : null); }
 
@@ -80,6 +119,17 @@ function sInjectCss(){
   .stodo-spin{display:inline-block;animation:stodo-spin .7s linear infinite}
   @keyframes stodo-flash{0%{background:#fff7d6;box-shadow:0 0 0 3px #ffd76a}70%{background:#fff7d6}100%{background:#fff;box-shadow:none}}
   .stodo-card.stodo-flash{animation:stodo-flash 2.2s ease}
+  .stodo-badge.due-over{background:#fde4e1;color:#c0261c}
+  .stodo-badge.due-soon{background:#fdf3df;color:#c2790b}
+  .stodo-badge.due-far{background:#eef1f5;color:#64748b}
+  .stodo-linkbtn{font-family:inherit;font-size:12px;color:#2563eb;background:none;border:none;padding:0;cursor:pointer;font-weight:600}
+  .stodo-linkbtn.del{color:#b3261e}
+  .stodo-rlist{max-height:240px;overflow:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:7px}
+  .stodo-rrow{display:flex;align-items:center;gap:8px;background:#f8f9fc;border:1px solid #eceef3;border-radius:9px;padding:8px 11px}
+  .stodo-rrow .rc{flex:1;font-size:13.5px;color:#1d2330}
+  .stodo-modal button.soft2{background:#eef4ff;color:#2563eb;border-color:#d3e0fb}
+  .stodo-modal input[type=date],.stodo-modal input[type=text]{width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;padding:10px 12px;border:1px solid #dfe3ea;border-radius:9px;outline:none;margin-bottom:14px}
+  .stodo-modal input:focus{border-color:#2563eb}
   `;
   const el = document.createElement('style'); el.id = 'stodo-css'; el.textContent = css;
   document.head.appendChild(el);
@@ -129,11 +179,144 @@ function ensureTodoModule(){
       sInjectCss();
       TSTATE.me = (typeof currentProfile !== 'undefined') ? currentProfile : null;
       await todoCarryOverOnce();
+      await routineCheck();               // 偵測例行表是否已建(缺表 → 功能隱藏)
+      await todoImportRoutinesOnce();      // 每日首開帶入個人例行(防重同 carry-over)
+      await todoMonthlyOnce();             // 每日首開:今日月結醫院自動長出對帳待辦
       await loadTodos();
       renderTodo();
     })();
   }
   return _todoInitPromise;
+}
+
+// ---- 例行清單(medsec_secretary_routines;缺表則整組功能隱藏)----
+async function routineCheck(){
+  try {
+    const { error } = await supa.from(STD.routineTable).select('id').limit(1);
+    routineReady = !error;                        // 表不存在會回 error → 功能停用
+  } catch(_){ routineReady = false; }
+}
+async function routineList(){
+  if (!routineReady) return [];
+  const me = sMe(); if (!me) return [];
+  const { data, error } = await supa.from(STD.routineTable).select('*')
+    .eq('secretary_id', me.id).eq('is_active', true)
+    .order('sort_order', { ascending: true });
+  return error ? [] : (data || []);
+}
+async function routineSaveDirect(category, content){
+  if (!routineReady){ sToast('例行清單尚未啟用(待建表)', 'err'); return false; }
+  const me = sMe();
+  const { error } = await supa.from(STD.routineTable)
+    .insert({ secretary_id: me.id, category: category || '其他', content });
+  if (error){ sToast('存為例行失敗:' + (error.message||error), 'err'); return false; }
+  return true;
+}
+async function routineDelete(id){
+  if (!routineReady) return;
+  const { error } = await supa.from(STD.routineTable).delete().eq('id', id);
+  if (error){ sToast('刪除失敗:' + (error.message||error), 'err'); return; }
+  sToast('已刪除例行', 'ok');
+  document.querySelectorAll('.stodo-mask').forEach(m => m.remove());
+  routineSheet();                                 // 重開刷新
+}
+async function todoSaveRoutine(rowId){
+  const r = TSTATE.rows.find(x => String(x.row_id) === String(rowId)); if (!r) return;
+  if (await routineSaveDirect(r.category, r.content)) sToast('已存為例行', 'ok');
+}
+function _routineRows(list){
+  const me = sMe(), today = sToday();
+  return list.map(x => ({ user_id: me.id, date: today, is_done: false,
+    hospital: '未填', action: '(業秘例行)', activities: [{ type: x.category || '其他', content: x.content }] }));
+}
+// 每日首開自動帶入(防重:localStorage 當日旗標,對齊 carry-over)
+async function todoImportRoutinesOnce(){
+  const me = sMe(); if (!me || !routineReady) return;
+  const key = 'routineImported_' + me.id + '_' + sToday();
+  if (localStorage.getItem(key)) return;
+  const list = await routineList();
+  if (list.length){
+    const { error } = await supa.from(STD.table).insert(_routineRows(list));
+    if (error){ console.warn('[todo] 例行帶入失敗', error); return; }   // 不設旗標,下次再試
+  }
+  localStorage.setItem(key, '1');
+}
+// 手動「帶入今日」(略過旗標,強制帶一次)
+async function routineImportNow(){
+  const list = await routineList();
+  if (!list.length){ sToast('沒有例行項目', 'err'); return; }
+  const { error } = await supa.from(STD.table).insert(_routineRows(list));
+  if (error){ sToast('帶入失敗:' + (error.message||error), 'err'); return; }
+  const me = sMe(); localStorage.setItem('routineImported_' + me.id + '_' + sToday(), '1');
+  sToast(`已帶入 ${list.length} 條例行`, 'ok'); await todoRefresh();
+}
+async function routineSheet(){
+  sInjectCss();
+  const list = await routineList();
+  const mask = document.createElement('div'); mask.className = 'stodo-mask';
+  const rows = list.length
+    ? list.map(x => `<div class="stodo-rrow" data-rid="${sEsc(x.id)}">
+        <span class="stodo-cat">${sEsc(x.category || '其他')}</span>
+        <span class="rc">${sEsc(x.content)}</span>
+        <button class="stodo-linkbtn del" type="button" onclick="routineDelete('${sEsc(x.id)}')">刪除</button></div>`).join('')
+    : `<div class="stodo-empty" style="padding:14px">尚無例行項目。用下方新增,或在待辦卡片點「存為例行」。</div>`;
+  mask.innerHTML = `<div class="stodo-modal"><h3>例行清單</h3>
+    <p>每日首開會自動帶入今日待辦(當日只帶一次)。</p>
+    <div class="stodo-rlist">${rows}</div>
+    <label>新增例行</label>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <select id="r-cat" style="flex:0 0 128px;margin:0">${_catOptions(false)}</select>
+      <input id="r-content" type="text" placeholder="例:每日填溫溼度紀錄" style="flex:1;margin:0">
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="cancel" type="button">關閉</button>
+      <button class="soft2" type="button" id="r-import">帶入今日</button>
+      <button class="ok" type="button" id="r-add">新增</button>
+    </div></div>`;
+  document.body.appendChild(mask);
+  const close = () => { if (mask.parentNode) document.body.removeChild(mask); };
+  mask.querySelector('.cancel').onclick = close;
+  mask.addEventListener('mousedown', e => { if (e.target === mask) close(); });
+  mask.querySelector('#r-add').onclick = async () => {
+    const c = mask.querySelector('#r-content').value.trim(); if (!c) return;
+    if (await routineSaveDirect(mask.querySelector('#r-cat').value, c)){ close(); routineSheet(); }
+  };
+  mask.querySelector('#r-import').onclick = async () => { close(); await routineImportNow(); };
+}
+
+// ---- 每月月結對帳(讀 operation_rules;防重:localStorage 當日旗標)----
+async function todoMonthlyOnce(){
+  const me = sMe(); if (!me) return;
+  const key = 'monthlyGen_' + me.id + '_' + sToday();
+  if (localStorage.getItem(key)) return;
+  try {
+    // 我負責的醫院(主祕 OR 副祕)
+    const { data: asg, error: e1 } = await supa.from(STD.assignTable)
+      .select('hospital_id')
+      .or(`primary_secretary_id.eq.${me.id},co_secretary_id.eq.${me.id}`);
+    if (e1) { console.warn('[todo] 月結:讀分區失敗', e1); return; }
+    const ids = [...new Set((asg || []).map(a => a.hospital_id).filter(Boolean))];
+    if (!ids.length){ localStorage.setItem(key, '1'); return; }
+    // 這些醫院的月結日 / 備註
+    const { data: rules, error: e2 } = await supa.from(STD.opRulesTable)
+      .select('hospital_id, monthly_closing_day, monthly_closing_note').in('hospital_id', ids);
+    if (e2) { console.warn('[todo] 月結:讀規則失敗', e2); return; }
+    const due = (rules || []).filter(r => monthlyMatches(r.monthly_closing_day));
+    if (due.length){
+      const dueIds = due.map(r => r.hospital_id);
+      const { data: hosp } = await supa.from(STD.hospTable).select('id, name_short').in('id', dueIds);
+      const nameMap = {}; (hosp || []).forEach(h => { nameMap[h.id] = h.name_short; });
+      const rows = due.map(r => {
+        const nm = nameMap[r.hospital_id] || r.hospital_id;
+        const note = r.monthly_closing_note ? (' — ' + r.monthly_closing_note) : '';
+        return { user_id: me.id, date: sToday(), is_done: false, hospital: nm, action: '(月結對帳)',
+          activities: [{ type: '月結請款', content: `⏰ ${nm}月結對帳${note}` }] };
+      });
+      const { error: e3 } = await supa.from(STD.table).insert(rows);
+      if (e3){ console.warn('[todo] 月結:寫入失敗', e3); return; }
+    }
+  } catch(e){ console.warn('[todo] 月結例外', e); return; }
+  localStorage.setItem(key, '1');
 }
 
 // ---- render ----
@@ -170,15 +353,18 @@ function todoCard(r){
   }
   const needInfo = (isTicket && r.ticket_status === 'need_info' && r.ticket_need_info_note)
     ? `<div class="stodo-meta">⚠ 需補資訊:${sEsc(r.ticket_need_info_note)}</div>` : '';
+  const dueBadge = (!r.is_done && !r.skip_reason) ? deadlineBadge(r) : '';   // 期限 badge 只在待辦段有意義
+  const saveBtn = (routineReady && !isTicket)
+    ? `<button class="stodo-linkbtn" type="button" onclick="todoSaveRoutine('${sEsc(r.row_id)}')">存為例行</button>` : '';
   return `<div class="stodo-card${r.is_done?' is-done':''}" data-todo="${sEsc(r.row_id)}">
     <div class="stodo-top">
       <span class="stodo-cat">${sEsc(r.category || '其他')}</span>
       ${r.hospital && r.hospital !== '未填' ? `<span class="stodo-meta" style="margin:0">${sEsc(r.hospital)}</span>` : ''}
-      ${carriedEl}
+      ${carriedEl}${dueBadge}
     </div>
     <div class="stodo-content">${sEsc(r.content || (isTicket ? r.ticket_title : '') || '(無內容)')}</div>
     ${needInfo}
-    <div class="stodo-foot"><span class="info"></span>${acts}</div>
+    <div class="stodo-foot"><span class="info">${saveBtn}</span>${acts}</div>
   </div>`;
 }
 function sectionHtml(title, cls, rows){
@@ -194,6 +380,10 @@ function renderTodo(){
   const done    = rows.filter(r => r.is_done);
   const pending = rows.filter(r => !r.is_done && !r.skip_reason);
   const skipped = rows.filter(r => r.skip_reason);
+  // 待辦段排序:逾期(g0,最逾期先)> 快到期(g1,最近先)> 無期限(g2,拖最久先)
+  const _rank = r => { const n = todoDeadline(r) ? _daysUntil(todoDeadline(r)) : null;
+    return n === null ? { g:2, k:-(r.carried_days||0) } : { g: n<0?0:1, k:n }; };
+  pending.sort((a,b) => { const ra=_rank(a), rb=_rank(b); return ra.g!==rb.g ? ra.g-rb.g : ra.k-rb.k; });
   const dateStr = new Date().toLocaleDateString('zh-TW', { month:'long', day:'numeric', weekday:'short' });
 
   let body = '';
@@ -209,6 +399,7 @@ function renderTodo(){
       <div class="acts">
         <button class="stodo-btn primary" onclick="todoAdd()">＋ 新增</button>
         <button class="stodo-btn ghost" onclick="todoBatch()">＋ 批次新增</button>
+        ${routineReady ? `<button class="stodo-btn soft" onclick="routineSheet()">🔁 例行清單</button>` : ''}
         <button class="stodo-btn soft" onclick="todoRefreshUI(this)">↻ 重新整理</button>
       </div>
     </div>
@@ -276,16 +467,16 @@ function _parseBatch(text){
 }
 function _insertRows(items){
   const me = sMe(), today = sToday();
-  return items.map(it => ({
-    user_id: me.id, date: today, is_done: false,
-    hospital: '未填', action: '(業秘庶務)',
-    activities: [{ type: it.type || '其他', content: it.content }],
-  }));
+  return items.map(it => {
+    const act = { type: it.type || '其他', content: it.content };
+    if (it.deadline) act.deadline = it.deadline;    // 期限搭 jsonb 便車,不動 schema
+    return { user_id: me.id, date: today, is_done: false, hospital: '未填', action: '(業秘庶務)', activities: [act] };
+  });
 }
 async function todoAdd(){
   const r = await sAddSheet();
   if (!r) return;
-  const { error } = await supa.from(STD.table).insert(_insertRows([{ type: r.type, content: r.content }]));
+  const { error } = await supa.from(STD.table).insert(_insertRows([{ type: r.type, content: r.content, deadline: r.deadline }]));
   if (error){ sToast('新增失敗:' + (error.message||error), 'err'); return; }
   sToast('已新增', 'ok'); await todoRefresh();
 }
@@ -358,13 +549,15 @@ function sAddSheet(){
       <select id="stodo-cat">${_catOptions(false)}</select>
       <label>內容</label>
       <textarea id="stodo-content" rows="3" placeholder="例:淡水馬偕報刀品出貨"></textarea>
+      <label>期限(選填)</label>
+      <input id="stodo-deadline" type="date">
       <div class="row"><button class="cancel" type="button">取消</button><button class="ok" type="button" disabled>加入</button></div></div>`;
     document.body.appendChild(mask);
-    const cat = mask.querySelector('#stodo-cat'), content = mask.querySelector('#stodo-content'), okB = mask.querySelector('.ok');
+    const cat = mask.querySelector('#stodo-cat'), content = mask.querySelector('#stodo-content'), dl = mask.querySelector('#stodo-deadline'), okB = mask.querySelector('.ok');
     let closed = false; const close = v => { if (closed) return; closed = true; document.body.removeChild(mask); resolve(v); };
     content.addEventListener('input', () => { okB.disabled = !content.value.trim(); });
     mask.querySelector('.cancel').onclick = () => close(null);
-    okB.onclick = () => { const c = content.value.trim(); if (!c) return; close({ type: cat.value, content: c }); };
+    okB.onclick = () => { const c = content.value.trim(); if (!c) return; close({ type: cat.value, content: c, deadline: dl.value || null }); };
     mask.addEventListener('mousedown', e => { if (e.target === mask) close(null); });
     setTimeout(() => content.focus(), 0);
   });
