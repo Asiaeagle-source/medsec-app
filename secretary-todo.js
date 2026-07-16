@@ -220,15 +220,28 @@ async function todoSkip(rowId){
 }
 
 // ---- 新增 / 批次(insert schedule_items;first_added_date 由 trigger 補)----
+// 前綴裝飾字元(項目符號 / 勾叉 / emoji / dingbats / 箭頭 / VS16 / ZWJ)
+// 涵蓋 ✅(U+2705,☀-➿)、✓✗✘、★☑、→、🟢🔴 等。
+const _DECOR = '\\-\\*•・\\u2022\\u25AA\\u25CF\\u25A0\\u2705\\u2713\\u2717\\u2718' +
+               '\\u2600-\\u27BF\\u2190-\\u21FF\\u2B00-\\u2BFF\\uFE0F\\u200D' +
+               '\\u{1F000}-\\u{1FAFF}';
+const _DECOR_RE = new RegExp('^[' + _DECOR + '\\s]+', 'u');
 function _cleanLine(raw){
-  let s = (raw || '').trim();
+  let s = (raw || '').replace(/﻿/g, '').trim();   // 去 BOM
   if (!s) return null;
-  s = s.replace(/^[\-\*•・\.\)、，,]\s*/, '');   // 前綴符號 - * • ・ . ) 、 ,
-  s = s.replace(/^[✓✗✘]\s*/, '');                  // 前綴 ✓ ✗ ✘
-  s = s.replace(/^[\u{1F300}-\u{1FAFF}]\s*/u, '');                // 前綴 emoji
-  s = s.replace(/^\d+[\.\)、]\s*/, '');                       // 前綴 1. 1) 1、
+  s = s.replace(_DECOR_RE, '');                          // 前綴裝飾(可多個疊在一起)
+  s = s.replace(/^[\.\)、，,]\s*/, '');                  // 前綴標點 . ) 、 ,
+  s = s.replace(/^\d+[\.\)、]\s*/, '');                  // 前綴 1. 1) 1、
+  s = s.replace(_DECOR_RE, '');                          // 標點後可能又是裝飾,再刮一次
   s = s.trim();
   return s || null;
+}
+// 拆行:相容 \r\n / \r / \n 三種換行,逐行清乾淨
+function _parseBatch(text){
+  return String(text == null ? '' : text)
+    .split(/\r\n|\r|\n/)
+    .map(_cleanLine)
+    .filter(Boolean);
 }
 function _insertRows(items){
   const me = sMe(), today = sToday();
@@ -248,7 +261,7 @@ async function todoAdd(){
 async function todoBatch(){
   const r = await sBatchSheet();
   if (!r) return;
-  const lines = r.text.split('\n').map(_cleanLine).filter(Boolean);
+  const lines = _parseBatch(r.text);
   if (!lines.length){ sToast('沒有可新增的行', 'err'); return; }
   const type = r.type || '其他';
   const { data, error } = await supa.from(STD.table).insert(_insertRows(lines.map(content => ({ type, content })))).select('id');
@@ -336,7 +349,7 @@ function sBatchSheet(){
     document.body.appendChild(mask);
     const ta = mask.querySelector('#stodo-batch'), cat = mask.querySelector('#stodo-bcat'), okB = mask.querySelector('.ok');
     let closed = false; const close = v => { if (closed) return; closed = true; document.body.removeChild(mask); resolve(v); };
-    const upd = () => { const n = ta.value.split('\n').map(_cleanLine).filter(Boolean).length; okB.disabled = n === 0; okB.textContent = n ? `加入 ${n} 條` : '加入'; };
+    const upd = () => { const n = _parseBatch(ta.value).length; okB.disabled = n === 0; okB.textContent = n ? `加入 ${n} 條` : '加入'; };
     ta.addEventListener('input', upd);
     mask.querySelector('.cancel').onclick = () => close(null);
     okB.onclick = () => { if (!ta.value.trim()) return; close({ text: ta.value, type: cat.value }); };
