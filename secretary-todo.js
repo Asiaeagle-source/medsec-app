@@ -76,6 +76,10 @@ function sInjectCss(){
   .stodo-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1d2330;color:#fff;font-size:13px;padding:10px 18px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:90;opacity:0;pointer-events:none;transition:opacity .2s;max-width:80vw;text-align:center}
   .stodo-toast.show{opacity:1}
   .stodo-toast.err{background:#b3261e}.stodo-toast.ok{background:#1a7f45}
+  @keyframes stodo-spin{to{transform:rotate(360deg)}}
+  .stodo-spin{display:inline-block;animation:stodo-spin .7s linear infinite}
+  @keyframes stodo-flash{0%{background:#fff7d6;box-shadow:0 0 0 3px #ffd76a}70%{background:#fff7d6}100%{background:#fff;box-shadow:none}}
+  .stodo-card.stodo-flash{animation:stodo-flash 2.2s ease}
   `;
   const el = document.createElement('style'); el.id = 'stodo-css'; el.textContent = css;
   document.head.appendChild(el);
@@ -107,6 +111,16 @@ async function loadTodos(){
   TSTATE.rows = data || [];
 }
 async function todoRefresh(){ await loadTodos(); renderTodo(); }
+// 使用者手動點「重新整理」:轉圈 + 完成後 toast「已更新」(讓使用者知道有動作)
+let _todoRefreshing = false;
+async function todoRefreshUI(btn){
+  if (_todoRefreshing) return;
+  _todoRefreshing = true;
+  if (btn){ btn.disabled = true; btn.innerHTML = '<span class="stodo-spin">↻</span> 更新中…'; }
+  try { await loadTodos(); }
+  finally { _todoRefreshing = false; renderTodo(); }   // renderTodo 會重建按鈕(還原狀態)
+  sToast('已更新', 'ok');
+}
 
 // 首次進模組:carry-over → 載入 → render(共用 promise 防重入)
 function ensureTodoModule(){
@@ -195,10 +209,27 @@ function renderTodo(){
       <div class="acts">
         <button class="stodo-btn primary" onclick="todoAdd()">＋ 新增</button>
         <button class="stodo-btn ghost" onclick="todoBatch()">＋ 批次新增</button>
-        <button class="stodo-btn soft" onclick="todoRefresh()">↻ 重新整理</button>
+        <button class="stodo-btn soft" onclick="todoRefreshUI(this)">↻ 重新整理</button>
       </div>
     </div>
     ${body}`;
+}
+
+// 送出後定位:捲到該筆並短暫高亮;找不到該筆(view 表述差異)則退回捲到「完成」區
+function todoHighlight(rowId){
+  requestAnimationFrame(() => {
+    let card = null;
+    if (rowId){ try { card = document.querySelector(`.stodo-card[data-todo="${String(rowId).replace(/"/g,'\\"')}"]`); } catch(_){} }
+    if (card){
+      card.scrollIntoView({ behavior:'smooth', block:'center' });
+      card.classList.remove('stodo-flash'); void card.offsetWidth;   // reflow 重觸動畫
+      card.classList.add('stodo-flash');
+      setTimeout(() => card.classList.remove('stodo-flash'), 2400);
+    } else {
+      const doneH = document.querySelector('.stodo-sec-h.done');
+      if (doneH) doneH.scrollIntoView({ behavior:'smooth', block:'center' });
+    }
+  });
 }
 
 // ---- 完成 / 沒跑(純 schedule,直寫 is_done / skip_reason;RLS 保護)----
@@ -274,13 +305,15 @@ async function todoTicketProgress(ticketId){
   const note = await sAskText({ title:'記今日進度', label:'今天做了什麼(記日誌,不動工單狀態)', placeholder:'例:已提供健保報價單,待客戶回覆…', required:true });
   if (note === undefined) return;
   const me = sMe();
-  const { error } = await supa.from(STD.table).insert({
+  const { data, error } = await supa.from(STD.table).insert({
     user_id: me.id, date: sToday(), is_done: true, done_at: new Date().toISOString(),
     hospital: '未填', action: '(業秘處理工單)', ticket_id: ticketId,
     activities: [{ type: '其他', content: '今日進度:' + note }],
-  });
+  }).select('id');
   if (error){ sToast('記錄失敗:' + (error.message||error), 'err'); return; }
-  sToast('已記今日進度', 'ok'); await todoRefresh();
+  sToast('已記錄今日進度(見完成區)', 'ok');
+  await todoRefresh();
+  todoHighlight(data && data[0] ? data[0].id : null);   // 捲到該筆並高亮,讓使用者知道去哪了
 }
 async function todoTicketResolve(ticketId, seq){
   const note = await sAskText({ title:`結案工單${seq?' #'+seq:''}`, label:'結案說明 ＊(業務會看到)', placeholder:'例:已提供健保報價單,價格如附…', required:true });
