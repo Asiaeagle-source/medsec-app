@@ -34,13 +34,14 @@ let routineReady = false;   // medsec_secretary_routines 是否可用(Lynn 建�
 
 function sToday(){ return new Date().toISOString().slice(0, 10); }
 function _todayDate(){ const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
-// 讀期限:activities[0].deadline(jsonb 搭便車)為主,退回 r.deadline
+// 讀期限:優先讀 view 統一 deadline 欄(schedule=activities[0].deadline / ticket=due_date;
+// 工單條目因此免費獲得期限標示),退回 activities[0].deadline。
 function todoDeadline(r){
   if (!r) return null;
+  if (r.deadline) return String(r.deadline).slice(0, 10);
   let a = r.activities;
   if (typeof a === 'string'){ try { a = JSON.parse(a); } catch(_){ a = null; } }
   if (Array.isArray(a) && a[0] && a[0].deadline) return String(a[0].deadline).slice(0, 10);
-  if (r.deadline) return String(r.deadline).slice(0, 10);
   return null;
 }
 // 距今天數(本地日,不含時分);逾期為負
