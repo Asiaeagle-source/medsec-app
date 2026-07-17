@@ -24,7 +24,7 @@
 | `storage_path` | text | bucket 內路徑;skipped(非白名單)為 null |
 | `file_kind` | text | `csv` / `xlsx` / `pdf` / `pdf_scanned` / `other` |
 | `parse_status` | text | `ok` / `scanned_needs_manual` / `failed` / `skipped` |
-| `items` | jsonb | 解析出的品項陣列 |
+| `parsed_items` | jsonb | 解析出的品項陣列 |
 | `parse_error` | text | 失敗原因(AI 回應無法解析時存原始回應前 500 字) |
 | `size_bytes` | int | 附件大小 |
 | `content_type` | text | MIME |

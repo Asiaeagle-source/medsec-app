@@ -182,7 +182,7 @@ async function uploadToStorage(path, buffer, contentType) {
 }
 
 // ---- mail_attachments upsert(service role;on_conflict (mail_digest_id, filename) 防重跑重複)----
-const ATT_KEYS = ["mail_digest_id","filename","storage_path","file_kind","parse_status","items","parse_error","size_bytes","content_type"];
+const ATT_KEYS = ["mail_digest_id","filename","storage_path","file_kind","parse_status","parsed_items","parse_error","size_bytes","content_type"];
 async function upsertAttachment(row) {
   const obj = {}; for (const k of ATT_KEYS) obj[k] = row[k] !== undefined ? row[k] : null;
   const res = await fetch(
@@ -224,7 +224,7 @@ async function processMailAttachments(token, messageId, digestId, stats) {
     // 非白名單副檔名 → 記錄一列 skipped(不上傳、不解析)
     if (!ALLOWED_EXT.includes(ext)) {
       await upsertAttachment({ mail_digest_id: digestId, filename, storage_path: null, file_kind: "other",
-        parse_status: "skipped", items: [], parse_error: null, size_bytes: att.size ?? null, content_type: att.contentType || null });
+        parse_status: "skipped", parsed_items: [], parse_error: null, size_bytes: att.size ?? null, content_type: att.contentType || null });
       continue;
     }
 
@@ -238,7 +238,7 @@ async function processMailAttachments(token, messageId, digestId, stats) {
     await upsertAttachment({
       mail_digest_id: digestId, filename, storage_path: path,
       file_kind: parsed.file_kind, parse_status: parsed.parse_status,
-      items: parsed.items || [], parse_error: parsed.parse_error || null,
+      parsed_items: parsed.items || [], parse_error: parsed.parse_error || null,
       size_bytes: att.size ?? buffer.length, content_type: att.contentType || null,
     });
   }
