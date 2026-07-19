@@ -116,6 +116,7 @@
     .anno .knife{color:#7c4a03;background:var(--amber-bg);padding:0 6px;border-radius:6px;font-weight:600;cursor:help}
     .sps-code{color:#8b94a3}
     .sps-tag{font-size:10px;background:#eef0f4;color:#6b7280;padding:0 5px;border-radius:5px;margin-left:4px;vertical-align:1px}
+    .ptab td.hospcode{color:#6b7280;font-size:11.8px}
     /* PR B-D:醫院規則側欄(桌機浮右、窄幅摺疊區) */
     .rulepanel{display:none;margin-top:9px;background:#fbfcfe;border:1px solid #dbe7f5;border-radius:10px;padding:11px 13px;font-size:12.5px}
     .rulepanel.open{display:block}
@@ -509,7 +510,9 @@ function copyAttAll(attId){
 function itemsTableHtml(a){
   const items = attItems(a);
   const hid = attHospitalId(a);
-  const head = '<tr><th>品號</th><th>品名</th><th>數量</th><th>單位</th><th>合約/案號</th><th>交期</th><th></th></tr>';
+  // 院內碼欄(材料編號;奇美系):任一品項有值才長這欄
+  const hasHosp = items.some(it => it && it.hospital_item_code);
+  const head = `<tr><th>品號</th>${hasHosp ? '<th>院內碼</th>' : ''}<th>品名</th><th>數量</th><th>單位</th><th>合約/案號</th><th>交期</th><th></th></tr>`;
   const rows = items.map((it, i) => {
     const ann = annotateItem(it, hid);
     const codeCell = String(it.item_code || '').trim()
@@ -520,7 +523,7 @@ function itemsTableHtml(a){
       ann.knife    ? `<span class="knife" title="請截圖給業務催報刀">🔪 報刀品</span>` : '',
     ].filter(Boolean).join('');
     return `<tr class="${it.confidence === 'low' ? 'low' : ''}">
-    <td>${codeCell}</td><td class="wrap">${esc(it.item_name)}${annos ? `<div class="anno">${annos}</div>` : ''}</td><td>${esc(it.qty)}</td>
+    <td>${codeCell}</td>${hasHosp ? `<td class="hospcode">${esc(it.hospital_item_code || '')}</td>` : ''}<td class="wrap">${esc(it.item_name)}${annos ? `<div class="anno">${annos}</div>` : ''}</td><td>${esc(it.qty)}</td>
     <td>${esc(it.unit)}</td><td>${esc(it.contract_no)}</td><td>${esc(it.delivery_date)}</td>
     <td><button class="x-btn" onclick="copyAttRow('${esc(a.id)}',${i})">複製</button></td></tr>`;
   }).join('');
