@@ -4,6 +4,19 @@
 
 import { classifyMail } from "../../supabase/functions/mail-triage/rules.js";
 // ↑ 路徑對齊 repo 裡 rules.js (classifyMail) 的實際位置, 不對就改這行
+import { parseAttachment, storageSafeName, extOf, ALLOWED_EXT } from "./attachment-parser.js";
+
+const ATTACH_BUCKET = "mail-attachments";
+const MAX_ATT_BYTES = 10 * 1024 * 1024;   // 10MB 上限
+const PER_MAIL_TIMEOUT_MS = 20000;         // 單信附件處理逾時 → 標 failed 跳過
+
+// 逾時包裝:超過 ms 直接 reject,呼叫端 catch 後計 failed、不中斷主 triage。
+function withTimeout(promise, ms, label = "timeout") {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} ${ms}ms`)), ms);
+    promise.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
 
 // ---- 1. 拿 Graph access token (client credentials) ----
 async function getGraphToken() {
@@ -33,10 +46,13 @@ async function fetchNewMail(token, folderId, sinceISO) {
   const url =
     `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/${folderId}/messages` +
     `?$filter=receivedDateTime ge ${sinceISO}` +
-    `&$select=id,subject,from,receivedDateTime,bodyPreview` +
+    `&$select=id,subject,from,receivedDateTime,bodyPreview,body,webLink,hasAttachments` +
     `&$top=100&$orderby=receivedDateTime desc`;
 
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  // Prefer: 取純文字 body(不要 HTML),body.content 直接是 plain text。
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text"' },
+  });
   const data = await res.json();
   if (!data.value) throw new Error("Graph 抓信失敗: " + JSON.stringify(data));
 
@@ -47,6 +63,9 @@ async function fetchNewMail(token, folderId, sinceISO) {
     senderName: m.from?.emailAddress?.name || "",
     senderEmail: m.from?.emailAddress?.address || "",
     snippet: (m.bodyPreview || "").slice(0, 400),
+    bodyText: (m.body?.content || m.bodyPreview || "").slice(0, 10000),   // 純文字全文(截 10000)
+    webLink: m.webLink || null,                                          // OWA 開信連結(PR B「開啟原信」用)
+    hasAttachments: !!m.hasAttachments,
   }));
 }
 
@@ -84,6 +103,9 @@ const DIGEST_KEYS = [
   "deadline",
   "hospital_id",
   "assigned_to",   // v3:rules 給 employee_id 字串 → 寫入前由 employeeIdToUuid map 轉成 profiles.id (uuid);客戶→null 由 hospital_id 帶業秘
+  "body_text",     // PR A:純文字全文(截 10000)
+  "web_link",      // PR A:OWA 開信連結
+  "needs_reply",   // PR A:是否需回覆
 ];
 function normalizeDigest(row) {
   const out = {};
@@ -121,10 +143,50 @@ function resolveAssignedTo(row, empMap) {
   return row;
 }
 
-async function upsertDigest(rows) {
-  if (!rows.length) return 0;
+// ---- upsert 回傳(拿 mail_digest.id 對 graph_message_id,附件寫入要用)----
+async function upsertDigestReturning(rows) {
+  if (!rows.length) return [];
   const res = await fetch(
-    `${process.env.SUPABASE_URL}/rest/v1/mail_digest?on_conflict=graph_message_id`,
+    `${process.env.SUPABASE_URL}/rest/v1/mail_digest?on_conflict=graph_message_id&select=id,graph_message_id`,
+    {
+      method: "POST",
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=representation",
+      },
+      body: JSON.stringify(rows),
+    }
+  );
+  if (!res.ok) throw new Error("寫入 Supabase 失敗: " + (await res.text()));
+  return await res.json();   // [{ id, graph_message_id }]
+}
+
+// ---- 附件上傳 private bucket(service role;x-upsert 讓 cron 重跑覆蓋同檔)----
+async function uploadToStorage(path, buffer, contentType) {
+  const res = await fetch(
+    `${process.env.SUPABASE_URL}/storage/v1/object/${ATTACH_BUCKET}/${encodeURI(path)}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        "Content-Type": contentType || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: buffer,
+    }
+  );
+  if (!res.ok) throw new Error("storage 上傳失敗: " + res.status + " " + (await res.text()));
+}
+
+// ---- mail_attachments upsert(service role;on_conflict (mail_digest_id, filename) 防重跑重複)----
+const ATT_KEYS = ["mail_digest_id","filename","storage_path","file_kind","parse_status","parsed_items","parse_error","size_bytes","content_type","parsed_at"];
+async function upsertAttachment(row) {
+  const obj = {}; for (const k of ATT_KEYS) obj[k] = row[k] !== undefined ? row[k] : null;
+  const res = await fetch(
+    `${process.env.SUPABASE_URL}/rest/v1/mail_attachments?on_conflict=mail_digest_id,filename`,
     {
       method: "POST",
       headers: {
@@ -133,11 +195,121 @@ async function upsertDigest(rows) {
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates,return=minimal",
       },
-      body: JSON.stringify(rows),
+      body: JSON.stringify([obj]),
     }
   );
-  if (!res.ok) throw new Error("寫入 Supabase 失敗: " + (await res.text()));
-  return rows.length;
+  if (!res.ok) throw new Error("mail_attachments upsert 失敗: " + (await res.text()));
+}
+
+// ---- 分段續作查詢(視窗內已入庫的信 → 跳過重分類;已寫入的附件列 → 逐附件跳過)----
+// ⚠️ PostgREST/Supabase 有 max-rows 上限(預設 1000):URL 上的 limit 會被砍頭,
+//    砍掉的信每輪被重新分類 → remaining 永不歸零、AI 空轉。一律走 Range header
+//    分頁撈全(短頁即最後一頁);查詢帶穩定 order 保證分頁不重不漏。
+async function pgFetchAll(pathQuery, pageSize = 1000, maxPages = 30) {
+  const out = [];
+  for (let page = 0; page < maxPages; page++) {
+    const off = page * pageSize;
+    const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${pathQuery}`, {
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        "Range-Unit": "items",
+        Range: `${off}-${off + pageSize - 1}`,
+      },
+    });
+    if (!res.ok) throw new Error("pgFetchAll 失敗(" + pathQuery.slice(0, 60) + "): " + (await res.text()));
+    const rows = await res.json();
+    out.push(...rows);
+    if (rows.length < pageSize) break;   // 短頁 = 最後一頁
+  }
+  return out;
+}
+async function fetchExistingDigests(sinceISO) {
+  return pgFetchAll(
+    `mail_digest?select=id,graph_message_id,priority&received_at=gte.${encodeURIComponent(sinceISO)}&order=received_at.asc,id.asc`
+  );   // [{ id, graph_message_id, priority }]
+}
+async function fetchExistingAttachmentRows(digestIds) {
+  const out = [];
+  for (let i = 0; i < digestIds.length; i += 40) {          // uuid 短,40 個一批 URL 安全
+    const chunk = digestIds.slice(i, i + 40);
+    try {
+      out.push(...await pgFetchAll(
+        `mail_attachments?select=mail_digest_id,filename&mail_digest_id=in.(${chunk.join(",")})&order=mail_digest_id.asc,filename.asc`
+      ));
+    } catch (_) { /* 查不到就當沒做過(重做冪等,x-upsert 覆蓋) */ }
+  }
+  return out;   // [{ mail_digest_id, filename }]
+}
+const attKey = (digestId, filename) => digestId + " " + filename;
+
+// 拉某封信的附件並逐一入庫 + 解析。stats 就地累加(found/parsed/scanned/failed)。
+// doneSet:已有 mail_attachments 列的 (digestId, filename) → 跳過(斷點續作)。
+// 逐附件 try/catch:單一附件炸(上傳/解析/寫入)只計該附件 failed +
+// 記 {filename, stage, error} 進 stats.errors(回傳給呼叫端看死因),
+// 並盡力寫一列 failed 留痕(upsert 本身炸才放棄);不連坐同信其他附件。
+async function processMailAttachments(token, messageId, digestId, stats, doneSet) {
+  const mailbox = process.env.GRAPH_MAILBOX;
+  const url = `https://graph.microsoft.com/v1.0/users/${mailbox}/messages/${messageId}/attachments`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  if (!Array.isArray(data.value)) {
+    stats.errors.push({ filename: "(attachment list)", stage: "graph_fetch", error: JSON.stringify(data).slice(0, 300) });
+    return;
+  }
+
+  for (const att of data.value) {
+    // 只處理檔案附件;略過 inline(簽名圖等)與 >10MB
+    if (att["@odata.type"] && !/fileAttachment/i.test(att["@odata.type"])) continue;
+    if (att.isInline) continue;
+    if (typeof att.size === "number" && att.size > MAX_ATT_BYTES) continue;
+
+    const filename = att.name || "attachment";
+    if (doneSet && doneSet.has(attKey(digestId, filename))) continue;   // 前一發已入庫 → 續作跳過
+
+    stats.found++;
+    const ext = extOf(filename);
+    const safe = storageSafeName(filename);   // 全 ASCII key(中文檔名會 InvalidKey);原始檔名照存 DB filename 欄
+    const path = `${digestId}/${safe}`;
+    let stage = "start";
+    try {
+      // 非白名單副檔名 → 記錄一列 skipped(不上傳、不解析)
+      if (!ALLOWED_EXT.includes(ext)) {
+        stage = "db_upsert";
+        await upsertAttachment({ mail_digest_id: digestId, filename, storage_path: null, file_kind: "other",
+          parse_status: "skipped", parsed_items: [], parse_error: null, size_bytes: att.size ?? null, content_type: att.contentType || null });
+        continue;
+      }
+
+      const buffer = Buffer.from(att.contentBytes || "", "base64");
+      stage = "storage_upload";
+      await uploadToStorage(path, buffer, att.contentType);          // 原檔進 bucket
+      stage = "parse";
+      const parsed = await parseAttachment({ buffer, filename });    // 解析品項(內部不 throw,失敗回 parse_status)
+      if (parsed.parse_status === "ok") stats.parsed++;
+      else if (parsed.parse_status === "scanned_needs_manual") stats.scanned++;
+      else if (parsed.parse_status === "failed") stats.failed++;
+
+      stage = "db_upsert";
+      await upsertAttachment({
+        mail_digest_id: digestId, filename, storage_path: path,
+        file_kind: parsed.file_kind, parse_status: parsed.parse_status,
+        parsed_items: parsed.items || [], parse_error: parsed.parse_error || null,
+        size_bytes: att.size ?? buffer.length, content_type: att.contentType || null,
+        parsed_at: new Date().toISOString(),   // 解析完成時間(ok/scanned/failed 皆填;skipped 與上傳前失敗留 null)
+      });
+    } catch (e) {
+      stats.failed++;
+      const msg = String((e && e.message) || e).slice(0, 300);
+      stats.errors.push({ filename, stage, error: msg });
+      // 盡力留痕:失敗也寫一列 failed(帶 [stage])。stage=db_upsert 時多半也會炸,catch 掉。
+      try {
+        await upsertAttachment({ mail_digest_id: digestId, filename, storage_path: null,
+          file_kind: ext.replace(".", "") || "other", parse_status: "failed", parsed_items: [],
+          parse_error: `[${stage}] ${msg}`, size_bytes: att.size ?? null, content_type: att.contentType || null });
+      } catch (_) {}
+    }
+  }
 }
 
 // ---- 主入口 ----
@@ -145,6 +317,7 @@ export default async function handler(req, res) {
   if (req.headers["authorization"] !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: "unauthorized" });
   }
+  const t0 = Date.now();   // 時間預算基準(BUDGET_MS 軟上限,60s 硬限前收尾)
   try {
     // 啟動時平行拉:Graph token + profiles 員編→uuid map(後面 assigned_to 用)
     const [token, empMap] = await Promise.all([
@@ -183,16 +356,30 @@ export default async function handler(req, res) {
     }
     const mails = [...merged.values()];
 
-    const rows = [];
-    for (const mail of mails) {
+    // ---- 分段參數:時間預算(50 秒軟上限,60 秒硬限前收尾)+ ?limit=N(每發最多處理 N 封)----
+    // 打到 remaining=0 / partial=false 即補掃完成;同指令重打 = 續作(冪等)。
+    const limitRaw = Number(req.query?.limit);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : Infinity;
+    const BUDGET_MS = 50000;
+    const timeLeft = () => BUDGET_MS - (Date.now() - t0);
+
+    // 視窗內已入庫的信 → 跳過重分類(最貴的逐信 AI 只做新信;歷史信不回填,對齊規格)
+    const existing = await fetchExistingDigests(since);
+    const existByGraph = new Map(existing.map((d) => [d.graph_message_id, d]));
+    const toClassify = mails.filter((m) => !existByGraph.has(m.graphMessageId));
+
+    // 分類(新信 only;預算/上限內逐封)
+    const classified = [];
+    let classifyRemaining = 0;
+    for (const mail of toClassify) {
+      if (classified.length >= limit || timeLeft() < 8000) { classifyRemaining++; continue; }
       try {
-        const r = await classifyMail(mail);
-        resolveAssignedTo(r, empMap);   // 員編 → uuid;查不到落 null
-        rows.push(normalizeDigest(r));
+        const r = await classifyMail(mail);   // 已含 body_text / web_link / needs_reply
+        resolveAssignedTo(r, empMap);         // 員編 → uuid;查不到落 null
+        classified.push({ mail, row: normalizeDigest(r), priority: r.priority });
       } catch (e) {
-        // 分類失敗 → 落到 fallback,仍然走 normalizeDigest 補齊空欄,
-        // 確保跟成功路徑 key 集合一致(避免 PGRST102)。
-        rows.push(normalizeDigest({
+        // 分類失敗 → 落到 fallback,仍走 normalizeDigest 補齊空欄(key 集合一致,避免 PGRST102)。
+        const row = normalizeDigest({
           graph_message_id: mail.graphMessageId,
           received_at: mail.receivedAt,
           sender_email: mail.senderEmail,
@@ -201,12 +388,58 @@ export default async function handler(req, res) {
           ai_summary: "(分類失敗, 請人工確認)",
           priority: "amber",
           category: "其他",
-          // flag_reason / deadline / hospital_id / assigned_to 由 normalizeDigest 補 null
-        }));
+          body_text: mail.bodyText ? String(mail.bodyText).slice(0, 10000) : null,
+          web_link: mail.webLink || null,
+          needs_reply: false,
+        });
+        classified.push({ mail, row, priority: "amber" });
       }
     }
-    const n = await upsertDigest(rows);
-    return res.status(200).json({ scanned: mails.length, written: n, since, days, folders: folderStats });
+
+    // upsert 並取回 id(附件寫入要對 mail_digest_id)
+    const digestRows = classified.length ? await upsertDigestReturning(classified.map((c) => c.row)) : [];
+    const idByGraph = new Map(digestRows.map((d) => [d.graph_message_id, d.id]));
+
+    // 附件候選 = order 桶(本發新分類 ∪ 視窗內既有 order 信),hasAttachments=false 直接排除
+    const candidates = [];
+    for (const c of classified) {
+      if (c.priority === "order" && c.mail.hasAttachments !== false && idByGraph.get(c.mail.graphMessageId))
+        candidates.push({ graphId: c.mail.graphMessageId, digestId: idByGraph.get(c.mail.graphMessageId) });
+    }
+    for (const m of mails) {
+      const ex = existByGraph.get(m.graphMessageId);
+      if (ex && ex.priority === "order" && m.hasAttachments !== false)
+        candidates.push({ graphId: m.graphMessageId, digestId: ex.id });
+    }
+
+    // 已寫入的附件列 → 逐附件跳過(斷點續作;x-upsert + on_conflict 保冪等)
+    const doneRows = candidates.length ? await fetchExistingAttachmentRows(candidates.map((c) => c.digestId)) : [];
+    const doneSet = new Set(doneRows.map((r) => attKey(r.mail_digest_id, r.filename)));
+
+    // 附件:預算內逐信處理;單信 20 秒逾時標 failed 跳過,任何失敗不中斷主 triage。
+    const att = { found: 0, parsed: 0, scanned: 0, failed: 0, errors: [] };
+    let attProcessed = 0, attRemaining = 0;
+    for (const c of candidates) {
+      if (attProcessed >= limit || timeLeft() < 22000) { attRemaining++; continue; }   // 留 20s 單信上限 + 收尾
+      attProcessed++;
+      try {
+        await withTimeout(processMailAttachments(token, c.graphId, c.digestId, att, doneSet), PER_MAIL_TIMEOUT_MS, "單信附件逾時");
+      } catch (e) {
+        att.failed++;   // 逾時或整段失敗 → 標 failed 跳過,不影響其他信
+        att.errors.push({ filename: "(mail " + c.digestId + ")", stage: "mail_timeout", error: String((e && e.message) || e).slice(0, 300) });
+      }
+    }
+
+    const remaining = { to_classify: classifyRemaining, attachment_mails: attRemaining };
+    return res.status(200).json({
+      scanned: mails.length, existing: existing.length, classified: classified.length,
+      written: digestRows.length, since, days, folders: folderStats,
+      attachments_found: att.found, parsed: att.parsed, scanned_needs_manual: att.scanned, attachments_failed: att.failed,
+      attachment_mails_processed: attProcessed,
+      errors: att.errors.slice(0, 3),   // 前 3 筆失敗樣本 {filename, stage, error}(不落地也看得到死因)
+      remaining, partial: (remaining.to_classify + remaining.attachment_mails) > 0,
+      budget_ms_used: Date.now() - t0,
+    });
   } catch (e) {
     return res.status(500).json({ error: String(e) });
   }

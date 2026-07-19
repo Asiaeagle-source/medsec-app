@@ -2,5 +2,8 @@
   "crons": [
     { "path": "/api/cron/mail-triage", "schedule": "30 0 * * *" },
     { "path": "/api/cron/mail-triage", "schedule": "30 6 * * *" }
-  ]
+  ],
+  "functions": {
+    "api/cron/mail-triage.js": { "maxDuration": 60 }
+  }
 }
