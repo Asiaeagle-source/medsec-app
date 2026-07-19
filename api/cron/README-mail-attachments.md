@@ -46,3 +46,12 @@
 - Parser 15/15:big5 CSV、XLSX 異名欄、mapHeaders、extractJsonArray 容錯(圍欄/雜訊/壞回應)、sanitize、非白名單 skipped、AI 抽取。
 - Rules 18/18:needsReply 各 hint 與 gray/通知排除、classifyMail body_text 截斷/web_link 透傳/needs_reply。
 - Handler 12/12:只對 order 拉附件、inline 不計、parsed/failed 統計、storage path、skipped 記錄、壞 PDF failed 不中斷。
+
+## 8. 分段補掃 / 續作(Hobby 60 秒限制對策;正式排程同用)
+- **時間預算**:單發 50 秒軟上限(分類階段剩 <8s、附件階段剩 <22s 不再開新工),60 秒硬限前收尾回傳。
+- **`?limit=N`**(選用):每發最多分類 N 封 + 附件處理 N 封;不帶則由預算主導。
+- **續作**:視窗內已入庫的信跳過重分類(歷史信不回填,對齊規格);order 信附件以
+  `(mail_digest_id, filename)` 對照既有列逐附件跳過。**同指令重打即續作**(全冪等)。
+- **回傳**:`existing / classified / attachment_mails_processed / remaining{to_classify, attachment_mails} / partial / budget_ms_used`。
+  補掃打到 `partial=false`(remaining 全 0)即完成。
+- 正式排程(days=1)增量小,通常一發跑完;首跑/補掃用 `?days=N` 連打數發即可。
