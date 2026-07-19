@@ -18,6 +18,8 @@
 // 保持頂層無依賴,方便單元測試。
 // ============================================================
 
+// TODO(V2.3 寄賣對帳):.txt 加入白名單當 CSV 解析(big5→utf8 同邏輯)——
+// 高雄榮總每日消耗檔是 tab/逗號分隔 .txt,是寄賣對帳的天然資料源。
 export const ALLOWED_EXT = [".csv", ".xlsx", ".xls", ".pdf"];
 
 // ---- lazy loaders(靜態 specifier;快取 promise,一次載入)----
@@ -47,6 +49,23 @@ export function sanitizeFilename(name) {
   s = s.replace(/\s+/g, "_").replace(/_+/g, "_").replace(/^[_.]+|[_.]+$/g, "");
   if (!s) s = "file";
   return s.slice(0, 180);
+}
+// Storage 專用 key:全 ASCII(Supabase storage key 帶中文會 InvalidKey)。
+// 規則:base 去非 ASCII 後保留殘餘;曾含非 ASCII(或殘餘為空)則綴上
+// 原始檔名的 hash8 保唯一;副檔名保留(小寫)。同名必得同 key —— deterministic,
+// 重跑 x-upsert 覆蓋同檔。原始中文檔名照存 DB filename 欄供顯示,不受影響。
+export function storageSafeName(name) {
+  const raw = String(name == null ? "" : name).normalize("NFC");
+  const ext = extOf(raw);                                        // ".pdf"(小寫)
+  const base = ext ? raw.slice(0, raw.length - ext.length) : raw;
+  let ascii = base.replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/_+/g, "_").replace(/^[_.]+|[_.]+$/g, "").slice(0, 80);
+  const needHash = /[^\x00-\x7F]/.test(raw) || !ascii;
+  if (!needHash) return ascii + ext;
+  let h = 5381;                                                  // djb2 over 原始檔名
+  for (let i = 0; i < raw.length; i++) h = ((h * 33) ^ raw.charCodeAt(i)) >>> 0;
+  const h8 = h.toString(16).padStart(8, "0");
+  return (ascii ? ascii + "_" : "") + h8 + ext;
 }
 
 // ---- 欄位關鍵字對映 ----

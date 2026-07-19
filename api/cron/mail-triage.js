@@ -4,7 +4,7 @@
 
 import { classifyMail } from "../../supabase/functions/mail-triage/rules.js";
 // ↑ 路徑對齊 repo 裡 rules.js (classifyMail) 的實際位置, 不對就改這行
-import { parseAttachment, sanitizeFilename, extOf, ALLOWED_EXT } from "./attachment-parser.js";
+import { parseAttachment, storageSafeName, extOf, ALLOWED_EXT } from "./attachment-parser.js";
 
 const ATTACH_BUCKET = "mail-attachments";
 const MAX_ATT_BYTES = 10 * 1024 * 1024;   // 10MB 上限
@@ -251,7 +251,7 @@ async function processMailAttachments(token, messageId, digestId, stats, doneSet
 
     stats.found++;
     const ext = extOf(filename);
-    const safe = sanitizeFilename(filename);
+    const safe = storageSafeName(filename);   // 全 ASCII key(中文檔名會 InvalidKey);原始檔名照存 DB filename 欄
     const path = `${digestId}/${safe}`;
     let stage = "start";
     try {
