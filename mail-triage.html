@@ -76,6 +76,40 @@
     .mt-toast.show{opacity:1}
     .mt-toast.err{background:#b3261e}
     .mt-toast.ok{background:var(--green)}
+    /* PR B:全文 / 需回覆 / 開啟原信 / 附件並排核對 */
+    .badges .b.reply{background:#e8f1ff;color:var(--blue);font-weight:600}
+    .mt-x-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
+    .x-btn{display:inline-block;font-size:12px;font-family:inherit;border-radius:8px;padding:5px 11px;cursor:pointer;border:1px solid #dfe3ea;background:#f8f9fc;color:#475569;font-weight:600;text-decoration:none}
+    .x-btn:hover{background:#eef0f4}
+    .x-btn.primary{color:var(--blue);background:#eef4ff;border-color:#d3e0fb}
+    .x-btn.primary:hover{background:#dfeaff}
+    .bodyfold{display:none;margin-top:9px;background:#f8f9fc;border:1px solid #eceef3;border-radius:9px;padding:11px 13px;font-size:12.8px;color:#334155;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto}
+    .bodyfold.open{display:block}
+    .attlist{margin-top:10px;border-top:1px dashed #e2e5ec;padding-top:9px}
+    .attrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:#334155;padding:5px 4px;border-radius:7px;cursor:pointer}
+    .attrow:hover{background:#f6f7fa}
+    .attrow .fn{font-weight:600}
+    .attrow .n{color:#8b94a3;font-size:11.5px}
+    .ab{font-size:11px;padding:1px 8px;border-radius:7px;font-weight:600}
+    .ab.kind{background:#eef0f4;color:#6b7280;font-weight:500}
+    .ab.ok{background:#eaf7ee;color:var(--green)}
+    .ab.scan{background:var(--amber-bg);color:var(--amber)}
+    .ab.fail{background:var(--red-bg);color:var(--red)}
+    .ab.skip{background:#eef0f4;color:#8b94a3}
+    .attpanel{display:none;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:6px 0 10px;padding:11px;background:#fbfcfe;border:1px solid #e8e9ef;border-radius:10px}
+    .attpanel.open{display:grid}
+    @media (max-width:900px){ .attpanel{grid-template-columns:1fr} }
+    .attframe{width:100%;height:420px;border:1px solid #e8e9ef;border-radius:8px;background:#fff}
+    .att-msg{font-size:12.8px;color:#475569;background:#f1f5f9;border-radius:8px;padding:10px 12px}
+    .att-msg.warn{background:var(--amber-bg);color:var(--amber);font-weight:600}
+    .att-msg.err{background:var(--red-bg);color:var(--red)}
+    .att-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .att-note{font-size:11.5px;color:#8b94a3;margin-top:8px}
+    .ptab{width:100%;border-collapse:collapse;font-size:12.3px;background:#fff}
+    .ptab th{background:#f6f7fa;font-weight:600;color:#475569}
+    .ptab th,.ptab td{border:1px solid #e8e9ef;padding:5px 8px;text-align:left;white-space:nowrap}
+    .ptab td.wrap{white-space:normal}
+    .ptab tr.low td{background:#fdf6e3}
   </style>
 </head>
 <body>
@@ -179,6 +213,7 @@ let STATE = {
   today: [],        // 今日的信(全部 status)
   done: [],         // 近 14 天已完成
   gray: [],         // 灰名單統計(gridcards)
+  atts: {},         // PR B:mail_digest_id → mail_attachments 列
   filter: 'all',
   doneSearch: '',
   me: null,
@@ -202,7 +237,9 @@ const MOCK_TODAY = [
     ai_summary:'CENTERPIECE 2 建碼案要求補仿單與材質資料,明日審議前回傳。', hospital_display:'北榮', owner_name:null, status:'new' },
   { id:'mock-4', priority:'amber', category:'報價請求', flag_reason:null, deadline:null,
     subject:'成大 · MR8 耗材報價請求', sender_name:'成大採購', sender_email:'px@mail.ncku.edu.tw',
-    ai_summary:'詢問 MR8 耗材報價,無明確期限。', hospital_display:'成大', owner_name:'雅婷', status:'new' },
+    ai_summary:'詢問 MR8 耗材報價,無明確期限。', hospital_display:'成大', owner_name:'雅婷', status:'new',
+    needs_reply:true, web_link:'https://outlook.office365.com/owa/?ItemID=demo',
+    body_text:'您好:\n\n本院擬採購 MR8 高速磨鑽耗材一批,請惠予報價。\n品項如附件訂購單,煩請於本週內回覆。\n\n成大醫院 採購組' },
   { id:'mock-5', priority:'amber', category:'合約 / 續約', flag_reason:null, deadline:null,
     subject:'林口長庚 · 合約續約洽詢', sender_name:'長庚採購', sender_email:'buy@cgmh.org.tw',
     ai_summary:'洽詢年度合約續約事宜。', hospital_display:'長庚', owner_name:'小飛', status:'claimed',
@@ -220,6 +257,19 @@ const MOCK_GRAY = [
   { label:'各醫院往來', n:41 }, { label:'原廠 / 供應商', n:23 },
   { label:'帳務 / 請款', n:18 }, { label:'電子報 / 通知', n:31 },
 ];
+// PR B demo:mock-4 帶全文/需回覆/附件,樣子先看得到(demo 不打 storage)
+const MOCK_ATTS = {
+  'mock-4': [
+    { id:'matt-1', mail_digest_id:'mock-4', filename:'訂購單_O2026TCC042.pdf', file_kind:'pdf', parse_status:'ok',
+      storage_path:null, parse_error:null,
+      parsed_items:[
+        { item_code:'MR8-2001', item_name:'高速磨鑽手機', qty:2, unit:'支', contract_no:'C114-021', delivery_date:'2026-08-01', confidence:'high' },
+        { item_code:'MR8-2044', item_name:'磨鑽耗材組', qty:10, unit:'組', contract_no:'C114-021', delivery_date:'', confidence:'low' },
+      ] },
+    { id:'matt-2', mail_digest_id:'mock-4', filename:'掃描簽單.pdf', file_kind:'pdf_scanned',
+      parse_status:'scanned_needs_manual', storage_path:null, parse_error:null, parsed_items:[] },
+  ],
+};
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function fmtDT(ts){ try{ return new Date(ts).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
@@ -249,6 +299,9 @@ function mapRow(x){
     completed_at: x.done_at || null,
     erp_ref_no: x.erp_ref_no || null,
     received_at: x.received_at || null,
+    body_text: x.body_text || null,      // PR B:純文字全文(PR A cron 起入庫;歷史信為 null)
+    web_link: x.web_link || null,        // PR B:OWA 開信連結
+    needs_reply: !!x.needs_reply,        // PR B:需回覆 badge
   };
 }
 
@@ -299,17 +352,194 @@ function footRight(m){
 }
 function card(m){
   const isRed = m.priority === 'red';
-  const badges = isRed
+  let badges = isRed
     ? [ m.flag_reason && `<span class="b red">${esc(m.flag_reason)}</span>`,
         m.deadline    && `<span class="b red">${esc(m.deadline)}</span>` ].filter(Boolean).join('')
     : (m.category ? `<span class="b amber">${esc(m.category)}</span>` : '');
+  if (m.needs_reply) badges += `<span class="b reply">📩 需回覆</span>`;   // PR B
+  // PR B:全文摺疊 / 開啟原信(有值才顯示;開啟原信永遠可用,fallback OWA)
+  const xActs = [
+    m.body_text ? `<button class="x-btn" onclick="toggleBody('${esc(m.id)}')">📄 信件全文</button>` : '',
+    m.web_link  ? `<button class="x-btn primary" onclick="openOriginal('${esc(m.id)}')">📩 開啟原信</button>` : '',
+  ].filter(Boolean).join('');
   return `<div class="mt-card${isRed ? ' red' : ''}" data-card="${esc(m.id)}">
     ${badges ? `<div class="badges">${badges}</div>` : ''}
     <div class="subj">${esc(m.subject)}</div>
     <div class="from">${esc(m.sender_name)} &lt;${esc(m.sender_email)}&gt;${m.hospital_display ? ` · ${esc(m.hospital_display)}` : ''}</div>
     ${m.ai_summary ? `<div class="sum">${esc(m.ai_summary)}</div>` : ''}
+    ${xActs ? `<div class="mt-x-acts">${xActs}</div>` : ''}
+    ${m.body_text ? `<div class="bodyfold" id="body-${esc(m.id)}">${esc(m.body_text)}</div>` : ''}
+    ${attListHtml(m)}
     <div class="foot">${footLeft(m)}${footRight(m)}</div>
   </div>`;
+}
+
+// ============================================================
+// PR B:附件並排核對 / 信件全文 / 開啟原信
+//  - 附件:mail_attachments(RLS 唯讀已就位),cron 寫入 parsed_items
+//  - 原檔:storage bucket mail-attachments,前端 createSignedUrl(60 分鐘)
+//  - 永遠人工核對原則:解析結果僅供核對參考,以原始附件為準
+// ============================================================
+const ATT_BUCKET = 'mail-attachments';
+
+function attItems(a){
+  let v = a && a.parsed_items;
+  if (typeof v === 'string'){ try { v = JSON.parse(v); } catch(_){ v = []; } }
+  return Array.isArray(v) ? v : [];
+}
+function findAtt(attId){
+  for (const k in STATE.atts){
+    const hit = (STATE.atts[k] || []).find(a => String(a.id) === String(attId));
+    if (hit) return hit;
+  }
+  return null;
+}
+function attStatusBadge(a){
+  const map = { ok:['ok','已解析'], scanned_needs_manual:['scan','需人工'], failed:['fail','解析失敗'], skipped:['skip','未解析'] };
+  const [cls, txt] = map[a.parse_status] || ['skip', a.parse_status || '—'];
+  return `<span class="ab ${cls}">${esc(txt)}</span>`;
+}
+// tab 分隔(貼 ERP 用):品號 品名 數量 單位 合約 交期
+const TSV_COLS = ['item_code','item_name','qty','unit','contract_no','delivery_date'];
+function rowTsv(it){ return TSV_COLS.map(k => it && it[k] != null ? String(it[k]) : '').join('\t'); }
+function allTsv(items){ return (items || []).map(rowTsv).join('\n'); }
+async function copyText(t, msg){
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(t);
+    else { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+    toast(msg || '已複製', 'ok');
+  } catch(e){ toast('複製失敗:' + (e.message || e), 'err'); }
+}
+function copyAttRow(attId, idx){
+  const a = findAtt(attId); if (!a) return;
+  const it = attItems(a)[idx];
+  if (it) copyText(rowTsv(it), '已複製 1 列(tab 分隔)');
+}
+function copyAttAll(attId){
+  const a = findAtt(attId); if (!a) return;
+  copyText(allTsv(attItems(a)), '已複製全部品項(tab 分隔)');
+}
+
+// 右欄:parse_status 分支(ok 空品項不給空表格)
+function itemsTableHtml(a){
+  const items = attItems(a);
+  const head = '<tr><th>品號</th><th>品名</th><th>數量</th><th>單位</th><th>合約/案號</th><th>交期</th><th></th></tr>';
+  const rows = items.map((it, i) => `<tr class="${it.confidence === 'low' ? 'low' : ''}">
+    <td>${esc(it.item_code)}</td><td class="wrap">${esc(it.item_name)}</td><td>${esc(it.qty)}</td>
+    <td>${esc(it.unit)}</td><td>${esc(it.contract_no)}</td><td>${esc(it.delivery_date)}</td>
+    <td><button class="x-btn" onclick="copyAttRow('${esc(a.id)}',${i})">複製</button></td></tr>`).join('');
+  return `<div class="att-tools"><button class="x-btn primary" onclick="copyAttAll('${esc(a.id)}')">全部複製</button>
+      <span class="att-msg" style="padding:4px 10px">共 ${items.length} 品項,低信心列黃底</span></div>
+    <div style="overflow:auto;margin-top:8px"><table class="ptab">${head}${rows}</table></div>`;
+}
+function attRightHtml(a){
+  const n = attItems(a).length;
+  if (a.parse_status === 'ok' && n > 0) return itemsTableHtml(a);
+  if (a.parse_status === 'ok')
+    return `<div class="att-msg">未偵測到品項,請開啟原檔核對。</div>`;
+  if (a.parse_status === 'scanned_needs_manual')
+    return `<div class="att-msg warn">掃描檔無法自動解析,請開啟原檔人工核對。</div>
+      <div class="att-tools"><button class="x-btn primary" onclick="openAttFile('${esc(a.id)}')">🔍 開啟原檔</button></div>`;
+  if (a.parse_status === 'skipped')
+    return `<div class="att-msg">此檔類型不在解析範圍。</div>
+      <div class="att-tools"><button class="x-btn" onclick="openAttFile('${esc(a.id)}')">下載原檔</button></div>`;
+  if (a.parse_status === 'failed')
+    return `<div class="att-msg err">解析失敗:${esc(String(a.parse_error || '').slice(0, 200))}</div>
+      <div class="att-tools"><button class="x-btn" onclick="openAttFile('${esc(a.id)}')">下載原檔</button></div>`;
+  return `<div class="att-msg">—</div>`;
+}
+
+// 左欄:signed URL 取原檔(展開時才載;PDF 內嵌,其餘給下載鈕)
+async function signedUrlFor(a){
+  const { data, error } = await supa.storage.from(ATT_BUCKET).createSignedUrl(a.storage_path, 3600);
+  if (error || !data || !data.signedUrl) throw new Error((error && error.message) || '無法產生連結');
+  return data.signedUrl;
+}
+async function fillAttLeft(a, el){
+  if (!a.storage_path){ el.innerHTML = '<div class="att-msg">無原始檔(此附件未上傳)。</div>'; return; }
+  try {
+    const url = await signedUrlFor(a);
+    const isPdf = a.file_kind === 'pdf' || a.file_kind === 'pdf_scanned' || /\.pdf$/i.test(a.storage_path);
+    if (isPdf){
+      el.innerHTML = `<iframe class="attframe" src="${esc(url)}" title="${esc(a.filename)}"></iframe>
+        <div class="att-tools"><a class="x-btn" href="${esc(url)}" target="_blank" rel="noopener">在新視窗開啟</a></div>`;
+    } else {
+      el.innerHTML = `<div class="att-msg">CSV / Excel 不內嵌預覽,請下載開啟。</div>
+        <div class="att-tools"><a class="x-btn primary" href="${esc(url)}" download="${esc(a.filename)}">⬇ 下載原始檔</a></div>`;
+    }
+  } catch(e){
+    el.innerHTML = `<div class="att-msg err">原檔連結產生失敗:${esc(String(e.message || e).slice(0, 140))}</div>`;
+  }
+}
+async function openAttFile(attId){
+  const a = findAtt(attId);
+  if (!a || !a.storage_path){ toast('無原始檔', 'err'); return; }
+  try { window.open(await signedUrlFor(a), '_blank', 'noopener'); }
+  catch(e){ toast('原檔連結失敗:' + (e.message || e), 'err'); }
+}
+async function toggleAtt(attId){
+  const p = document.getElementById('attp-' + attId);
+  if (!p) return;
+  const open = p.classList.toggle('open');
+  if (open){
+    const a = findAtt(attId), left = p.querySelector('.attleft');
+    if (a && left && !left.dataset.filled){ left.dataset.filled = '1'; await fillAttLeft(a, left); }
+  }
+}
+
+// 卡片附件列表(有附件的卡才長;所有狀態的信卡皆可用)
+function attListHtml(m){
+  const atts = STATE.atts[m.id] || [];
+  if (!atts.length) return '';
+  return `<div class="attlist">${atts.map(a => {
+    const n = attItems(a).length;
+    return `<div class="attrow" onclick="toggleAtt('${esc(a.id)}')">📎 <span class="fn">${esc(a.filename)}</span>
+      <span class="ab kind">${esc(a.file_kind || '—')}</span>${attStatusBadge(a)}
+      ${n ? `<span class="n">${n} 品項</span>` : ''}</div>
+    <div class="attpanel" id="attp-${esc(a.id)}">
+      <div class="attleft"><div class="att-msg">載入原檔…</div></div>
+      <div class="attright">${attRightHtml(a)}
+        <div class="att-note">⚠ 解析結果僅供核對參考,請以原始附件為準。</div></div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+// 全文摺疊
+function toggleBody(id){
+  const el = document.getElementById('body-' + id);
+  if (el) el.classList.toggle('open');
+}
+
+// 開啟原信:先試桌面深連結(隱藏 iframe 導 ms-outlook: 協定,不動頁面),
+// 800ms 內視窗未失焦(協定未註冊/桌面版未裝)→ fallback window.open(OWA)。
+// 按鈕永遠可用,不因 fallback 而消失。
+function openOriginal(id){
+  const m = findRow(id);
+  if (!m || !m.web_link){ toast('此信無原信連結', 'err'); return; }
+  let switched = false;
+  const onBlur = () => { switched = true; };
+  window.addEventListener('blur', onBlur);
+  const fr = document.createElement('iframe');
+  fr.style.display = 'none';
+  fr.src = m.web_link.replace(/^https:/, 'ms-outlook:');
+  document.body.appendChild(fr);
+  setTimeout(() => {
+    window.removeEventListener('blur', onBlur);
+    fr.remove();
+    if (!switched && !document.hidden) window.open(m.web_link, '_blank', 'noopener');
+  }, 800);
+}
+
+// 附件載入(uuid 40 個一批;RLS 唯讀 policy 已就位)
+async function loadAttachments(ids){
+  const map = {};
+  for (let i = 0; i < ids.length; i += 40){
+    const chunk = ids.slice(i, i + 40);
+    const { data, error } = await supa.from('mail_attachments').select('*').in('mail_digest_id', chunk);
+    if (error){ console.warn('[mail-triage] 附件讀取失敗', error); continue; }
+    (data || []).forEach(a => { (map[a.mail_digest_id] = map[a.mail_digest_id] || []).push(a); });
+  }
+  return map;
 }
 
 // ---- render ----
@@ -513,11 +743,14 @@ function toast(msg, kind){
     STATE.done  = await loadDone();
     STATE.gray  = [];    // gray bucket 統計等分類完寫進 mail_digest 才算得出
     STATE.mock  = false;
+    // PR B:載入今日 + 已完成的附件(有附件的卡片長出核對面板)
+    STATE.atts  = await loadAttachments([...STATE.today, ...STATE.done].map(m => m.id));
   } else {
     // 沒資料 / view 還沒接 → MOCK demo(本地更新,不打 RPC)
     STATE.today = MOCK_TODAY;
     STATE.done  = MOCK_DONE;
     STATE.gray  = MOCK_GRAY;
+    STATE.atts  = MOCK_ATTS;
     STATE.mock  = true;
   }
   render();
