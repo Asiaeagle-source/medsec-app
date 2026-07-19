@@ -129,6 +129,19 @@
     .rsec{margin-top:5px;font-size:12.3px;color:#475569}
     .rsec summary{cursor:pointer;font-weight:600;color:#334155}
     .rsec div{margin:5px 0 3px 2px;white-space:pre-wrap;line-height:1.55}
+    /* 搜尋(全員)+ 總覽(manager) */
+    .mt-ctrl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+    .mt-ctrl input{flex:1;min-width:220px;max-width:460px;box-sizing:border-box;font-family:inherit;font-size:13.5px;padding:9px 13px;border:1px solid #e2e5ec;border-radius:9px;outline:none}
+    .mt-ctrl input:focus{border-color:var(--blue)}
+    .mt-ctrl .x-btn.on{color:#fff;background:var(--blue);border-color:var(--blue)}
+    .mt-tabs.hide{display:none}
+    .pool-note{font-size:12.5px;color:#6b7280}
+    .ov-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+    .ov-bar select{font-family:inherit;font-size:12.5px;padding:6px 9px;border:1px solid #e2e5ec;border-radius:8px;outline:none;background:#fff;color:#475569}
+    .ov-chips{display:flex;gap:6px;flex-wrap:wrap}
+    .ovchip{font-size:12px;font-family:inherit;padding:5px 12px;border-radius:15px;cursor:pointer;border:1px solid #e2e5ec;background:#fff;color:#475569;font-weight:600}
+    .ovchip.on{color:#fff;background:var(--blue);border-color:var(--blue)}
+    .from .rdate{color:#b6bac4}
   </style>
 </head>
 <body>
@@ -202,6 +215,11 @@
       更新 <b id="mt-upd">—</b>
     </div>
 
+    <div class="mt-ctrl">
+      <input id="mt-q" type="text" placeholder="搜尋 主旨 / 寄件者 / 醫院…(輸入即搜近 30 天全部信件)" autocomplete="off">
+      <button id="ov-toggle" class="x-btn" style="display:none" onclick="toggleOverview()">📊 總覽</button>
+    </div>
+
     <div class="mt-tabs">
       <button class="mt-tab on" data-f="all">全部<span class="cnt"></span></button>
       <button class="mt-tab"     data-f="red">今日必處理<span class="cnt"></span></button>
@@ -235,6 +253,8 @@ let STATE = {
   atts: {},         // PR B:mail_digest_id → mail_attachments 列
   ref: { discounts: [], sps: [], knife: new Set() },   // PR B-C:參照表 cache(折讓/SPS/報刀)
   rules: {},        // PR B-D:hospital_id → operation_rules(null=查過沒有)
+  search: { q: '', pool: null, loading: false },       // 搜尋:近 30 天全信件池(首次查詢後 cache)
+  ov: { on: false, days: 7, cat: 'all', owner: 'all', shown: 200 },   // 總覽(manager)
   filter: 'all',
   doneSearch: '',
   me: null,
@@ -390,7 +410,7 @@ function card(m){
     ${isOrder ? `<div class="rulepanel" id="rules-${esc(m.id)}"></div>` : ''}
     ${badges ? `<div class="badges">${badges}</div>` : ''}
     <div class="subj">${esc(m.subject)}</div>
-    <div class="from">${esc(m.sender_name)} &lt;${esc(m.sender_email)}&gt;${m.hospital_display ? ` · ${esc(m.hospital_display)}` : ''}</div>
+    <div class="from">${esc(m.sender_name)} &lt;${esc(m.sender_email)}&gt;${m.hospital_display ? ` · ${esc(m.hospital_display)}` : ''}${m.received_at ? ` · <span class="rdate">收件 ${esc(fmtDT(m.received_at))}</span>` : ''}</div>
     ${m.ai_summary ? `<div class="sum">${esc(m.ai_summary)}</div>` : ''}
     ${xActs ? `<div class="mt-x-acts">${xActs}</div>` : ''}
     ${m.body_text ? `<div class="bodyfold" id="body-${esc(m.id)}">${esc(m.body_text)}</div>` : ''}
@@ -669,6 +689,119 @@ async function toggleRules(id){
   }
 }
 
+// ============================================================
+// 搜尋(全員)+ 總覽(manager)
+// 搜尋:輸入即突破今日窗 → 近 30 天全部信件(含已完成/已歸類);
+//       清空回今日視圖。池一次撈回 cache(limit 1000),前端過濾。
+// 總覽:日期範圍/類別 chips/承辦過濾;limit 200 + 載入更多。
+// 卡片與現有完全一致(認領/完成/附件/規則/開啟原信全可用)。
+// ============================================================
+const POOL_DAYS = 30, POOL_PAGE = 200;
+
+async function ensurePool(){
+  if (STATE.search.pool !== null || STATE.search.loading) return;
+  STATE.search.loading = true;
+  if (STATE.mock){
+    STATE.search.pool = [...STATE.today, ...STATE.done];
+    STATE.search.loading = false;
+    return;
+  }
+  const from = new Date(Date.now() - (POOL_DAYS - 1) * 864e5).toISOString().slice(0, 10);
+  const { data, error } = await supa.from('v_mail_digest_assigned').select('*')
+    .gte('digest_date', from)
+    .order('received_at', { ascending: false })
+    .limit(1000);   // 撈爆保險;30 天超過 1000 封時取最新 1000
+  STATE.search.loading = false;
+  if (error){ console.warn('[mail-triage] pool 讀取失敗', error); toast('搜尋資料載入失敗:' + (error.message || error), 'err'); STATE.search.pool = []; return; }
+  // 與今日/已完成清單同 id 的列共用同一物件 → 認領/完成後兩邊狀態一致
+  STATE.search.pool = (data || []).map(mapRow).map(r =>
+    STATE.today.find(t => t.id === r.id) || STATE.done.find(t => t.id === r.id) || r);
+}
+
+function poolMode(){ return STATE.ov.on || !!STATE.search.q.trim(); }
+function matchCat(m, cat){
+  if (cat === 'order') return m.priority === 'order';
+  if (cat === 'urge')  return m.category === '催貨';
+  if (cat === 'quote') return /報價/.test(m.category || '');
+  if (cat === 'reply') return !!m.needs_reply;
+  if (cat === 'gray')  return m.priority === 'gray';
+  if (cat === 'other') return !(m.priority === 'order' || m.category === '催貨' || /報價/.test(m.category || '') || m.needs_reply || m.priority === 'gray');
+  return true;
+}
+function matchOwner(m, v){
+  if (v === '__unclaimed') return isUnclaimed(m.status);
+  if (v === '__done')      return m.status === 'done';
+  return (m.claimed_by_name || m.owner_name) === v;
+}
+function poolRows(){
+  let rows = STATE.search.pool || [];
+  const days = STATE.ov.on ? STATE.ov.days : POOL_DAYS;
+  const cut = Date.now() - days * 864e5;
+  rows = rows.filter(m => !m.received_at || new Date(m.received_at).getTime() >= cut);
+  const q = STATE.search.q.trim().toLowerCase();
+  if (q) rows = rows.filter(m => [m.subject, m.sender_name, m.sender_email, m.hospital_display]
+    .some(v => (v || '').toLowerCase().includes(q)));
+  if (STATE.ov.on){
+    if (STATE.ov.cat !== 'all')   rows = rows.filter(m => matchCat(m, STATE.ov.cat));
+    if (STATE.ov.owner !== 'all') rows = rows.filter(m => matchOwner(m, STATE.ov.owner));
+  }
+  return rows;
+}
+function ovToolbarHtml(total){
+  const cats = [['all','全部'],['order','訂單'],['urge','催貨'],['quote','報價'],['reply','需回覆'],['gray','已歸類'],['other','其他']];
+  const owners = [...new Set((STATE.search.pool || []).map(m => m.claimed_by_name || m.owner_name).filter(Boolean))].sort();
+  return `<div class="ov-bar">
+    <select onchange="ovSetDays(this.value)">${[7,14,30].map(d => `<option value="${d}"${STATE.ov.days === d ? ' selected' : ''}>近 ${d} 天</option>`).join('')}</select>
+    <div class="ov-chips">${cats.map(([k,l]) => `<button class="ovchip${STATE.ov.cat === k ? ' on' : ''}" onclick="ovSetCat('${k}')">${l}</button>`).join('')}</div>
+    <select onchange="ovSetOwner(this.value)">
+      <option value="all">全部承辦</option>
+      <option value="__unclaimed"${STATE.ov.owner === '__unclaimed' ? ' selected' : ''}>待認領</option>
+      <option value="__done"${STATE.ov.owner === '__done' ? ' selected' : ''}>已完成</option>
+      ${owners.map(o => `<option value="${esc(o)}"${STATE.ov.owner === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+    </select>
+    <span class="pool-note">共 ${total} 封</span></div>`;
+}
+function renderPool(){
+  const view = document.getElementById('mt-view');
+  if (STATE.search.pool === null){ view.innerHTML = emptyCard('載入近 30 天信件…'); return; }
+  const rows = poolRows();
+  const shown = rows.slice(0, STATE.ov.shown);
+  const head = STATE.ov.on
+    ? ovToolbarHtml(rows.length)
+    : `<div class="ov-bar"><span class="pool-note">搜尋近 ${POOL_DAYS} 天 · 共 ${rows.length} 封符合</span>
+       <button class="x-btn" onclick="clearSearch()">清除搜尋</button></div>`;
+  view.innerHTML = head
+    + (shown.length ? `<div class="mt-list">${shown.map(card).join('')}</div>` : emptyCard('沒有符合的信件。'))
+    + (rows.length > shown.length
+        ? `<div style="text-align:center;margin:10px 0"><button class="x-btn primary" onclick="ovMore()">載入更多(還有 ${rows.length - shown.length} 封)</button></div>` : '');
+  lazyLoadAtts(shown.map(m => m.id));   // 池內卡片的附件補載(載回後重繪)
+}
+// 池卡片附件補載:只補還沒查過的 id;查過(含空)記 [] 防重複打
+const _attReq = new Set();
+async function lazyLoadAtts(ids){
+  const missing = ids.filter(id => STATE.atts[id] === undefined && !_attReq.has(id) && !String(id).startsWith('mock'));
+  if (!missing.length || STATE.mock) return;
+  missing.forEach(id => _attReq.add(id));
+  const map = await loadAttachments(missing);
+  missing.forEach(id => { STATE.atts[id] = map[id] || []; });
+  if (poolMode()) render();
+}
+function clearSearch(){
+  STATE.search.q = ''; STATE.ov.shown = POOL_PAGE;
+  const el = document.getElementById('mt-q'); if (el) el.value = '';
+  render();
+}
+function ovMore(){ STATE.ov.shown += POOL_PAGE; render(); }
+function ovSetDays(v){ STATE.ov.days = parseInt(v, 10) || 7; STATE.ov.shown = POOL_PAGE; render(); }
+function ovSetCat(c){ STATE.ov.cat = c; STATE.ov.shown = POOL_PAGE; render(); }
+function ovSetOwner(v){ STATE.ov.owner = v; STATE.ov.shown = POOL_PAGE; render(); }
+async function toggleOverview(){
+  STATE.ov.on = !STATE.ov.on; STATE.ov.shown = POOL_PAGE;
+  const b = document.getElementById('ov-toggle'); if (b) b.classList.toggle('on', STATE.ov.on);
+  if (STATE.ov.on && STATE.search.pool === null){ render(); await ensurePool(); }
+  render();
+}
+
 // ---- render ----
 function setCnt(f, n){
   const el = document.querySelector(`.mt-tab[data-f="${f}"] .cnt`);
@@ -726,6 +859,12 @@ function renderDoneList(){
 const isUnclaimed = (s) => s === 'pending' || s === 'new';
 
 function render(){
+  // 搜尋 / 總覽模式:接管畫面(隱藏分頁,清空回今日視圖)
+  const pm = poolMode();
+  const tabs = document.querySelector('.mt-tabs');
+  if (tabs) tabs.classList.toggle('hide', pm);
+  if (pm){ renderPool(); return; }
+
   const grayTotal    = STATE.gray.reduce((a,b) => a + (b.n || 0), 0);
   const todayActive  = STATE.today.filter(m => m.status !== 'done');   // 未完成
   const redActive    = todayActive.filter(m => m.priority === 'red');
@@ -758,7 +897,10 @@ function render(){
 }
 
 // ---- 互動:認領 / 完成(樂觀更新 + RPC + 失敗回滾)----
-function findRow(id){ return STATE.today.find(m => m.id === id) || STATE.done.find(m => m.id === id) || null; }
+function findRow(id){
+  return STATE.today.find(m => m.id === id) || STATE.done.find(m => m.id === id)
+    || (STATE.search.pool || []).find(m => m.id === id) || null;
+}
 function removeFrom(arr, item){ const i = arr.indexOf(item); if (i >= 0){ arr.splice(i,1); return true; } return false; }
 function fadeThenRender(id){
   return new Promise(res => {
@@ -863,6 +1005,22 @@ function toast(msg, kind){
     STATE.filter = t.dataset.f;
     render();
   }));
+
+  // 搜尋框(150ms debounce;輸入即突破今日窗到近 30 天)
+  const qEl = document.getElementById('mt-q');
+  let _qTimer = null;
+  if (qEl) qEl.addEventListener('input', () => {
+    clearTimeout(_qTimer);
+    _qTimer = setTimeout(async () => {
+      STATE.search.q = qEl.value; STATE.ov.shown = POOL_PAGE;
+      if (STATE.search.q.trim() && STATE.search.pool === null){ render(); await ensurePool(); }
+      render();
+    }, 150);
+  });
+  // 總覽開關:僅 manager 可見(業祕預設視圖不變)
+  if (profile.medsec_role === 'manager'){
+    const b = document.getElementById('ov-toggle'); if (b) b.style.display = '';
+  }
 
   const today = await loadToday();
   if (today){
