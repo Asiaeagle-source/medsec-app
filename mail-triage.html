@@ -110,6 +110,25 @@
     .ptab th,.ptab td{border:1px solid #e8e9ef;padding:5px 8px;text-align:left;white-space:nowrap}
     .ptab td.wrap{white-space:normal}
     .ptab tr.low td{background:#fdf6e3}
+    /* PR B-C:品項智能標註 */
+    .anno{display:flex;gap:8px;flex-wrap:wrap;margin-top:3px;font-size:11px;line-height:1.4}
+    .anno .disc{color:var(--red);font-weight:700}
+    .anno .knife{color:#7c4a03;background:var(--amber-bg);padding:0 6px;border-radius:6px;font-weight:600;cursor:help}
+    .sps-code{color:#8b94a3}
+    .sps-tag{font-size:10px;background:#eef0f4;color:#6b7280;padding:0 5px;border-radius:5px;margin-left:4px;vertical-align:1px}
+    /* PR B-D:醫院規則側欄(桌機浮右、窄幅摺疊區) */
+    .rulepanel{display:none;margin-top:9px;background:#fbfcfe;border:1px solid #dbe7f5;border-radius:10px;padding:11px 13px;font-size:12.5px}
+    .rulepanel.open{display:block}
+    @media (min-width:1100px){ .rulepanel.open{float:right;width:300px;margin:0 0 10px 14px} }
+    .mt-card .foot{clear:both}
+    .rhead{font-weight:700;font-size:13px;margin-bottom:7px;color:#1d2330}
+    .rinv{display:inline-block;background:var(--amber-bg);color:var(--amber);font-weight:700;padding:2px 9px;border-radius:7px;margin-bottom:7px}
+    .rchips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:7px}
+    .rchip{background:var(--blue);color:#fff;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:7px}
+    .rchip.val{background:#eef4ff;color:var(--blue);border:1px solid #d3e0fb}
+    .rsec{margin-top:5px;font-size:12.3px;color:#475569}
+    .rsec summary{cursor:pointer;font-weight:600;color:#334155}
+    .rsec div{margin:5px 0 3px 2px;white-space:pre-wrap;line-height:1.55}
   </style>
 </head>
 <body>
@@ -214,6 +233,8 @@ let STATE = {
   done: [],         // 近 14 天已完成
   gray: [],         // 灰名單統計(gridcards)
   atts: {},         // PR B:mail_digest_id → mail_attachments 列
+  ref: { discounts: [], sps: [], knife: new Set() },   // PR B-C:參照表 cache(折讓/SPS/報刀)
+  rules: {},        // PR B-D:hospital_id → operation_rules(null=查過沒有)
   filter: 'all',
   doneSearch: '',
   me: null,
@@ -280,6 +301,7 @@ function mapRow(x){
   const hospital_display = x.hospital_name_short || x.hospital_name_full || x.hospital_id || null;
   return {
     id: x.id,
+    hospital_id: x.hospital_id || null,   // PR B-C/D:折讓 scope 比對與規則查詢(view 直接有院碼,免中文名反查,寧缺勿錯)
     priority: x.priority,
     category: x.category,
     flag_reason: x.flag_reason,
@@ -358,11 +380,14 @@ function card(m){
     : (m.category ? `<span class="b amber">${esc(m.category)}</span>` : '');
   if (m.needs_reply) badges += `<span class="b reply">📩 需回覆</span>`;   // PR B
   // PR B:全文摺疊 / 開啟原信(有值才顯示;開啟原信永遠可用,fallback OWA)
+  const isOrder = m.priority === 'order';   // PR B-D:訂單信卡片才有規則側欄
   const xActs = [
     m.body_text ? `<button class="x-btn" onclick="toggleBody('${esc(m.id)}')">📄 信件全文</button>` : '',
     m.web_link  ? `<button class="x-btn primary" onclick="openOriginal('${esc(m.id)}')">📩 開啟原信</button>` : '',
+    isOrder     ? `<button class="x-btn" onclick="toggleRules('${esc(m.id)}')">🏥 該院規則</button>` : '',
   ].filter(Boolean).join('');
   return `<div class="mt-card${isRed ? ' red' : ''}" data-card="${esc(m.id)}">
+    ${isOrder ? `<div class="rulepanel" id="rules-${esc(m.id)}"></div>` : ''}
     ${badges ? `<div class="badges">${badges}</div>` : ''}
     <div class="subj">${esc(m.subject)}</div>
     <div class="from">${esc(m.sender_name)} &lt;${esc(m.sender_email)}&gt;${m.hospital_display ? ` · ${esc(m.hospital_display)}` : ''}</div>
@@ -399,10 +424,50 @@ function attStatusBadge(a){
   const [cls, txt] = map[a.parse_status] || ['skip', a.parse_status || '—'];
   return `<span class="ab ${cls}">${esc(txt)}</span>`;
 }
-// tab 分隔(貼 ERP 用):品號 品名 數量 單位 合約 交期
+// ---- PR B-C:品項智能標註(折讓 / 報刀 / SPS 補碼)----
+// 參照表一次撈回 cache(量小);表不存在/讀取失敗 → 空集合,標註靜默停用。
+async function loadRefTables(){
+  const out = { discounts: [], sps: [], knife: new Set() };
+  try { const { data, error } = await supa.from('medsec_item_discounts').select('*');       if (!error) out.discounts = data || []; } catch(_){}
+  try { const { data, error } = await supa.from('medsec_sps_mapping').select('*');          if (!error) out.sps = data || []; } catch(_){}
+  try { const { data, error } = await supa.from('medsec_surgery_report_items').select('item_code');
+        if (!error) (data || []).forEach(r => out.knife.add(String(r.item_code || '').trim())); } catch(_){}
+  return out;
+}
+// 單一品項的標註:折讓(code 命中 + 該信院碼 ∈ hospital_scope,寧缺勿錯)、
+// 報刀(code ∈ 報刀清單)、SPS 補碼(code 空 + 品名模糊命中 → 建議碼,複製帶入)。
+function annotateItem(it, hospitalId){
+  const ref = STATE.ref || { discounts: [], sps: [], knife: new Set() };
+  const code = String((it && it.item_code) || '').trim();
+  const out = { discount: null, knife: false, spsCode: null };
+  if (code && hospitalId){
+    const d = ref.discounts.find(d => String(d.item_code || '').trim() === code
+      && Array.isArray(d.hospital_scope) && d.hospital_scope.includes(hospitalId));
+    if (d) out.discount = d;
+  }
+  if (code && ref.knife.has(code)) out.knife = true;
+  if (!code){
+    const name = String((it && it.item_name) || '').trim().toLowerCase();
+    if (name){
+      const m = ref.sps.find(s => {
+        const p = String(s.product_name || '').trim().toLowerCase();
+        return p && (name.includes(p) || p.includes(name));
+      });
+      if (m) out.spsCode = m.item_code || null;
+    }
+  }
+  return out;
+}
+function attHospitalId(a){ const m = findRow(a.mail_digest_id); return (m && m.hospital_id) || null; }
+
+// tab 分隔(貼 ERP 用):品號 品名 數量 單位 合約 交期;SPS 建議碼複製時帶入
 const TSV_COLS = ['item_code','item_name','qty','unit','contract_no','delivery_date'];
-function rowTsv(it){ return TSV_COLS.map(k => it && it[k] != null ? String(it[k]) : '').join('\t'); }
-function allTsv(items){ return (items || []).map(rowTsv).join('\n'); }
+function rowTsv(it, ann){
+  const eff = { ...it };
+  if (ann && ann.spsCode && !String(eff.item_code || '').trim()) eff.item_code = ann.spsCode;
+  return TSV_COLS.map(k => eff && eff[k] != null ? String(eff[k]) : '').join('\t');
+}
+function allTsv(items, hospitalId){ return (items || []).map(it => rowTsv(it, annotateItem(it, hospitalId))).join('\n'); }
 async function copyText(t, msg){
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(t);
@@ -413,21 +478,32 @@ async function copyText(t, msg){
 function copyAttRow(attId, idx){
   const a = findAtt(attId); if (!a) return;
   const it = attItems(a)[idx];
-  if (it) copyText(rowTsv(it), '已複製 1 列(tab 分隔)');
+  if (it) copyText(rowTsv(it, annotateItem(it, attHospitalId(a))), '已複製 1 列(tab 分隔)');
 }
 function copyAttAll(attId){
   const a = findAtt(attId); if (!a) return;
-  copyText(allTsv(attItems(a)), '已複製全部品項(tab 分隔)');
+  copyText(allTsv(attItems(a), attHospitalId(a)), '已複製全部品項(tab 分隔)');
 }
 
 // 右欄:parse_status 分支(ok 空品項不給空表格)
 function itemsTableHtml(a){
   const items = attItems(a);
+  const hid = attHospitalId(a);
   const head = '<tr><th>品號</th><th>品名</th><th>數量</th><th>單位</th><th>合約/案號</th><th>交期</th><th></th></tr>';
-  const rows = items.map((it, i) => `<tr class="${it.confidence === 'low' ? 'low' : ''}">
-    <td>${esc(it.item_code)}</td><td class="wrap">${esc(it.item_name)}</td><td>${esc(it.qty)}</td>
+  const rows = items.map((it, i) => {
+    const ann = annotateItem(it, hid);
+    const codeCell = String(it.item_code || '').trim()
+      ? esc(it.item_code)
+      : (ann.spsCode ? `<span class="sps-code">${esc(ann.spsCode)}</span><span class="sps-tag">SPS對照</span>` : '');
+    const annos = [
+      ann.discount ? `<span class="disc">🏷 折讓 $${esc(ann.discount.discount_amount)}(實收 $${esc(ann.discount.net_price)})</span>` : '',
+      ann.knife    ? `<span class="knife" title="請截圖給業務催報刀">🔪 報刀品</span>` : '',
+    ].filter(Boolean).join('');
+    return `<tr class="${it.confidence === 'low' ? 'low' : ''}">
+    <td>${codeCell}</td><td class="wrap">${esc(it.item_name)}${annos ? `<div class="anno">${annos}</div>` : ''}</td><td>${esc(it.qty)}</td>
     <td>${esc(it.unit)}</td><td>${esc(it.contract_no)}</td><td>${esc(it.delivery_date)}</td>
-    <td><button class="x-btn" onclick="copyAttRow('${esc(a.id)}',${i})">複製</button></td></tr>`).join('');
+    <td><button class="x-btn" onclick="copyAttRow('${esc(a.id)}',${i})">複製</button></td></tr>`;
+  }).join('');
   return `<div class="att-tools"><button class="x-btn primary" onclick="copyAttAll('${esc(a.id)}')">全部複製</button>
       <span class="att-msg" style="padding:4px 10px">共 ${items.length} 品項,低信心列黃底</span></div>
     <div style="overflow:auto;margin-top:8px"><table class="ptab">${head}${rows}</table></div>`;
@@ -540,6 +616,57 @@ async function loadAttachments(ids){
     (data || []).forEach(a => { (map[a.mail_digest_id] = map[a.mail_digest_id] || []).push(a); });
   }
   return map;
+}
+
+// ============================================================
+// PR B-D:醫院規則側欄(訂單信卡片;桌機浮右、窄幅摺疊區;唯讀)
+// 資料源:mail.hospital_id → medsec_hospital_operation_rules(首開查詢後 cache)
+// ============================================================
+const RULE_FLAGS = [['訂','flag_order'],['借','flag_borrow'],['銷','flag_sale'],['刀','flag_knife'],['簽','flag_sign'],['票','flag_ticket']];
+function ruleChipsHtml(r){
+  const chips = [];
+  for (const [label, key] of RULE_FLAGS){
+    const v = r[key];
+    if (v == null || v === '' || String(v).trim().toUpperCase() === 'N') continue;   // N/空 → 不顯示
+    chips.push(String(v).trim().toUpperCase() === 'Y'
+      ? `<span class="rchip">${label}</span>`                                        // Y → 實心
+      : `<span class="rchip val">${label}:${esc(String(v).trim())}</span>`);         // 特殊值(BURR/46124/手)帶文字
+  }
+  if (String(r.sign_show_expiry || '').trim().toUpperCase() === 'Y') chips.push('<span class="rchip">簽單秀效期</span>');
+  return chips.join('');
+}
+function ruleNotesHtml(r){
+  const secs = [['特殊備註','special_notes'],['出貨備註','shipping_notes'],['出貨地點','shipping_destination'],['包裝備註','packaging_notes']];
+  return secs.map(([t, k]) => r[k] ? `<details class="rsec"><summary>${t}</summary><div>${esc(r[k])}</div></details>` : '').join('');
+}
+function rulePanelHtml(rule, hospitalName){
+  const head = `<div class="rhead">🏥 ${esc(hospitalName || '—')} 規則</div>`;
+  if (!rule) return head + `<div class="att-msg">此醫院尚無規則資料</div>`;   // 不藏面板,讓業祕知道可以去補
+  return head
+    + (rule.invoice_company ? `<div class="rinv">🧾 發票:${esc(rule.invoice_company)}</div>` : '')
+    + `<div class="rchips">${ruleChipsHtml(rule) || '<span style="color:#8b94a3;font-size:12px">無旗標</span>'}</div>`
+    + ruleNotesHtml(rule);
+}
+async function fetchRule(hospitalId){
+  if (!hospitalId) return null;
+  if (STATE.rules[hospitalId] !== undefined) return STATE.rules[hospitalId];
+  let rule = null;
+  try {
+    const { data, error } = await supa.from('medsec_hospital_operation_rules').select('*').eq('hospital_id', hospitalId).limit(1);
+    if (!error && data && data[0]) rule = data[0];
+  } catch(_){}
+  STATE.rules[hospitalId] = rule;   // null 也 cache(查過沒有)
+  return rule;
+}
+async function toggleRules(id){
+  const m = findRow(id), p = document.getElementById('rules-' + id);
+  if (!m || !p) return;
+  const open = p.classList.toggle('open');
+  if (open && !p.dataset.filled){
+    p.dataset.filled = '1';
+    const rule = await fetchRule(m.hospital_id);
+    p.innerHTML = rulePanelHtml(rule, m.hospital_display);
+  }
 }
 
 // ---- render ----
@@ -745,6 +872,7 @@ function toast(msg, kind){
     STATE.mock  = false;
     // PR B:載入今日 + 已完成的附件(有附件的卡片長出核對面板)
     STATE.atts  = await loadAttachments([...STATE.today, ...STATE.done].map(m => m.id));
+    STATE.ref   = await loadRefTables();   // PR B-C:折讓/SPS/報刀 參照表 cache(表缺→標註靜默停用)
   } else {
     // 沒資料 / view 還沒接 → MOCK demo(本地更新,不打 RPC)
     STATE.today = MOCK_TODAY;
