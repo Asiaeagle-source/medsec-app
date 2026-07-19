@@ -69,12 +69,26 @@ export function storageSafeName(name) {
 }
 
 // ---- 欄位關鍵字對映 ----
+// ⚠️「材料編號」是醫院院內碼(奇美系,如 1765510B…),不是我們的品號 →
+//    存 hospital_item_code(出貨要貼,也有價值)。放最前面先吃掉,避免落到其他欄。
+//    (「材料編號」不含子字串「料號」,不會誤中 item_code,仍前置防禦。)
 const HEADER_MAP = [
+  { key: "hospital_item_code", kws: ["材料編號"] },
   { key: "item_code",   kws: ["品號", "物料碼", "料號", "條碼"] },
   { key: "item_name",   kws: ["品名", "名稱"] },
   { key: "qty",         kws: ["數量", "訂購量"] },
   { key: "contract_no", kws: ["合約", "案號"] },
+  { key: "spec",        kws: ["規格"] },   // 內部用:品號常藏在規格文字裡(奇美系)
 ];
+
+// 從自由文字抽品號(規格/品名欄):型號 pattern 1-2 位數字 + 2-3 字母 + 2+ 數字
+// + 可選字尾字母,涵蓋 10BA30 / 15BA50D / 8TD136。前後界以非英數守住,
+// 避免從院內碼(1765510B152)或尺寸(10CM/3MM)誤抽。
+export function extractItemCode(text) {
+  const s = String(text == null ? "" : text).toUpperCase();
+  const m = /(?:^|[^A-Z0-9])(\d{1,2}[A-Z]{2,3}\d{2,}[A-Z]*)(?![A-Z0-9])/.exec(s);
+  return m ? m[1] : null;
+}
 // header 列 → { fieldKey: colIndex };每欄取第一個命中的欄位。
 export function mapHeaders(headerRow) {
   const out = {};
@@ -91,8 +105,12 @@ export function mapRows(rows, hmap) {
   const items = [];
   for (const row of rows || []) {
     const get = (k) => (hmap[k] !== undefined ? String(row[hmap[k]] == null ? "" : row[hmap[k]]).trim() : "");
-    const item_code = get("item_code"), item_name = get("item_name");
+    let item_code = get("item_code");
+    const item_name = get("item_name");
     const qtyRaw = get("qty"), contract_no = get("contract_no");
+    const hospital_item_code = get("hospital_item_code");
+    // 品號欄空(奇美系)→ 對 規格/品名 文字跑 pattern 抽取
+    if (!item_code) item_code = extractItemCode(get("spec")) || extractItemCode(item_name) || "";
     if (!item_code && !item_name) continue;   // 整列無品號無品名 → 空列跳過
     let qty = null;
     if (qtyRaw !== "") { const n = Number(qtyRaw.replace(/,/g, "")); qty = Number.isFinite(n) ? n : qtyRaw; }
@@ -101,6 +119,7 @@ export function mapRows(rows, hmap) {
       item_name: item_name || null,
       qty,
       contract_no: contract_no || null,
+      hospital_item_code: hospital_item_code || null,   // 院內碼(材料編號;無此欄為 null)
     });
   }
   return items;
