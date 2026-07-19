@@ -182,7 +182,7 @@ async function uploadToStorage(path, buffer, contentType) {
 }
 
 // ---- mail_attachments upsert(service role;on_conflict (mail_digest_id, filename) 防重跑重複)----
-const ATT_KEYS = ["mail_digest_id","filename","storage_path","file_kind","parse_status","parsed_items","parse_error","size_bytes","content_type"];
+const ATT_KEYS = ["mail_digest_id","filename","storage_path","file_kind","parse_status","parsed_items","parse_error","size_bytes","content_type","parsed_at"];
 async function upsertAttachment(row) {
   const obj = {}; for (const k of ATT_KEYS) obj[k] = row[k] !== undefined ? row[k] : null;
   const res = await fetch(
@@ -278,6 +278,7 @@ async function processMailAttachments(token, messageId, digestId, stats, doneSet
         file_kind: parsed.file_kind, parse_status: parsed.parse_status,
         parsed_items: parsed.items || [], parse_error: parsed.parse_error || null,
         size_bytes: att.size ?? buffer.length, content_type: att.contentType || null,
+        parsed_at: new Date().toISOString(),   // 解析完成時間(ok/scanned/failed 皆填;skipped 與上傳前失敗留 null)
       });
     } catch (e) {
       stats.failed++;
