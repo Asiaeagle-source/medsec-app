@@ -202,24 +202,42 @@ async function upsertAttachment(row) {
 }
 
 // ---- 分段續作查詢(視窗內已入庫的信 → 跳過重分類;已寫入的附件列 → 逐附件跳過)----
+// ⚠️ PostgREST/Supabase 有 max-rows 上限(預設 1000):URL 上的 limit 會被砍頭,
+//    砍掉的信每輪被重新分類 → remaining 永不歸零、AI 空轉。一律走 Range header
+//    分頁撈全(短頁即最後一頁);查詢帶穩定 order 保證分頁不重不漏。
+async function pgFetchAll(pathQuery, pageSize = 1000, maxPages = 30) {
+  const out = [];
+  for (let page = 0; page < maxPages; page++) {
+    const off = page * pageSize;
+    const res = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${pathQuery}`, {
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        "Range-Unit": "items",
+        Range: `${off}-${off + pageSize - 1}`,
+      },
+    });
+    if (!res.ok) throw new Error("pgFetchAll 失敗(" + pathQuery.slice(0, 60) + "): " + (await res.text()));
+    const rows = await res.json();
+    out.push(...rows);
+    if (rows.length < pageSize) break;   // 短頁 = 最後一頁
+  }
+  return out;
+}
 async function fetchExistingDigests(sinceISO) {
-  const res = await fetch(
-    `${process.env.SUPABASE_URL}/rest/v1/mail_digest?select=id,graph_message_id,priority&received_at=gte.${encodeURIComponent(sinceISO)}&limit=2000`,
-    { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` } }
-  );
-  if (!res.ok) throw new Error("fetchExistingDigests 失敗: " + (await res.text()));
-  return await res.json();   // [{ id, graph_message_id, priority }]
+  return pgFetchAll(
+    `mail_digest?select=id,graph_message_id,priority&received_at=gte.${encodeURIComponent(sinceISO)}&order=received_at.asc,id.asc`
+  );   // [{ id, graph_message_id, priority }]
 }
 async function fetchExistingAttachmentRows(digestIds) {
   const out = [];
   for (let i = 0; i < digestIds.length; i += 40) {          // uuid 短,40 個一批 URL 安全
     const chunk = digestIds.slice(i, i + 40);
-    const res = await fetch(
-      `${process.env.SUPABASE_URL}/rest/v1/mail_attachments?select=mail_digest_id,filename&mail_digest_id=in.(${chunk.join(",")})`,
-      { headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` } }
-    );
-    if (!res.ok) continue;                                   // 查不到就當沒做過(重做冪等,x-upsert 覆蓋)
-    out.push(...(await res.json()));
+    try {
+      out.push(...await pgFetchAll(
+        `mail_attachments?select=mail_digest_id,filename&mail_digest_id=in.(${chunk.join(",")})&order=mail_digest_id.asc,filename.asc`
+      ));
+    } catch (_) { /* 查不到就當沒做過(重做冪等,x-upsert 覆蓋) */ }
   }
   return out;   // [{ mail_digest_id, filename }]
 }
