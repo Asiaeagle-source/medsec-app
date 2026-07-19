@@ -227,12 +227,18 @@ const attKey = (digestId, filename) => digestId + " " + filename;
 
 // 拉某封信的附件並逐一入庫 + 解析。stats 就地累加(found/parsed/scanned/failed)。
 // doneSet:已有 mail_attachments 列的 (digestId, filename) → 跳過(斷點續作)。
+// 逐附件 try/catch:單一附件炸(上傳/解析/寫入)只計該附件 failed +
+// 記 {filename, stage, error} 進 stats.errors(回傳給呼叫端看死因),
+// 並盡力寫一列 failed 留痕(upsert 本身炸才放棄);不連坐同信其他附件。
 async function processMailAttachments(token, messageId, digestId, stats, doneSet) {
   const mailbox = process.env.GRAPH_MAILBOX;
   const url = `https://graph.microsoft.com/v1.0/users/${mailbox}/messages/${messageId}/attachments`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const data = await res.json();
-  if (!Array.isArray(data.value)) return;
+  if (!Array.isArray(data.value)) {
+    stats.errors.push({ filename: "(attachment list)", stage: "graph_fetch", error: JSON.stringify(data).slice(0, 300) });
+    return;
+  }
 
   for (const att of data.value) {
     // 只處理檔案附件;略過 inline(簽名圖等)與 >10MB
@@ -247,27 +253,43 @@ async function processMailAttachments(token, messageId, digestId, stats, doneSet
     const ext = extOf(filename);
     const safe = sanitizeFilename(filename);
     const path = `${digestId}/${safe}`;
+    let stage = "start";
+    try {
+      // 非白名單副檔名 → 記錄一列 skipped(不上傳、不解析)
+      if (!ALLOWED_EXT.includes(ext)) {
+        stage = "db_upsert";
+        await upsertAttachment({ mail_digest_id: digestId, filename, storage_path: null, file_kind: "other",
+          parse_status: "skipped", parsed_items: [], parse_error: null, size_bytes: att.size ?? null, content_type: att.contentType || null });
+        continue;
+      }
 
-    // 非白名單副檔名 → 記錄一列 skipped(不上傳、不解析)
-    if (!ALLOWED_EXT.includes(ext)) {
-      await upsertAttachment({ mail_digest_id: digestId, filename, storage_path: null, file_kind: "other",
-        parse_status: "skipped", parsed_items: [], parse_error: null, size_bytes: att.size ?? null, content_type: att.contentType || null });
-      continue;
+      const buffer = Buffer.from(att.contentBytes || "", "base64");
+      stage = "storage_upload";
+      await uploadToStorage(path, buffer, att.contentType);          // 原檔進 bucket
+      stage = "parse";
+      const parsed = await parseAttachment({ buffer, filename });    // 解析品項(內部不 throw,失敗回 parse_status)
+      if (parsed.parse_status === "ok") stats.parsed++;
+      else if (parsed.parse_status === "scanned_needs_manual") stats.scanned++;
+      else if (parsed.parse_status === "failed") stats.failed++;
+
+      stage = "db_upsert";
+      await upsertAttachment({
+        mail_digest_id: digestId, filename, storage_path: path,
+        file_kind: parsed.file_kind, parse_status: parsed.parse_status,
+        parsed_items: parsed.items || [], parse_error: parsed.parse_error || null,
+        size_bytes: att.size ?? buffer.length, content_type: att.contentType || null,
+      });
+    } catch (e) {
+      stats.failed++;
+      const msg = String((e && e.message) || e).slice(0, 300);
+      stats.errors.push({ filename, stage, error: msg });
+      // 盡力留痕:失敗也寫一列 failed(帶 [stage])。stage=db_upsert 時多半也會炸,catch 掉。
+      try {
+        await upsertAttachment({ mail_digest_id: digestId, filename, storage_path: null,
+          file_kind: ext.replace(".", "") || "other", parse_status: "failed", parsed_items: [],
+          parse_error: `[${stage}] ${msg}`, size_bytes: att.size ?? null, content_type: att.contentType || null });
+      } catch (_) {}
     }
-
-    const buffer = Buffer.from(att.contentBytes || "", "base64");
-    await uploadToStorage(path, buffer, att.contentType);          // 原檔進 bucket
-    const parsed = await parseAttachment({ buffer, filename });    // 解析品項
-    if (parsed.parse_status === "ok") stats.parsed++;
-    else if (parsed.parse_status === "scanned_needs_manual") stats.scanned++;
-    else if (parsed.parse_status === "failed") stats.failed++;
-
-    await upsertAttachment({
-      mail_digest_id: digestId, filename, storage_path: path,
-      file_kind: parsed.file_kind, parse_status: parsed.parse_status,
-      parsed_items: parsed.items || [], parse_error: parsed.parse_error || null,
-      size_bytes: att.size ?? buffer.length, content_type: att.contentType || null,
-    });
   }
 }
 
@@ -376,7 +398,7 @@ export default async function handler(req, res) {
     const doneSet = new Set(doneRows.map((r) => attKey(r.mail_digest_id, r.filename)));
 
     // 附件:預算內逐信處理;單信 20 秒逾時標 failed 跳過,任何失敗不中斷主 triage。
-    const att = { found: 0, parsed: 0, scanned: 0, failed: 0 };
+    const att = { found: 0, parsed: 0, scanned: 0, failed: 0, errors: [] };
     let attProcessed = 0, attRemaining = 0;
     for (const c of candidates) {
       if (attProcessed >= limit || timeLeft() < 22000) { attRemaining++; continue; }   // 留 20s 單信上限 + 收尾
@@ -385,6 +407,7 @@ export default async function handler(req, res) {
         await withTimeout(processMailAttachments(token, c.graphId, c.digestId, att, doneSet), PER_MAIL_TIMEOUT_MS, "單信附件逾時");
       } catch (e) {
         att.failed++;   // 逾時或整段失敗 → 標 failed 跳過,不影響其他信
+        att.errors.push({ filename: "(mail " + c.digestId + ")", stage: "mail_timeout", error: String((e && e.message) || e).slice(0, 300) });
       }
     }
 
@@ -394,6 +417,7 @@ export default async function handler(req, res) {
       written: digestRows.length, since, days, folders: folderStats,
       attachments_found: att.found, parsed: att.parsed, scanned_needs_manual: att.scanned, attachments_failed: att.failed,
       attachment_mails_processed: attProcessed,
+      errors: att.errors.slice(0, 3),   // 前 3 筆失敗樣本 {filename, stage, error}(不落地也看得到死因)
       remaining, partial: (remaining.to_classify + remaining.attachment_mails) > 0,
       budget_ms_used: Date.now() - t0,
     });
