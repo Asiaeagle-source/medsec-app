@@ -117,6 +117,7 @@
     .sps-code{color:#8b94a3}
     .sps-tag{font-size:10px;background:#eef0f4;color:#6b7280;padding:0 5px;border-radius:5px;margin-left:4px;vertical-align:1px}
     .ptab td.hospcode{color:#6b7280;font-size:11.8px}
+    .pend-note{font-size:12px;color:#9aa0ab;margin-top:8px;background:#f8f9fc;border:1px dashed #e2e5ec;border-radius:8px;padding:7px 11px}
     /* PR B-D:醫院規則側欄(桌機浮右、窄幅摺疊區) */
     .rulepanel{display:none;margin-top:9px;background:#fbfcfe;border:1px solid #dbe7f5;border-radius:10px;padding:11px 13px;font-size:12.5px}
     .rulepanel.open{display:block}
@@ -153,7 +154,7 @@
   <aside class="sidebar">
     <div class="sidebar-header">
       <div class="brand">AE MED Hub</div>
-      <span class="role-tag manager">管理者</span>
+      <span class="role-tag manager" id="role-tag">管理者</span>
     </div>
 
     <nav class="sidebar-nav">
@@ -415,6 +416,8 @@ function card(m){
     ${m.ai_summary ? `<div class="sum">${esc(m.ai_summary)}</div>` : ''}
     ${xActs ? `<div class="mt-x-acts">${xActs}</div>` : ''}
     ${m.body_text ? `<div class="bodyfold" id="body-${esc(m.id)}">${esc(m.body_text)}</div>` : ''}
+    ${isOrder && !m.body_text && !(STATE.atts[m.id] || []).length
+      ? `<div class="pend-note">⏳ 全文/附件尚未入庫(下次掃描帶入)</div>` : ''}
     ${attListHtml(m)}
     <div class="foot">${footLeft(m)}${footRight(m)}</div>
   </div>`;
@@ -996,11 +999,26 @@ function toast(msg, kind){
 
 // ---- init ----
 (async function init(){
-  const profile = await guardRole('manager');
+  // 業祕開放進場(信件處理主角;RLS 自動篩成自己分區的信);總覽仍 manager only
+  const profile = await guardRole(['manager', 'secretary']);
   if (!profile) return;
   STATE.me = profile;
   renderUserInfo(profile);
   hideLoading();
+
+  // 業祕進場:role 標籤 + 側欄改成回自己工作台(不露 manager 頁連結)
+  if (profile.medsec_role === 'secretary'){
+    const tag = document.getElementById('role-tag');
+    if (tag){ tag.textContent = '業務祕書'; tag.className = 'role-tag secretary'; }
+    const nav = document.querySelector('.sidebar-nav');
+    if (nav) nav.innerHTML = `
+      <div class="nav-item" onclick="location.href='secretary.html'">
+        <span class="icon">⬅️</span><span>返回我的工作台</span>
+      </div>
+      <div class="nav-item active">
+        <span class="icon">✉️</span><span>信件分流</span>
+      </div>`;
+  }
 
   document.querySelectorAll('.mt-tab').forEach(t => t.addEventListener('click', () => {
     document.querySelectorAll('.mt-tab').forEach(x => x.classList.remove('on'));
