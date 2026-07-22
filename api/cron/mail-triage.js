@@ -10,6 +10,13 @@ const ATTACH_BUCKET = "mail-attachments";
 const MAX_ATT_BYTES = 10 * 1024 * 1024;   // 10MB 上限
 const PER_MAIL_TIMEOUT_MS = 20000;         // 單信附件處理逾時 → 標 failed 跳過
 
+// ---- INGEST_FLOOR:系統資料起算硬地板 ----
+// 2026-07-20 00:00 Asia/Taipei(= 2026-07-19T16:00:00Z)之前收到的信一律不入庫。
+// 政策:歷史信不進系統(Lynn 手動刪除 digest_date < 2026-07-20 的資料),
+// 本地板防 ?days 回看視窗把已刪的歷史信重新抓回。要調整起算日只改這行。
+const INGEST_FLOOR_ISO = "2026-07-19T16:00:00Z";
+const INGEST_FLOOR_MS = Date.parse(INGEST_FLOOR_ISO);
+
 // 逾時包裝:超過 ms 直接 reject,呼叫端 catch 後計 failed、不中斷主 triage。
 function withTimeout(promise, ms, label = "timeout") {
   return new Promise((resolve, reject) => {
@@ -326,9 +333,10 @@ export default async function handler(req, res) {
     ]);
     // 預設回看 24 小時(Hobby 一天跑一次,避免漏信);
     // 帶 ?days=7 可加大視窗(首次回填、補跑用)。
+    // 視窗起點被 INGEST_FLOOR 夾住:再大的 days 也回看不到起算日之前。
     const daysRaw = Number(req.query?.days);
     const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(daysRaw, 90) : 1;
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const since = new Date(Math.max(Date.now() - days * 24 * 60 * 60 * 1000, INGEST_FLOOR_MS)).toISOString();
 
     // 三個資料夾:inbox + inbox/子資料夾 Lynn.lai + inbox/子資料夾 service。
     // 每個都帶 $filter=receivedDateTime ge since,絕對不要無時間 filter
@@ -354,7 +362,10 @@ export default async function handler(req, res) {
         folderStats[t.name] = `error: ${e.message || e}`;
       }
     }
-    const mails = [...merged.values()];
+    // INGEST_FLOOR 第二道保險:即使 Graph filter 邊界誤差,起算日前的信也不入庫
+    const allMails = [...merged.values()];
+    const mails = allMails.filter((m) => !m.receivedAt || Date.parse(m.receivedAt) >= INGEST_FLOOR_MS);
+    const floored = allMails.length - mails.length;
 
     // ---- 分段參數:時間預算(50 秒軟上限,60 秒硬限前收尾)+ ?limit=N(每發最多處理 N 封)----
     // 打到 remaining=0 / partial=false 即補掃完成;同指令重打 = 續作(冪等)。
@@ -432,7 +443,7 @@ export default async function handler(req, res) {
 
     const remaining = { to_classify: classifyRemaining, attachment_mails: attRemaining };
     return res.status(200).json({
-      scanned: mails.length, existing: existing.length, classified: classified.length,
+      scanned: mails.length, floored, existing: existing.length, classified: classified.length,
       written: digestRows.length, since, days, folders: folderStats,
       attachments_found: att.found, parsed: att.parsed, scanned_needs_manual: att.scanned, attachments_failed: att.failed,
       attachment_mails_processed: attProcessed,

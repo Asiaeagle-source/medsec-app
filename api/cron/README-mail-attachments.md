@@ -55,3 +55,15 @@
 - **回傳**:`existing / classified / attachment_mails_processed / remaining{to_classify, attachment_mails} / partial / budget_ms_used`。
   補掃打到 `partial=false`(remaining 全 0)即完成。
 - 正式排程(days=1)增量小,通常一發跑完;首跑/補掃用 `?days=N` 連打數發即可。
+
+## 9. GitHub Actions 高頻排程 + INGEST_FLOOR(2026-07-21)
+- `.github/workflows/mail-cron.yml`:每 30 分鐘(:11/:41)打 production
+  `?days=1`;concurrency 防重疊;失敗不重試(下一輪自然補)、標紅通知。
+- **Lynn 唯一動作**:repo → Settings → Secrets and variables → Actions →
+  New repository secret,名稱 `CRON_SECRET`(值自填,不出現在 repo 與對話)。
+  Secret 就緒後 workflow 自動生效;Vercel 內建 2 發可留可刪(冪等共存無害)。
+- **INGEST_FLOOR**:`api/cron/mail-triage.js` 頂部常數
+  `INGEST_FLOOR_ISO = 2026-07-19T16:00:00Z`(= 2026-07-20 00:00 台北)。
+  起算日前收到的信一律不入庫(視窗夾住 + 逐信過濾雙保險),防 `?days`
+  回看把 Lynn 已刪除的歷史信重新抓回。回傳 JSON 的 `floored` = 本發被
+  地板擋下的封數。

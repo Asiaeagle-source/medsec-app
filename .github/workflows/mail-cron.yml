@@ -1,0 +1,36 @@
+# ============================================================
+# mail-cron:每 30 分鐘打 production 信件分流 cron
+# ------------------------------------------------------------
+# 背景:Vercel Hobby 內建 cron 每天只自動觸發 2 次,50s 預算被分流
+# 吃滿導致附件階段長期餓死(starvation)。高頻打之後每發只攤 1-2 封
+# 新信,附件階段每發都輪得到 —— 結構性解除。
+# 冪等地基:graph_message_id 與 (mail_digest_id, filename) 雙 unique
+# + 續作 doneSet + storage x-upsert,高頻重打絕對安全。
+# 失敗不重試:下一輪(30 分後)自然補;失敗會標紅,GitHub 自動通知。
+#
+# Lynn 唯一動作:repo Settings → Secrets and variables → Actions →
+# New repository secret,名稱 CRON_SECRET(值自填,不出現在 repo 與對話)。
+# ============================================================
+name: mail-cron
+
+on:
+  schedule:
+    - cron: '11,41 * * * *'   # 每 30 分,避開 :00/:30 整點壅塞;GH schedule 為 best-effort,可能晚數分鐘
+  workflow_dispatch: {}        # 手動補發用(Actions 頁面 Run workflow)
+
+concurrency:
+  group: mail-cron             # 防重疊:同時只跑一支,後到的排隊(最多疊 1)
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Invoke production mail-triage cron (segmented + idempotent)
+        run: |
+          resp=$(curl -sS -m 120 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://medsec-app.vercel.app/api/cron/mail-triage?days=1")
+          echo "$resp"
+          case "$resp" in *'"error"'*) exit 1;; esac   # cron 回錯 → 標紅通知;不重試,下一輪自然補
