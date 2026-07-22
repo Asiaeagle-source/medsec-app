@@ -45,35 +45,50 @@ async function getGraphToken() {
   return data.access_token;
 }
 
-// ---- 2. 抓「上次掃描之後」的新信 ----
-// 只取 寄件者/主旨/收到時間/內文前段, 不抓全文。
+// ---- 2. 抓「上次掃描之後」的新信(@odata.nextLink 逐頁掃全) ----
 // folderId 可以是 well-known 名稱 (例如 'inbox') 或 Graph 回傳的 folder id。
-async function fetchNewMail(token, folderId, sinceISO) {
+// ⚠️ 修 bug:單發 $top=100 無翻頁 → service 桶恆 100 封上限,較舊的信永遠掃不到
+//   (穩態 days=1 增量 <100 不發作;初次部署/停機恢復/對帳補抓必踩)。
+//   改跟 @odata.nextLink 逐頁,直到掃完視窗或掃描預算耗盡(timeLeftFn 守住,
+//   保留分類+附件的時間);被截斷回 truncated=true → 呼叫端標 partial,
+//   續作重打即續掃(已入庫的信跳過分類,重掃頁面只花抓取成本,每發推進)。
+const SCAN_MAX_PAGES = 10;           // 單資料夾單發上限 1000 封(防失控)
+const SCAN_MIN_LEFT_MS = 30000;      // 掃描階段至少給後面的分類+附件留 30s
+async function fetchNewMail(token, folderId, sinceISO, timeLeftFn) {
   const mailbox = process.env.GRAPH_MAILBOX;
-  const url =
+  let url =
     `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/${folderId}/messages` +
     `?$filter=receivedDateTime ge ${sinceISO}` +
     `&$select=id,subject,from,receivedDateTime,bodyPreview,body,webLink,hasAttachments` +
     `&$top=100&$orderby=receivedDateTime desc`;
 
-  // Prefer: 取純文字 body(不要 HTML),body.content 直接是 plain text。
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text"' },
-  });
-  const data = await res.json();
-  if (!data.value) throw new Error("Graph 抓信失敗: " + JSON.stringify(data));
-
-  return data.value.map((m) => ({
-    graphMessageId: m.id,
-    receivedAt: m.receivedDateTime,
-    subject: m.subject || "",
-    senderName: m.from?.emailAddress?.name || "",
-    senderEmail: m.from?.emailAddress?.address || "",
-    snippet: (m.bodyPreview || "").slice(0, 400),
-    bodyText: (m.body?.content || m.bodyPreview || "").slice(0, 10000),   // 純文字全文(截 10000)
-    webLink: m.webLink || null,                                          // OWA 開信連結(PR B「開啟原信」用)
-    hasAttachments: !!m.hasAttachments,
-  }));
+  const mails = [];
+  let pages = 0, truncated = false;
+  while (url) {
+    if (pages >= SCAN_MAX_PAGES || (timeLeftFn && timeLeftFn() < SCAN_MIN_LEFT_MS)) { truncated = true; break; }
+    // Prefer: 取純文字 body(不要 HTML);nextLink 是絕對 URL,header 每頁都要帶。
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.body-content-type="text"' },
+    });
+    const data = await res.json();
+    if (!data.value) throw new Error("Graph 抓信失敗: " + JSON.stringify(data));
+    for (const m of data.value) {
+      mails.push({
+        graphMessageId: m.id,
+        receivedAt: m.receivedDateTime,
+        subject: m.subject || "",
+        senderName: m.from?.emailAddress?.name || "",
+        senderEmail: m.from?.emailAddress?.address || "",
+        snippet: (m.bodyPreview || "").slice(0, 400),
+        bodyText: (m.body?.content || m.bodyPreview || "").slice(0, 10000),   // 純文字全文(截 10000)
+        webLink: m.webLink || null,                                          // OWA 開信連結(PR B「開啟原信」用)
+        hasAttachments: !!m.hasAttachments,
+      });
+    }
+    url = data["@odata.nextLink"] || null;
+    pages++;
+  }
+  return { mails, pages, truncated };
 }
 
 // 用 displayName 查 inbox 底下的子資料夾 id;查不到回 null。
@@ -350,13 +365,22 @@ export default async function handler(req, res) {
       { name: "Lynn.lai", id: lynnId },
       { name: "service",  id: serviceId },
     ];
+    // ---- 分段參數:時間預算(50 秒軟上限,60 秒硬限前收尾)+ ?limit=N(每發最多處理 N 封)----
+    // 打到 remaining=0 / partial=false 即補掃完成;同指令重打 = 續作(冪等)。
+    const limitRaw = Number(req.query?.limit);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : Infinity;
+    const BUDGET_MS = 50000;
+    const timeLeft = () => BUDGET_MS - (Date.now() - t0);
+
     const folderStats = {};
     const merged = new Map();   // graphMessageId → mail (defensive dedup)
+    let scanTruncated = false;   // 任一資料夾掃描被預算/頁數上限截斷 → partial,續作繼續掃
     for (const t of targets) {
       if (!t.id) { folderStats[t.name] = "folder not found"; continue; }
       try {
-        const arr = await fetchNewMail(token, t.id, since);
-        folderStats[t.name] = arr.length;
+        const { mails: arr, pages, truncated } = await fetchNewMail(token, t.id, since, timeLeft);
+        folderStats[t.name] = truncated ? `${arr.length} (${pages} 頁,截斷)` : arr.length;
+        if (truncated) scanTruncated = true;
         for (const m of arr) merged.set(m.graphMessageId, m);
       } catch (e) {
         folderStats[t.name] = `error: ${e.message || e}`;
@@ -366,13 +390,6 @@ export default async function handler(req, res) {
     const allMails = [...merged.values()];
     const mails = allMails.filter((m) => !m.receivedAt || Date.parse(m.receivedAt) >= INGEST_FLOOR_MS);
     const floored = allMails.length - mails.length;
-
-    // ---- 分段參數:時間預算(50 秒軟上限,60 秒硬限前收尾)+ ?limit=N(每發最多處理 N 封)----
-    // 打到 remaining=0 / partial=false 即補掃完成;同指令重打 = 續作(冪等)。
-    const limitRaw = Number(req.query?.limit);
-    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : Infinity;
-    const BUDGET_MS = 50000;
-    const timeLeft = () => BUDGET_MS - (Date.now() - t0);
 
     // 視窗內已入庫的信 → 跳過重分類(最貴的逐信 AI 只做新信;歷史信不回填,對齊規格)
     const existing = await fetchExistingDigests(since);
@@ -448,7 +465,8 @@ export default async function handler(req, res) {
       attachments_found: att.found, parsed: att.parsed, scanned_needs_manual: att.scanned, attachments_failed: att.failed,
       attachment_mails_processed: attProcessed,
       errors: att.errors.slice(0, 3),   // 前 3 筆失敗樣本 {filename, stage, error}(不落地也看得到死因)
-      remaining, partial: (remaining.to_classify + remaining.attachment_mails) > 0,
+      scan_truncated: scanTruncated,   // 掃描被截斷 → 視窗內還有沒看到的信,續作繼續掃
+      remaining, partial: scanTruncated || (remaining.to_classify + remaining.attachment_mails) > 0,
       budget_ms_used: Date.now() - t0,
     });
   } catch (e) {
