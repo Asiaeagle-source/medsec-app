@@ -255,6 +255,7 @@ let STATE = {
   atts: {},         // PR B:mail_digest_id → mail_attachments 列
   ref: { discounts: [], sps: [], knife: new Set() },   // PR B-C:參照表 cache(折讓/SPS/報刀)
   rules: {},        // PR B-D:hospital_id → operation_rules(null=查過沒有)
+  secs: null,       // 轉派:業祕清單 cache(分區表 primary/co → profiles)
   search: { q: '', pool: null, loading: false },       // 搜尋:近 30 天全信件池(首次查詢後 cache)
   ov: { on: false, days: 7, cat: 'all', owner: 'all', shown: 200 },   // 總覽(manager)
   filter: 'all',
@@ -324,6 +325,10 @@ function mapRow(x){
   return {
     id: x.id,
     hospital_id: x.hospital_id || null,   // PR B-C/D:折讓 scope 比對與規則查詢(view 直接有院碼,免中文名反查,寧缺勿錯)
+    assigned_to: x.assigned_to || null,                     // 轉派:手動指派對象(uuid)
+    effective_secretary_id: x.effective_secretary_id || null,   // 轉派權限判斷:實際承辦(手動優先,否則主分區)
+    reassigned_by_name: x.reassigned_by_name || null,       // 轉派留痕(view 需帶;缺欄則不顯示)
+    reassigned_at: x.reassigned_at || null,
     priority: x.priority,
     category: x.category,
     flag_reason: x.flag_reason,
@@ -374,25 +379,38 @@ async function loadDone(){
 }
 
 // ---- 卡片 ----
+// 轉派留痕小標(所有狀態都可能帶)
+function reassignInfo(m){
+  return m.reassigned_by_name
+    ? `<span class="claiminfo">🔁 由 <b>${esc(m.reassigned_by_name)}</b> 轉派${m.reassigned_at ? ` · ${esc(fmtDT(m.reassigned_at))}` : ''}</span>` : '';
+}
+// 本人可否轉派這封:manager 任何信;業祕限 effective secretary = 自己(含自動派給自己的錯信)
+function canReassign(m){
+  if (!STATE.me || m.status === 'done') return false;
+  if (STATE.me.medsec_role === 'manager') return true;
+  return m.assigned_to === STATE.me.id || m.effective_secretary_id === STATE.me.id;
+}
 function footLeft(m){
   if (m.status === 'done'){
     return `<div class="doneinfo">
       <span class="tag">✓ 完成</span>
       <span>${esc(m.completed_by_name || '—')}${m.completed_at ? ` · ${esc(fmtDT(m.completed_at))}` : ''}</span>
       <span class="ref">單號 ${m.erp_ref_no ? esc(m.erp_ref_no) : '—'}</span>
+      ${reassignInfo(m)}
     </div>`;
   }
   if (m.status === 'claimed'){
-    return `<div class="claiminfo">認領 <b>${esc(m.claimed_by_name || '—')}</b>${m.claimed_at ? ` · ${esc(fmtDT(m.claimed_at))}` : ''}</div>`;
+    return `<div class="claiminfo">認領 <b>${esc(m.claimed_by_name || '—')}</b>${m.claimed_at ? ` · ${esc(fmtDT(m.claimed_at))}` : ''} ${reassignInfo(m)}</div>`;
   }
   // new
-  return `<div class="owner">承辦 ${m.owner_name ? `<span class="who">${esc(m.owner_name)}</span>` : `<span class="who none">待認領</span>`}</div>`;
+  return `<div class="owner">承辦 ${m.owner_name ? `<span class="who">${esc(m.owner_name)}</span>` : `<span class="who none">待認領</span>`} ${reassignInfo(m)}</div>`;
 }
 function footRight(m){
   if (m.status === 'done') return '';
+  const reBtn = canReassign(m) ? `<button class="btn-claim" onclick="onReassign('${esc(m.id)}')">🔁 轉派</button>` : '';
   const doneBtn = `<button class="btn-done" onclick="onComplete('${esc(m.id)}')">✓ 完成</button>`;
-  if (m.status === 'claimed') return `<div class="acts">${doneBtn}</div>`;
-  return `<div class="acts"><button class="btn-claim" onclick="onClaim('${esc(m.id)}')">認領</button>${doneBtn}</div>`;
+  if (m.status === 'claimed') return `<div class="acts">${reBtn}${doneBtn}</div>`;
+  return `<div class="acts">${reBtn}<button class="btn-claim" onclick="onClaim('${esc(m.id)}')">認領</button>${doneBtn}</div>`;
 }
 function card(m){
   const isRed = m.priority === 'red';
@@ -740,7 +758,7 @@ function matchOwner(m, v){
   return (m.claimed_by_name || m.owner_name) === v;
 }
 function poolRows(){
-  let rows = STATE.search.pool || [];
+  let rows = roleVisible(STATE.search.pool || []);   // 轉派 req5:搜尋/總覽同樣套業祕視圖規則
   const days = STATE.ov.on ? STATE.ov.days : POOL_DAYS;
   const cut = Date.now() - days * 864e5;
   rows = rows.filter(m => !m.received_at || new Date(m.received_at).getTime() >= cut);
@@ -872,9 +890,10 @@ function render(){
   if (pm){ renderPool(); return; }
 
   const grayTotal    = STATE.gray.reduce((a,b) => a + (b.n || 0), 0);
-  const todayActive  = STATE.today.filter(m => m.status !== 'done');   // 未完成
+  const visToday     = roleVisible(STATE.today);                       // 轉派 req5:業祕不顯示指派給別人的信
+  const todayActive  = visToday.filter(m => m.status !== 'done');      // 未完成
   const redActive    = todayActive.filter(m => m.priority === 'red');
-  const newRows      = STATE.today.filter(m => isUnclaimed(m.status)); // 待認領 = pending/new(尚無人認領)
+  const newRows      = visToday.filter(m => isUnclaimed(m.status));    // 待認領 = pending/new(尚無人認領)
 
   document.getElementById('mt-total').textContent = STATE.today.length + grayTotal;
   document.getElementById('mt-redn').textContent  = redActive.length;
@@ -915,6 +934,87 @@ function fadeThenRender(id){
     el.classList.add('fading');
     setTimeout(res, 260);
   });
+}
+
+// ============================================================
+// 轉派(hospital_id 對映缺口的人工修正閥;治本 = V2.2 補對映)
+//  - 轉派 = RPC medsec_reassign_mail 直接 UPDATE assigned_to
+//    (Lynn 定案:不需對方再認領,直接進對方視圖)
+//  - 權限:manager 任何信;業祕限 effective secretary = 自己(伺服端同步把關)
+//  - 留痕:reassigned_by / reassigned_at,卡片顯示「🔁 由 X 轉派」
+// ============================================================
+async function loadSecretaries(){
+  if (STATE.secs) return STATE.secs;
+  try {
+    const { data: asg, error: e1 } = await supa.from('medsec_secretary_assignments')
+      .select('primary_secretary_id, co_secretary_id');
+    if (e1) throw e1;
+    const ids = [...new Set((asg || []).flatMap(a => [a.primary_secretary_id, a.co_secretary_id]).filter(Boolean))];
+    if (!ids.length){ STATE.secs = []; return STATE.secs; }
+    const { data: profs, error: e2 } = await supa.from('profiles')
+      .select('id, name, nickname, employee_id').in('id', ids);
+    if (e2) throw e2;
+    STATE.secs = (profs || []).sort((a, b) => String(a.employee_id||'').localeCompare(String(b.employee_id||'')));
+  } catch(e){ console.warn('[mail-triage] 業祕清單載入失敗', e); STATE.secs = []; }
+  return STATE.secs;
+}
+function askReassign(secs, m){
+  return new Promise(resolve => {
+    const mask = document.createElement('div');
+    mask.className = 'mt-modal-mask';
+    const opts = secs.map(s => {
+      const label = `${s.nickname || s.name}${s.id === STATE.me.id ? '(我)' : ''}`;
+      return `<option value="${esc(s.id)}"${s.id === (m.assigned_to || m.effective_secretary_id) ? ' selected' : ''}>${esc(label)}</option>`;
+    }).join('');
+    mask.innerHTML = `<div class="mt-modal">
+      <h3>轉派這封信</h3>
+      <p>${esc((m.subject || '').slice(0, 40))}</p>
+      <select id="re-sel" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:14px;padding:10px 12px;border:1px solid #dfe3ea;border-radius:9px;outline:none;margin-bottom:16px">${opts}</select>
+      <div class="row"><button class="cancel" type="button">取消</button><button class="ok" type="button">確認轉派</button></div>
+    </div>`;
+    document.body.appendChild(mask);
+    const sel = mask.querySelector('#re-sel');
+    let closed = false;
+    const close = (v) => { if (closed) return; closed = true; document.body.removeChild(mask); resolve(v); };
+    mask.querySelector('.cancel').onclick = () => close(null);
+    mask.querySelector('.ok').onclick = () => { const t = secs.find(s => s.id === sel.value); close(t || null); };
+    mask.addEventListener('mousedown', e => { if (e.target === mask) close(null); });
+  });
+}
+async function onReassign(id){
+  const m = findRow(id);
+  if (!m || m.status === 'done' || !canReassign(m)) return;
+  const secs = await loadSecretaries();
+  if (!secs.length){ toast('無可轉派的業祕(分區清單為空)', 'err'); return; }
+  const target = await askReassign(secs, m);
+  if (!target || target.id === m.assigned_to) return;
+  const snap = { ...m };
+  // 樂觀:改承辦 + 留痕;業祕把信轉給別人 → 從自己視圖淡出移除(req 5)
+  m.assigned_to = target.id;
+  m.effective_secretary_id = target.id;
+  m.owner_name = target.nickname || target.name;
+  m.reassigned_by_name = meName();
+  m.reassigned_at = new Date().toISOString();
+  const removeLocal = STATE.me.medsec_role !== 'manager' && target.id !== STATE.me.id;
+  if (removeLocal) await fadeThenRender(id);
+  const movedFromToday = removeLocal ? removeFrom(STATE.today, m) : false;
+  render();
+  if (STATE.mock){ toast('已轉派(demo)', 'ok'); return; }
+  const { error } = await supa.rpc('medsec_reassign_mail', { p_mail_id: id, p_to: target.id });
+  if (error){
+    Object.assign(m, snap);
+    if (movedFromToday) STATE.today.push(m);
+    render();
+    toast('轉派失敗:' + (error.message || error), 'err');
+  } else {
+    toast('已轉派給 ' + (target.nickname || target.name), 'ok');
+  }
+}
+// 業祕視圖規則(req 5):手動指派/轉派給「別人」的信不顯示(自分區池 assigned_to=null 照常;
+// manager 全看)。轉派後原承辦重整也不再看到。
+function roleVisible(rows){
+  if (!STATE.me || STATE.me.medsec_role === 'manager') return rows;
+  return rows.filter(m => !(m.assigned_to && m.assigned_to !== STATE.me.id));
 }
 
 async function onClaim(id){
