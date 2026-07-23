@@ -44,6 +44,8 @@ const ROLE_TAG_CLASS = {
 /* ------------------------------------------------------------
    守門：每個角色頁面進來時都要呼叫
    - requiredRole: 'manager' | 'bidding_team' | ...
+     也可傳陣列(共用頁多角色,如 mail-triage 的 ['manager','secretary']);
+     單字串行為完全不變。
    檢查項目：
      1. 是否已登入
      2. 是否有 has_medsec_access
@@ -81,8 +83,9 @@ async function guardRole(requiredRole) {
     return null;
   }
 
-  // 4. 檢查角色是否符合此頁面
-  if (profile.medsec_role !== requiredRole) {
+  // 4. 檢查角色是否符合此頁面(接受單字串或陣列)
+  const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+  if (!allowedRoles.includes(profile.medsec_role)) {
     // 角色不符 → 跳到他自己的頁面（避免越權）
     const targetPage = ROLE_PAGE_MAP[profile.medsec_role];
     if (targetPage) {
