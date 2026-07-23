@@ -112,3 +112,32 @@ comment on function public.medsec_reassign_mail(uuid, uuid) is
 --    and column_name in ('reassigned_by','reassigned_at','reassigned_by_name');
 -- 3) RPC 在:應回 1 列
 -- select proname from pg_proc where proname='medsec_reassign_mail';
+
+-- ============================================================
+-- 4) ⚠️ RLS 旁路修正(與 view 重建同一次做,必做)
+--    Postgres view 預設以 owner(postgres,bypassrls)權限執行 →
+--    任何 authenticated 查 view 都繞過 mail_digest RLS(全量裸奔)。
+--    掛 security_invoker 後改以「查詢者」身分評估 RLS:
+--      manager   → mail_digest_manager_all,全看,不變
+--      secretary → mail_digest_secretary_own,只看自己承辦/分區
+--      非 medsec 的登入者 → 0 列(修掉真實外洩面)
+--    建議把選項寫進 view 定義本體,之後任何重建都不會遺失:
+--      create or replace view public.v_mail_digest_assigned
+--        with (security_invoker = true) as select ...(現行全文);
+--    先行補救(立即生效,單句):
+alter view public.v_mail_digest_assigned set (security_invoker = true);
+
+--    影響面確認(已逐項核):
+--    * cron(service role)讀寫都直打 mail_digest / mail_attachments「表」,
+--      不經 view,service_role 本就繞過 RLS → 完全不受影響。
+--    * 本檔 RPC(SECURITY DEFINER)直打表,不經 view → 不受影響。
+--    * view 內 join 的 profiles / medsec_secretary_assignments /
+--      medsec_hospitals 也會改以查詢者身分讀 —— 前端本來就以使用者
+--      token 直讀這三張表(選單/分區/院名都正常),可讀性已被實證;
+--      保險確認:以 0007 登入 preview 看卡片的承辦暱稱/院名是否照常顯示。
+--    * mail_attachments 的 select policy 引用 mail_digest(視野繼承)
+--      不經 view → 不受影響。
+--    驗證:
+--      select relname, reloptions from pg_class where relname='v_mail_digest_assigned';
+--      -- reloptions 應含 security_invoker=true
+--      -- 再用 0007(業祕)登入:清單應只剩自己承辦/分區的信;manager 不變。
